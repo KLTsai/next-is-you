@@ -259,3 +259,18 @@ async def test_withdrawal_disables_recipient_then_erases_after_inflight_send_set
         "SELECT COUNT(*) FROM outbound_events WHERE recipient_id = 'r1'"
     ).fetchone()[0] == 0
     await store.close()
+
+
+@pytest.mark.asyncio
+async def test_stop_rejects_naive_timestamp_without_changing_visit_state() -> None:
+    store, repo = await seeded_repository()
+    await make_draft(repo)
+    await repo.add_recipient("v1", "r1", at("2026-09-27T00:01:00Z"))
+    await repo.start("v1", at("2026-09-27T00:02:00Z"))
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        await repo.stop("v1", datetime(2026, 9, 27, 1, 0))
+
+    visit = store.connection.execute("SELECT state FROM visits WHERE id = 'v1'").fetchone()
+    assert visit["state"] == "active"
+    await store.close()

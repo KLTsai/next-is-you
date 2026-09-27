@@ -234,6 +234,7 @@ class VisitRepository:
         This database transition is not a replacement for the per-visit Durable
         Object serialization gate required to order Stop against LINE requests.
         """
+        iso_utc(now)  # Validate before changing the visit state.
         await self._store.execute(
             Statement(
                 "UPDATE visits SET state = 'stopping' WHERE id = ? AND state = 'active'",

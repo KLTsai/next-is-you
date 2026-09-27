@@ -13,6 +13,7 @@ except ModuleNotFoundError as error:
     asgi = None
 
 app = FastAPI(docs_url=None, redoc_url=None)
+STATIC_ASSET_ROOT = Path(__file__).resolve().parents[1] / "dist"
 
 
 @app.get("/api/healthz")
@@ -25,9 +26,8 @@ async def serve_static_asset(path: str, request: Request) -> Response:
     """Proxy non-API requests to Workers Static Assets after the UI build."""
     env = request.scope.get("env")
     if env is None:
-        asset_root = Path(__file__).resolve().parents[1] / "dist"
-        asset_path = (asset_root / (path or "index.html")).resolve()
-        if not asset_path.is_relative_to(asset_root.resolve()) or not asset_path.is_file():
+        asset_path = (STATIC_ASSET_ROOT / (path or "index.html")).resolve()
+        if not asset_path.is_relative_to(STATIC_ASSET_ROOT.resolve()) or not asset_path.is_file():
             return Response(status_code=404)
         return FileResponse(asset_path)
 

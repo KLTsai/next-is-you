@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
+    "dev:local": "npm run build && uv run uvicorn worker:app --app-dir src --host 127.0.0.1 --port 8787",
     "dev:ui": "vite --host 127.0.0.1"
   },
   "devDependencies": {

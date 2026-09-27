@@ -6,7 +6,7 @@ requires-python = ">=3.13"
 dependencies = ["fastapi"]
 
 [dependency-groups]
-dev = ["httpx", "pytest", "uvicorn", "workers-py", "workers-runtime-sdk"]
+dev = ["httpx", "pytest", "pytest-asyncio", "uvicorn", "workers-py", "workers-runtime-sdk"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

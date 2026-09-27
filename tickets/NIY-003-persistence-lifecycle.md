@@ -17,3 +17,9 @@ Implement repository operations for drafts, immutable logical visit series, the 
 ## Dependencies
 
 NIY-001 and NIY-002.
+
+## Current implementation
+
+- `src/next_is_you/persistence.py` provides prepared D1 binding operations, draft handling, roster freeze, correction, stop/cutoff, withdrawal cleanup, and 48-hour expiry.
+- Local lifecycle tests use SQLite with the tracked D1-compatible migration; they do not prove Cloudflare D1 runtime behavior.
+- Real D1 Time Travel restore reconciliation and the Durable Object send-ordering gate remain unverified integration requirements.

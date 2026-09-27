@@ -16,11 +16,17 @@ The active implementation tickets are the source of truth for requirements, scop
 
 ## Local-only supporting material
 
-The current MVP review spec and its supporting/archive index are local-only records in the primary checkout's existing private research area. They are not included in this worktree. Use that local index to find the current spec and archived supporting material; do not treat either as implementation authority unless a ticket adopts a requirement.
+The current spec is `research/private/mvp-spec-review-2026-09-27-v2.md`; its supporting and archive index is `research/private/README.md`. Both files exist only in the captain primary checkout. They are ignored and untracked, and are not included in this isolated worktree. Use the index to find the current spec and archived supporting material; do not treat either as implementation authority unless a ticket adopts a requirement.
 
 ## Firstmate investigation reports
 
-Investigation reports are maintained locally by Firstmate and are not tracked here. Consult the Firstmate-local reports for this project as supporting evidence; the report directory is not available in this isolated worktree, so no local path is recorded here. Any requirements adopted from a report must be captured in an implementation ticket before they guide implementation.
+These reports are maintained locally by Firstmate under `/Users/kun/projects/firstmate/data/` and are not part of this repository:
+
+- Spec provenance: `/Users/kun/projects/firstmate/data/next-is-you-spec-v2-ticket-provenance-2026-09-27/report.md`
+- Ticket audit: `/Users/kun/projects/firstmate/data/next-is-you-preflight-tickets-2026-09-27/report.md`
+- Runtime: `/Users/kun/projects/firstmate/data/next-is-you-preflight-runtime-2026-09-27/report.md`
+
+Treat these reports as supporting evidence. Any requirements adopted from a report must be captured in an implementation ticket before they guide implementation.
 
 ## Evidence and archives
 

@@ -1,6 +1,6 @@
 # NIY-003: D1 repository and visit lifecycle
 
-Status: Open
+Status: In progress
 
 ## Goal
 

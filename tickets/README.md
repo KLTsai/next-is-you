@@ -8,7 +8,7 @@ This repository does not yet use an external issue tracker. These checked-in tic
 | --- | --- | --- | --- |
 | NIY-001 | In progress | [Alert domain and initial schema](NIY-001-alert-domain.md) | None |
 | NIY-002 | In progress | [Python Worker and local web shell](NIY-002-worker-web-shell.md) | NIY-001 |
-| NIY-003 | Open | [D1 repository and visit lifecycle](NIY-003-persistence-lifecycle.md) | NIY-001, NIY-002 |
+| NIY-003 | In progress | [D1 repository and visit lifecycle](NIY-003-persistence-lifecycle.md) | NIY-001, NIY-002 |
 | NIY-004 | Open | [Hospital adapters and synthetic fixtures](NIY-004-hospital-adapters.md) | NIY-001, NIY-003 |
 | NIY-005 | Open | [LINE identity and targeted delivery](NIY-005-line-integration.md) | NIY-002, NIY-003 |
 | NIY-006 | Open | [Scheduler, outbox, and send coordination](NIY-006-scheduler-outbox.md) | NIY-003, NIY-004, NIY-005 |

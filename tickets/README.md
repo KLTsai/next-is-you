@@ -6,7 +6,7 @@ This repository does not yet use an external issue tracker. These checked-in tic
 
 | ID | Status | Ticket | Depends on |
 | --- | --- | --- | --- |
-| NIY-001 | In progress | [Alert domain and initial schema](NIY-001-alert-domain.md) | None |
+| NIY-001 | Done | [Alert domain and initial schema](NIY-001-alert-domain.md) | None |
 | NIY-002 | In progress | [Python Worker and local web shell](NIY-002-worker-web-shell.md) | NIY-001 |
 | NIY-003 | In progress | [D1 repository and visit lifecycle](NIY-003-persistence-lifecycle.md) | NIY-001, NIY-002 |
 | NIY-004 | Open | [Hospital adapters and synthetic fixtures](NIY-004-hospital-adapters.md) | NIY-001, NIY-003 |

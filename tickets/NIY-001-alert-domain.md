@@ -1,6 +1,6 @@
 # NIY-001: Alert domain and initial schema
 
-Status: In progress
+Status: Done (local acceptance passed)
 
 The initial implementation draft was started before this ticket was moved out of the Git-excluded research area. The files below are now explicitly tracked against this ticket; subsequent changes follow this acceptance checklist.
 

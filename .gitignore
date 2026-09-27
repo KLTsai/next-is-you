@@ -2,6 +2,12 @@
 node_modules/
 dist/
 build/
+.venv/
+__pycache__/
+.pytest_cache/
+.wrangler/
 .env
 .env.*
 !.env.example
+.dev.vars
+.dev.vars.*

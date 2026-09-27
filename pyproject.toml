@@ -1,0 +1,14 @@
+[project]
+name = "next-is-you"
+version = "0.1.0"
+description = "Private family outpatient queue reminders"
+requires-python = ">=3.13"
+dependencies = ["fastapi"]
+
+[dependency-groups]
+dev = ["httpx", "pytest", "uvicorn", "workers-py", "workers-runtime-sdk"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra"

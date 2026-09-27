@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f7fa" />
+    <title>家人候診提醒</title>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">PRIVATE FAMILY PILOT</p>
+          <h1>家人候診提醒</h1>
+        </div>
+        <span id="service-status" class="status status-pending">連線檢查中</span>
+      </header>
+
+      <section class="panel" aria-labelledby="setup-heading">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">新的候診提醒</p>
+            <h2 id="setup-heading">先選擇醫院與看診日期</h2>
+          </div>
+          <span class="step-count">第 1 步，共 4 步</span>
+        </div>
+
+        <p class="intro">
+          目前只支援臺大醫院總院與新光醫院。開始監控前，系統必須先確認院方資料對應到正確診次。
+        </p>
+
+        <fieldset class="hospital-options">
+          <legend>醫院</legend>
+          <label class="choice">
+            <input type="radio" name="hospital" value="ntuh-main" />
+            <span>臺大醫院總院</span>
+          </label>
+          <label class="choice">
+            <input type="radio" name="hospital" value="shin-kong-taipei" />
+            <span>新光醫院（台北）</span>
+          </label>
+        </fieldset>
+
+        <label class="field" for="visit-date">
+          <span>看診日期</span>
+          <input id="visit-date" name="visit-date" type="date" />
+        </label>
+
+        <div class="notice" role="status">
+          <strong>尚未連接院方資料</strong>
+          <p>這是本機開發中的設定畫面。資料來源驗證完成前，無法查詢診間或啟動監控，也不會傳送 LINE 訊息。</p>
+        </div>
+
+        <button id="continue-button" class="primary-button" type="button" disabled>
+          載入可選診次
+        </button>
+      </section>
+
+      <footer>
+        <p>院方網頁與診間現場資訊為準。提醒不代表叫號確認，也不預測候診時間。</p>
+      </footer>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

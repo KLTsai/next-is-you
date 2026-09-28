@@ -4,7 +4,7 @@ import asyncio
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -124,14 +124,15 @@ async def test_duplicate_ticks_and_corrected_watch_keep_one_near_event() -> None
     first = await tick(gate)
     await tick(gate, "2026-09-27T13:01:00Z")
     assert first["events_created"] == 1
-    assert database.connection.execute(
-        "SELECT COUNT(*) FROM outbound_events WHERE visit_id = 'v1' AND event_kind = 'near'"
-    ).fetchone()[0] == 1
+    assert (
+        database.connection.execute(
+            "SELECT COUNT(*) FROM outbound_events WHERE visit_id = 'v1' AND event_kind = 'near'"
+        ).fetchone()[0]
+        == 1
+    )
     assert len((await gate.test_snapshot())["line_requests"]) == 1
 
-    assert await gate.correct_test_watch(
-        "v1", "2026-09-27", 86, "2026-09-27T13:02:00Z"
-    )
+    assert await gate.correct_test_watch("v1", "2026-09-27", 86, "2026-09-27T13:02:00Z")
     await gate.set_test_observation(83)
     await tick(gate, "2026-09-27T13:03:00Z")
     snapshot = await gate.test_snapshot()
@@ -155,14 +156,18 @@ async def test_unavailable_alert_is_created_once_on_third_bad_read() -> None:
 
     assert third["events_created"] == 1
     assert fourth["events_created"] == 0
-    assert tuple(database.connection.execute(
-        "SELECT event_kind, outcome FROM outbound_events WHERE visit_id = 'v1'"
-    ).fetchone()) == ("unavailable", "accepted")
+    assert tuple(
+        database.connection.execute(
+            "SELECT event_kind, outcome FROM outbound_events WHERE visit_id = 'v1'"
+        ).fetchone()
+    ) == ("unavailable", "accepted")
     assert len((await gate.test_snapshot())["line_requests"]) == 1
 
 
 @pytest.mark.asyncio
-async def test_unknown_retries_reuse_exact_key_and_stop_after_twenty_four_hours() -> None:
+async def test_unknown_retries_reuse_exact_key_and_stop_after_twenty_four_hours() -> (
+    None
+):
     database = LocalD1()
     gate = make_gate(database)
     await seed(
@@ -181,7 +186,10 @@ async def test_unknown_retries_reuse_exact_key_and_stop_after_twenty_four_hours(
     assert snapshot["events"][0]["outcome"] == "unknown"
     assert snapshot["events"][0]["attempt_count"] == 2
     assert len(snapshot["line_requests"]) == 2
-    assert snapshot["line_requests"][0]["retry_key"] == snapshot["line_requests"][1]["retry_key"]
+    assert (
+        snapshot["line_requests"][0]["retry_key"]
+        == snapshot["line_requests"][1]["retry_key"]
+    )
     assert snapshot["line_requests"][0]["body"] == snapshot["line_requests"][1]["body"]
     assert all(request["outbox_persisted"] for request in snapshot["line_requests"])
 
@@ -232,9 +240,12 @@ async def test_taipei_cutoff_blocks_new_request_at_and_after_boundary(
 
     snapshot = await gate.test_snapshot()
     assert len(snapshot["line_requests"]) == expected_requests
-    assert database.connection.execute(
-        "SELECT state FROM visits WHERE id = 'v1'"
-    ).fetchone()[0] == expected_state
+    assert (
+        database.connection.execute(
+            "SELECT state FROM visits WHERE id = 'v1'"
+        ).fetchone()[0]
+        == expected_state
+    )
 
 
 @pytest.mark.asyncio
@@ -247,9 +258,7 @@ async def test_stop_waits_for_active_request_and_blocks_later_sends() -> None:
 
     sending = asyncio.create_task(tick(gate))
     await gate.wait_test_request_started()
-    stopping = asyncio.create_task(
-        gate.stop_visit("v1", "2026-09-27T13:01:00Z")
-    )
+    stopping = asyncio.create_task(gate.stop_visit("v1", "2026-09-27T13:01:00Z"))
     await asyncio.sleep(0)
     assert not stopping.done()
     await gate.release_test_request()
@@ -261,7 +270,9 @@ async def test_stop_waits_for_active_request_and_blocks_later_sends() -> None:
 
 
 @pytest.mark.asyncio
-async def test_withdrawal_waits_for_active_request_then_erases_identity_and_events() -> None:
+async def test_withdrawal_waits_for_active_request_then_erases_identity_and_events() -> (
+    None
+):
     database = LocalD1()
     gate = make_gate(database)
     await seed(gate)
@@ -279,14 +290,24 @@ async def test_withdrawal_waits_for_active_request_then_erases_identity_and_even
 
     await sending
     assert await withdrawing
-    assert database.connection.execute("SELECT COUNT(*) FROM recipients").fetchone()[0] == 0
-    assert database.connection.execute("SELECT COUNT(*) FROM outbound_events").fetchone()[0] == 0
+    assert (
+        database.connection.execute("SELECT COUNT(*) FROM recipients").fetchone()[0]
+        == 0
+    )
+    assert (
+        database.connection.execute("SELECT COUNT(*) FROM outbound_events").fetchone()[
+            0
+        ]
+        == 0
+    )
     await tick(gate, "2026-09-27T13:02:00Z")
     assert len((await gate.test_snapshot())["line_requests"]) == 1
 
 
 @pytest.mark.asyncio
-async def test_visit_recipient_removal_waits_then_erases_events_and_blocks_future_sends() -> None:
+async def test_visit_recipient_removal_waits_then_erases_events_and_blocks_future_sends() -> (
+    None
+):
     database = LocalD1()
     gate = make_gate(database)
     await seed(gate)
@@ -304,7 +325,12 @@ async def test_visit_recipient_removal_waits_then_erases_events_and_blocks_futur
 
     await sending
     assert await removing
-    assert database.connection.execute("SELECT COUNT(*) FROM outbound_events").fetchone()[0] == 0
+    assert (
+        database.connection.execute("SELECT COUNT(*) FROM outbound_events").fetchone()[
+            0
+        ]
+        == 0
+    )
     await tick(gate, "2026-09-27T13:02:00Z")
     assert len((await gate.test_snapshot())["line_requests"]) == 1
 
@@ -358,7 +384,9 @@ async def test_withdrawal_wins_ordering_and_no_request_begins_after_close() -> N
 
 
 @pytest.mark.asyncio
-async def test_recovery_hold_survives_d1_restore_and_gate_restart_until_explicit_resume() -> None:
+async def test_recovery_hold_survives_d1_restore_and_gate_restart_until_explicit_resume() -> (
+    None
+):
     database = LocalD1()
     storage = LocalDurableStorage()
     gate = make_gate(database, storage)
@@ -419,13 +447,19 @@ async def test_draft_deletes_exactly_forty_eight_hours_after_taipei_cutoff() -> 
     )
 
     await tick(gate, "2026-09-29T15:58:59Z")
-    assert store.connection.execute(
-        "SELECT COUNT(*) FROM visits WHERE id = 'draft'"
-    ).fetchone()[0] == 1
+    assert (
+        store.connection.execute(
+            "SELECT COUNT(*) FROM visits WHERE id = 'draft'"
+        ).fetchone()[0]
+        == 1
+    )
     await tick(gate, "2026-09-29T15:59:00Z")
-    assert store.connection.execute(
-        "SELECT COUNT(*) FROM visits WHERE id = 'draft'"
-    ).fetchone()[0] == 0
+    assert (
+        store.connection.execute(
+            "SELECT COUNT(*) FROM visits WHERE id = 'draft'"
+        ).fetchone()[0]
+        == 0
+    )
 
 
 class RecordingLine:
@@ -476,9 +510,12 @@ async def test_cutoff_rechecked_after_durable_pre_request_work() -> None:
     assert saved["outcome"] == "pending"
     assert saved["attempt_count"] == 0
     assert saved["first_request_at"] is None
-    assert database.connection.execute(
-        "SELECT state FROM visits WHERE id = 'v1'"
-    ).fetchone()[0] == "expired"
+    assert (
+        database.connection.execute(
+            "SELECT state FROM visits WHERE id = 'v1'"
+        ).fetchone()[0]
+        == "expired"
+    )
 
 
 @pytest.mark.asyncio
@@ -513,42 +550,75 @@ async def test_retry_window_rechecked_after_durable_pre_request_work() -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_gate_requires_fresh_exact_trusted_observation_and_freezes_roster(monkeypatch) -> None:
-    from next_is_you.domain import ClinicScope, ClinicSession, Hospital, QueueObservation
+async def test_start_gate_requires_fresh_exact_trusted_observation_and_freezes_roster(
+    monkeypatch,
+) -> None:
+    from next_is_you.domain import (
+        ClinicScope,
+        QueueObservation,
+    )
     import next_is_you.send_gate as send_gate
 
     database = LocalD1()
     gate = make_gate(database)
     timestamp = datetime.fromisoformat("2026-09-27T13:00:00+00:00")
     store = CloudflareD1Store(database)
-    await store.execute(Statement(
-        """INSERT INTO recipients (id, line_subject, display_name, consented_at,
+    await store.execute(
+        Statement(
+            """INSERT INTO recipients (id, line_subject, display_name, consented_at,
             friendship_checked_at, active, created_at) VALUES
             ('r1', 'synthetic-r1', 'Synthetic one', ?, ?, 1, ?)""",
-        (timestamp.isoformat(), timestamp.isoformat(), timestamp.isoformat())))
+            (timestamp.isoformat(), timestamp.isoformat(), timestamp.isoformat()),
+        )
+    )
     repository = VisitRepository(store)
     await repository.create_draft(
-        visit_id="draft-start", hospital="ntuh-main", visit_day=datetime(2026, 9, 27).date(),
-        department_code="MED", clinic_code="MED-A", clinic_session="morning",
-        patient_number=85, now=timestamp)
+        visit_id="draft-start",
+        hospital="ntuh-main",
+        visit_day=datetime(2026, 9, 27).date(),
+        department_code="MED",
+        clinic_code="MED-A",
+        clinic_session="morning",
+        patient_number=85,
+        now=timestamp,
+    )
     assert await repository.add_recipient("draft-start", "r1", timestamp)
     await gate.set_test_observation(70, trustworthy=True)
 
-    assert await gate.start_visit("draft-start", timestamp.isoformat()) == {"state": "active"}
+    assert await gate.start_visit("draft-start", timestamp.isoformat()) == {
+        "state": "active"
+    }
     visit = await repository.get_visit("draft-start")
     assert visit["state"] == "active" and visit["roster_frozen"] == 1
 
     class MismatchedReader:
         async def observe(self, expected, now):
-            wrong = ClinicScope(expected.hospital, expected.visit_date, expected.department_code,
-                "OTHER", expected.session, expected.doctor_code, expected.room_code)
-            return QueueObservation(wrong, now.isoformat(), 70, trustworthy_current=True)
+            wrong = ClinicScope(
+                expected.hospital,
+                expected.visit_date,
+                expected.department_code,
+                "OTHER",
+                expected.session,
+                expected.doctor_code,
+                expected.room_code,
+            )
+            return QueueObservation(
+                wrong, now.isoformat(), 70, trustworthy_current=True
+            )
 
-    monkeypatch.setattr(send_gate, "_TestHospitalReader", lambda _storage: MismatchedReader())
+    monkeypatch.setattr(
+        send_gate, "_TestHospitalReader", lambda _storage: MismatchedReader()
+    )
     await repository.create_draft(
-        visit_id="draft-mismatch", hospital="ntuh-main", visit_day=datetime(2026, 9, 27).date(),
-        department_code="MED", clinic_code="MED-A", clinic_session="morning",
-        patient_number=86, now=timestamp)
+        visit_id="draft-mismatch",
+        hospital="ntuh-main",
+        visit_day=datetime(2026, 9, 27).date(),
+        department_code="MED",
+        clinic_code="MED-A",
+        clinic_session="morning",
+        patient_number=86,
+        now=timestamp,
+    )
     assert await repository.add_recipient("draft-mismatch", "r1", timestamp)
     assert await gate.start_visit("draft-mismatch", timestamp.isoformat()) == {
         "error": "observation_scope_mismatch"
@@ -557,14 +627,26 @@ async def test_start_gate_requires_fresh_exact_trusted_observation_and_freezes_r
 
     class StaleReader:
         async def observe(self, expected, now):
-            return QueueObservation(expected, (now - timedelta(minutes=3)).isoformat(),
-                70, trustworthy_current=True)
+            return QueueObservation(
+                expected,
+                (now - timedelta(minutes=3)).isoformat(),
+                70,
+                trustworthy_current=True,
+            )
 
-    monkeypatch.setattr(send_gate, "_TestHospitalReader", lambda _storage: StaleReader())
+    monkeypatch.setattr(
+        send_gate, "_TestHospitalReader", lambda _storage: StaleReader()
+    )
     await repository.create_draft(
-        visit_id="draft-stale", hospital="ntuh-main", visit_day=datetime(2026, 9, 27).date(),
-        department_code="MED", clinic_code="MED-A", clinic_session="morning",
-        patient_number=87, now=timestamp)
+        visit_id="draft-stale",
+        hospital="ntuh-main",
+        visit_day=datetime(2026, 9, 27).date(),
+        department_code="MED",
+        clinic_code="MED-A",
+        clinic_session="morning",
+        patient_number=87,
+        now=timestamp,
+    )
     assert await repository.add_recipient("draft-stale", "r1", timestamp)
     assert await gate.start_visit("draft-stale", timestamp.isoformat()) == {
         "error": "observation_stale"
@@ -573,20 +655,31 @@ async def test_start_gate_requires_fresh_exact_trusted_observation_and_freezes_r
 
 
 @pytest.mark.asyncio
-async def test_start_fails_closed_without_explicit_local_test_observation_source() -> None:
+async def test_start_fails_closed_without_explicit_local_test_observation_source() -> (
+    None
+):
     database = LocalD1()
     store = CloudflareD1Store(database)
     timestamp = datetime.fromisoformat("2026-09-27T13:00:00+00:00")
-    await store.execute(Statement(
-        """INSERT INTO recipients (id, line_subject, display_name, consented_at,
+    await store.execute(
+        Statement(
+            """INSERT INTO recipients (id, line_subject, display_name, consented_at,
             friendship_checked_at, active, created_at) VALUES
             ('r1', 'synthetic-r1', 'Synthetic one', ?, ?, 1, ?)""",
-        (timestamp.isoformat(), timestamp.isoformat(), timestamp.isoformat())))
+            (timestamp.isoformat(), timestamp.isoformat(), timestamp.isoformat()),
+        )
+    )
     repository = VisitRepository(store)
     await repository.create_draft(
-        visit_id="production-draft", hospital="ntuh-main", visit_day=datetime(2026, 9, 27).date(),
-        department_code="MED", clinic_code="MED-A", clinic_session="morning",
-        patient_number=85, now=timestamp)
+        visit_id="production-draft",
+        hospital="ntuh-main",
+        visit_day=datetime(2026, 9, 27).date(),
+        department_code="MED",
+        clinic_code="MED-A",
+        clinic_session="morning",
+        patient_number=85,
+        now=timestamp,
+    )
     assert await repository.add_recipient("production-draft", "r1", timestamp)
     gate = SystemSendGate(LocalContext(LocalDurableStorage()), {"DB": database})
 
@@ -596,7 +689,8 @@ async def test_start_fails_closed_without_explicit_local_test_observation_source
     visit = await repository.get_visit("production-draft")
     assert visit["state"] == "draft"
     assert (visit["latest_source_read_status"], visit["latest_source_read_reason"]) == (
-        "unavailable", "no_observation"
+        "unavailable",
+        "no_observation",
     )
 
 
@@ -614,14 +708,26 @@ async def test_organizer_correction_keeps_logical_id_and_alert_cap() -> None:
     assert await gate.stop_visit("v1", "2026-09-28T12:01:00Z") == "stopped"
 
     assert await gate.correct_stopped_visit(
-        "v1", hospital="ntuh-main", visit_day=datetime(2026, 9, 29).date(),
-        department_code="SYN", clinic_code="SYN-2", clinic_session="afternoon",
-        patient_number=86, recipient_ids=("r1",))
+        "v1",
+        hospital="ntuh-main",
+        visit_day=datetime(2026, 9, 29).date(),
+        department_code="SYN",
+        clinic_code="SYN-2",
+        clinic_session="afternoon",
+        patient_number=86,
+        recipient_ids=("r1",),
+    )
     assert await gate.start_visit("v1", "2026-09-28T12:02:00Z") == {"state": "active"}
     await tick(gate, "2026-09-28T12:03:00Z")
-    assert database.connection.execute(
-        "SELECT COUNT(*) FROM visits WHERE id = 'v1'"
-    ).fetchone()[0] == 1
-    assert database.connection.execute(
-        "SELECT COUNT(*) FROM outbound_events WHERE visit_id = 'v1' AND event_kind = 'near'"
-    ).fetchone()[0] == 1
+    assert (
+        database.connection.execute(
+            "SELECT COUNT(*) FROM visits WHERE id = 'v1'"
+        ).fetchone()[0]
+        == 1
+    )
+    assert (
+        database.connection.execute(
+            "SELECT COUNT(*) FROM outbound_events WHERE visit_id = 'v1' AND event_kind = 'near'"
+        ).fetchone()[0]
+        == 1
+    )

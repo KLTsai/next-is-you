@@ -8,9 +8,11 @@ dependencies = ["fastapi", "tzdata"]
 [dependency-groups]
 dev = [
     "httpx",
+    "playwright",
     "pytest",
     "pytest-asyncio",
     "python-dotenv",
+    "ruff",
     "uvicorn",
     "workers-py",
     "workers-runtime-sdk",
@@ -20,3 +22,12 @@ dev = [
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.ruff]
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.format]
+line-ending = "lf"

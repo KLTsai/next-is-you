@@ -158,7 +158,9 @@ def parse_ntuh_fragment(
     )
     if current is None:
         return ParseResult(ParseStatus.SCHEMA_DRIFT, None, "current_number_unusable")
-    reason = "freshness_unverified" if updated_at is None else "untrusted_source_semantics"
+    reason = (
+        "freshness_unverified" if updated_at is None else "untrusted_source_semantics"
+    )
     return ParseResult(ParseStatus.MATCHED, observation, reason)
 
 
@@ -179,7 +181,9 @@ def parse_shin_kong_rows(
     if source_updated_at is not None:
         updated = _timestamp(source_updated_at)
         if updated is None:
-            return ParseResult(ParseStatus.SCHEMA_DRIFT, None, "invalid_source_timestamp")
+            return ParseResult(
+                ParseStatus.SCHEMA_DRIFT, None, "invalid_source_timestamp"
+            )
         if _is_stale(updated, observed, max_age):
             return ParseResult(ParseStatus.STALE, None, "source_sample_stale")
     if not rows:
@@ -208,12 +212,18 @@ def parse_shin_kong_rows(
         observed_at=observed_at,
         current_number=current,
         next_number=next_number,
-        current_call_type=normalize_call_type(_source_text(row.get("CurrentVisitSeqDesc"))),
+        current_call_type=normalize_call_type(
+            _source_text(row.get("CurrentVisitSeqDesc"))
+        ),
         next_call_type=normalize_call_type(_source_text(row.get("NextVisitSeqDesc"))),
         source_updated_at=source_updated_at,
         trustworthy_current=False,
     )
-    reason = "freshness_unverified" if source_updated_at is None else "untrusted_source_semantics"
+    reason = (
+        "freshness_unverified"
+        if source_updated_at is None
+        else "untrusted_source_semantics"
+    )
     return ParseResult(ParseStatus.MATCHED, observation, reason)
 
 
@@ -265,11 +275,14 @@ def _valid_scope(scope: ClinicScope, hospital: Hospital) -> bool:
     )
 
 
-def _ntuh_scope_matches(row: list[str], indexes: dict[str, int], scope: ClinicScope) -> bool:
+def _ntuh_scope_matches(
+    row: list[str], indexes: dict[str, int], scope: ClinicScope
+) -> bool:
     return (
         _source_date(_cell(row, indexes, "date")) == scope.visit_date
         and _cell(row, indexes, "department") == scope.department_code
-        and _SESSIONS.get((_cell(row, indexes, "session") or "").casefold()) == scope.session
+        and _SESSIONS.get((_cell(row, indexes, "session") or "").casefold())
+        == scope.session
         and _cell(row, indexes, "clinic") == scope.clinic_code
         and _cell(row, indexes, "doctor") == scope.doctor_code
         and _cell(row, indexes, "room") == scope.room_code
@@ -279,7 +292,8 @@ def _ntuh_scope_matches(row: list[str], indexes: dict[str, int], scope: ClinicSc
 def _shin_kong_scope_matches(row: Mapping[str, Any], scope: ClinicScope) -> bool:
     return (
         _source_date(row.get("VisitDate")) == scope.visit_date
-        and _SESSIONS.get((_source_text(row.get("ShiftName")) or "").casefold()) == scope.session
+        and _SESSIONS.get((_source_text(row.get("ShiftName")) or "").casefold())
+        == scope.session
         and _source_text(row.get("DivisionCode")) == scope.department_code
         and _source_text(row.get("ClinicCode")) == scope.clinic_code
         and _source_text(row.get("ClinicName")) == scope.room_code
@@ -341,7 +355,9 @@ def _timestamp(value: Any) -> datetime | None:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo is not None and parsed.utcoffset() is not None else None
+    return (
+        parsed if parsed.tzinfo is not None and parsed.utcoffset() is not None else None
+    )
 
 
 def _is_stale(updated: datetime, observed: datetime, max_age: timedelta) -> bool:

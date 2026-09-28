@@ -4,7 +4,11 @@ from urllib.parse import parse_qs
 
 import pytest
 
-from next_is_you.line_login import LineLoginError, VerifiedLineIdentity, WorkersLineOAuthClient
+from next_is_you.line_login import (
+    LineLoginError,
+    VerifiedLineIdentity,
+    WorkersLineOAuthClient,
+)
 
 
 class FakeResponse:
@@ -20,7 +24,9 @@ def test_line_client_exchanges_code_then_verifies_id_token_and_nonce():
     async def scenario():
         requests = []
         responses = [
-            FakeResponse({"id_token": "fake-id-token", "access_token": "short-lived-user-token"}),
+            FakeResponse(
+                {"id_token": "fake-id-token", "access_token": "short-lived-user-token"}
+            ),
             FakeResponse({"sub": "line-subject", "nonce": "expected-nonce"}),
         ]
 
@@ -72,10 +78,14 @@ def test_line_client_exchanges_code_then_verifies_id_token_and_nonce():
         {"nonce": "expected-nonce"},
     ],
 )
-def test_line_client_rejects_verified_payload_without_matching_subject_and_nonce(payload):
+def test_line_client_rejects_verified_payload_without_matching_subject_and_nonce(
+    payload,
+):
     async def scenario():
         responses = [
-            FakeResponse({"id_token": "fake-id-token", "access_token": "short-lived-user-token"}),
+            FakeResponse(
+                {"id_token": "fake-id-token", "access_token": "short-lived-user-token"}
+            ),
             FakeResponse(payload),
         ]
 

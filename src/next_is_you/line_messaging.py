@@ -63,7 +63,10 @@ class WorkersLineFriendshipClient:
         try:
             response = await self._fetch(
                 "https://api.line.me/friendship/v1/status",
-                {"method": "GET", "headers": {"Authorization": f"Bearer {user_access_token}"}},
+                {
+                    "method": "GET",
+                    "headers": {"Authorization": f"Bearer {user_access_token}"},
+                },
             )
             if not response.ok:
                 return FriendshipResult(None)
@@ -107,9 +110,7 @@ class WorkersLinePushTransport:
         return LinePushHttpResponse(
             status_code=int(response.status),
             request_id=_read_header(response, "x-line-request-id"),
-            accepted_request_id=_read_header(
-                response, "x-line-accepted-request-id"
-            ),
+            accepted_request_id=_read_header(response, "x-line-accepted-request-id"),
         )
 
 
@@ -137,7 +138,9 @@ class LinePushClient:
             uuid.UUID(retry_key)
         except (AttributeError, TypeError, ValueError) as error:
             raise ValueError("retry_key must be a UUID") from error
-        if not isinstance(recipient_id, str) or not LINE_USER_ID_PATTERN.fullmatch(recipient_id):
+        if not isinstance(recipient_id, str) or not LINE_USER_ID_PATTERN.fullmatch(
+            recipient_id
+        ):
             raise ValueError("recipient_id must be an individual LINE user ID")
         if not text:
             raise ValueError("text is required")

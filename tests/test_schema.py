@@ -76,7 +76,16 @@ def test_schema_prevents_duplicate_alert_kind_per_recipient_visit(database):
         database.execute(
             "INSERT INTO outbound_events (id, visit_id, recipient_id, event_kind, retry_key, payload_json, outcome, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            ("e2", "v1", "r1", "near", "retry-2", '{"kind":"near"}', "pending", "2026-09-27T09:02:00+08:00"),
+            (
+                "e2",
+                "v1",
+                "r1",
+                "near",
+                "retry-2",
+                '{"kind":"near"}',
+                "pending",
+                "2026-09-27T09:02:00+08:00",
+            ),
         )
 
 

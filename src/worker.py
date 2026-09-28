@@ -36,7 +36,9 @@ from next_is_you.line_messaging import (
     WorkersLineFriendshipClient,
 )
 from next_is_you.persistence import CloudflareD1Store, VisitRepository, iso_utc
-from next_is_you.send_gate import SystemSendGate
+
+# Wrangler discovers the Durable Object class from this imported module export.
+from next_is_you.send_gate import SystemSendGate  # noqa: F401
 
 try:
     from workers import asgi
@@ -61,16 +63,37 @@ class LineLoginSettings:
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any]) -> "LineLoginSettings":
-        raw_subjects = values.get("organizer_subjects", values.get("ORGANIZER_LINE_SUBJECTS", ""))
+        raw_subjects = values.get(
+            "organizer_subjects", values.get("ORGANIZER_LINE_SUBJECTS", "")
+        )
         if isinstance(raw_subjects, str):
-            subjects = frozenset(part.strip() for part in raw_subjects.split(",") if part.strip())
+            subjects = frozenset(
+                part.strip() for part in raw_subjects.split(",") if part.strip()
+            )
         else:
-            subjects = frozenset(str(subject).strip() for subject in raw_subjects if str(subject).strip())
+            subjects = frozenset(
+                str(subject).strip() for subject in raw_subjects if str(subject).strip()
+            )
         return cls(
-            channel_id=str(values.get("line_login_channel_id", values.get("LINE_LOGIN_CHANNEL_ID", ""))),
-            channel_secret=str(values.get("line_login_channel_secret", values.get("LINE_LOGIN_CHANNEL_SECRET", ""))),
-            redirect_uri=str(values.get("line_login_redirect_uri", values.get("LINE_LOGIN_REDIRECT_URI", ""))),
-            session_secret=str(values.get("session_secret", values.get("SESSION_SIGNING_SECRET", ""))),
+            channel_id=str(
+                values.get(
+                    "line_login_channel_id", values.get("LINE_LOGIN_CHANNEL_ID", "")
+                )
+            ),
+            channel_secret=str(
+                values.get(
+                    "line_login_channel_secret",
+                    values.get("LINE_LOGIN_CHANNEL_SECRET", ""),
+                )
+            ),
+            redirect_uri=str(
+                values.get(
+                    "line_login_redirect_uri", values.get("LINE_LOGIN_REDIRECT_URI", "")
+                )
+            ),
+            session_secret=str(
+                values.get("session_secret", values.get("SESSION_SIGNING_SECRET", ""))
+            ),
             organizer_subjects=subjects,
         )
 
@@ -134,9 +157,13 @@ def create_app(
         identity = _identity_repository(request)
         if invitation:
             if not config.ready or identity is None:
-                return JSONResponse({"detail": "Recipient invitations are unavailable"}, status_code=503)
+                return JSONResponse(
+                    {"detail": "Recipient invitations are unavailable"}, status_code=503
+                )
             if not await identity.invitation_is_valid(invitation, _now(request)):
-                return JSONResponse({"detail": "Invitation is invalid or expired"}, status_code=410)
+                return JSONResponse(
+                    {"detail": "Invitation is invalid or expired"}, status_code=410
+                )
             transaction = issue_login_transaction(
                 config.session_secret,
                 now=now,
@@ -145,7 +172,10 @@ def create_app(
             )
         else:
             if not config.organizer_login_ready:
-                return JSONResponse({"detail": "Organizer LINE Login is not configured"}, status_code=503)
+                return JSONResponse(
+                    {"detail": "Organizer LINE Login is not configured"},
+                    status_code=503,
+                )
             transaction = issue_login_transaction(config.session_secret, now=now)
         query = urlencode(
             {
@@ -161,9 +191,7 @@ def create_app(
         response.set_cookie(
             LOGIN_TRANSACTION_COOKIE_NAME,
             transaction.value,
-            **login_transaction_cookie_options(
-                max_age=transaction.expires_at - now
-            ),
+            **login_transaction_cookie_options(max_age=transaction.expires_at - now),
         )
         return response
 
@@ -171,7 +199,9 @@ def create_app(
     async def line_login_callback(request: Request) -> Response:
         config = _login_settings(request)
         if not config.ready:
-            return JSONResponse({"detail": "LINE Login is not configured"}, status_code=503)
+            return JSONResponse(
+                {"detail": "LINE Login is not configured"}, status_code=503
+            )
         state_cookie = request.cookies.get(LOGIN_TRANSACTION_COOKIE_NAME)
         returned_state = request.query_params.get("state", "")
         code = request.query_params.get("code", "")
@@ -186,7 +216,9 @@ def create_app(
                 now=now,
             )
         except AuthError:
-            response = JSONResponse({"detail": "LINE Login could not be verified"}, status_code=401)
+            response = JSONResponse(
+                {"detail": "LINE Login could not be verified"}, status_code=401
+            )
             _clear_login_cookie(response)
             return response
 
@@ -199,28 +231,42 @@ def create_app(
                 nonce=transaction.nonce,
             )
         except Exception:
-            response = JSONResponse({"detail": "LINE Login could not be verified"}, status_code=401)
+            response = JSONResponse(
+                {"detail": "LINE Login could not be verified"}, status_code=401
+            )
             _clear_login_cookie(response)
             return response
 
         if transaction.flow == "recipient":
             repository = _identity_repository(request)
             if repository is None or transaction.invitation_hash is None:
-                response = JSONResponse({"detail": "Recipient invitations are unavailable"}, status_code=503)
+                response = JSONResponse(
+                    {"detail": "Recipient invitations are unavailable"}, status_code=503
+                )
                 _clear_login_cookie(response)
                 return response
             friendship = _friendship_client(request)
             if friendship is None:
-                response = JSONResponse({"detail": "Friendship verification is unavailable"}, status_code=503)
+                response = JSONResponse(
+                    {"detail": "Friendship verification is unavailable"},
+                    status_code=503,
+                )
                 _clear_login_cookie(response)
                 return response
-            friendship_result = await friendship.check_friendship(identity.user_access_token)
+            friendship_result = await friendship.check_friendship(
+                identity.user_access_token
+            )
             if friendship_result.is_friend is None:
-                response = JSONResponse({"detail": "Friendship could not be verified"}, status_code=503)
+                response = JSONResponse(
+                    {"detail": "Friendship could not be verified"}, status_code=503
+                )
                 _clear_login_cookie(response)
                 return response
             if not friendship_result.is_friend:
-                response = JSONResponse({"detail": "Add the official account before enrolling"}, status_code=409)
+                response = JSONResponse(
+                    {"detail": "Add the official account before enrolling"},
+                    status_code=409,
+                )
                 _clear_login_cookie(response)
                 return response
             enrolled_at = _now(request)
@@ -232,7 +278,10 @@ def create_app(
                 friendship_checked_at=enrolled_at,
             )
             if not accepted:
-                response = JSONResponse({"detail": "Invitation is invalid, expired, or already used"}, status_code=410)
+                response = JSONResponse(
+                    {"detail": "Invitation is invalid, expired, or already used"},
+                    status_code=410,
+                )
                 _clear_login_cookie(response)
                 return response
             subject = identity.subject
@@ -240,7 +289,9 @@ def create_app(
             destination = "/recipient/consent"
         else:
             if identity.subject not in config.organizer_subjects:
-                response = JSONResponse({"detail": "This LINE account is not authorized"}, status_code=403)
+                response = JSONResponse(
+                    {"detail": "This LINE account is not authorized"}, status_code=403
+                )
                 _clear_login_cookie(response)
                 return response
             subject = identity.subject
@@ -250,7 +301,9 @@ def create_app(
         try:
             session = issue_session(subject, role, config.session_secret, now=now)
         except AuthError:
-            response = JSONResponse({"detail": "LINE Login is not configured"}, status_code=503)
+            response = JSONResponse(
+                {"detail": "LINE Login is not configured"}, status_code=503
+            )
             _clear_login_cookie(response)
             return response
         response = RedirectResponse(destination, status_code=303)
@@ -290,7 +343,9 @@ def create_app(
             return denied
         repository = _identity_repository(request)
         if repository is None:
-            return JSONResponse({"detail": "Invitations are unavailable"}, status_code=503)
+            return JSONResponse(
+                {"detail": "Invitations are unavailable"}, status_code=503
+            )
         invitation = await repository.create_invitation(claims.subject, _now(request))
         parsed_redirect = urlsplit(_login_settings(request).redirect_uri)
         origin = f"{parsed_redirect.scheme}://{parsed_redirect.netloc}"
@@ -325,21 +380,42 @@ def create_app(
         grouped: dict[str, dict[str, Any]] = {}
         for row in rows:
             visit_id = str(row["id"])
-            item = grouped.setdefault(visit_id, {
-                "id": visit_id, "hospital": str(row["hospital"]),
-                "date": str(row["visit_date"]), "department_code": str(row["department_code"]),
-                "clinic_code": str(row["clinic_code"]), "session": str(row["clinic_session"]),
-                "state": str(row["state"]),
-                "observation": {"current_number": row["near_last_current_number"], "checked_at": row["latest_observed_at"]},
-                "source_read": {"status": str(row["latest_source_read_status"]), "reason": str(row["latest_source_read_reason"])},
-                "notification": {"count": int(row["notification_count"] or 0), "accepted": int(row["accepted_count"] or 0), "issues": int(row["issue_count"] or 0)},
-                "recipients": [],
-            })
+            item = grouped.setdefault(
+                visit_id,
+                {
+                    "id": visit_id,
+                    "hospital": str(row["hospital"]),
+                    "date": str(row["visit_date"]),
+                    "department_code": str(row["department_code"]),
+                    "clinic_code": str(row["clinic_code"]),
+                    "session": str(row["clinic_session"]),
+                    "state": str(row["state"]),
+                    "observation": {
+                        "current_number": row["near_last_current_number"],
+                        "checked_at": row["latest_observed_at"],
+                    },
+                    "source_read": {
+                        "status": str(row["latest_source_read_status"]),
+                        "reason": str(row["latest_source_read_reason"]),
+                    },
+                    "notification": {
+                        "count": int(row["notification_count"] or 0),
+                        "accepted": int(row["accepted_count"] or 0),
+                        "issues": int(row["issue_count"] or 0),
+                    },
+                    "recipients": [],
+                },
+            )
             source_url = progress_link(str(row["hospital"]))
             if source_url is not None:
                 item["source_url"] = source_url
             if row["recipient_id"] is not None:
-                item["recipients"].append({"id": str(row["recipient_id"]), "display_name": str(row["display_name"])})
+                item["recipients"].append(
+                    {
+                        "id": str(row["recipient_id"]),
+                        "display_name": str(row["display_name"]),
+                    }
+                )
         return JSONResponse({"visits": list(grouped.values())})
 
     @app.post("/api/organizer/visits", status_code=201)
@@ -358,7 +434,9 @@ def create_app(
             return _api_error("service_unavailable", 503)
         visit_id = str(uuid.uuid4())
         try:
-            created = await repository.create_organizer_draft(visit_id=visit_id, now=_now(request), **parsed)
+            created = await repository.create_organizer_draft(
+                visit_id=visit_id, now=_now(request), **parsed
+            )
         except Exception:
             return _api_error("ineligible_recipients", 409)
         if not created:
@@ -377,7 +455,9 @@ def create_app(
             return _api_error("invalid_request", 400)
         if repository is None:
             return _api_error("service_unavailable", 503)
-        if not await repository.update_draft(visit_id=visit_id, now=_now(request), **parsed):
+        if not await repository.update_draft(
+            visit_id=visit_id, now=_now(request), **parsed
+        ):
             return _api_error("invalid_lifecycle_state", 409)
         return JSONResponse({"id": visit_id, "state": "draft"})
 
@@ -440,14 +520,21 @@ def create_app(
 
     @app.post("/api/recipient/opt-in")
     async def opt_in_recipient(request: Request) -> Response:
-        claims, denied = await _authorized(request, "recipient", csrf=True, allow_pending=True)
+        claims, denied = await _authorized(
+            request, "recipient", csrf=True, allow_pending=True
+        )
         if denied:
             return denied
         repository = _identity_repository(request)
         if repository is None:
-            return JSONResponse({"detail": "Recipient controls are unavailable"}, status_code=503)
+            return JSONResponse(
+                {"detail": "Recipient controls are unavailable"}, status_code=503
+            )
         if not await repository.opt_in(claims.subject, _now(request)):
-            return JSONResponse({"detail": "Recipient consent is already set or unavailable"}, status_code=409)
+            return JSONResponse(
+                {"detail": "Recipient consent is already set or unavailable"},
+                status_code=409,
+            )
         return Response(status_code=204)
 
     @app.post("/api/recipient/withdraw")
@@ -458,31 +545,45 @@ def create_app(
         identity = _identity_repository(request)
         visits = _visit_repository(request)
         if identity is None or visits is None:
-            return JSONResponse({"detail": "Recipient controls are unavailable"}, status_code=503)
+            return JSONResponse(
+                {"detail": "Recipient controls are unavailable"}, status_code=503
+            )
         recipient_id = await identity.recipient_id(claims.subject, active=True)
         if recipient_id is None:
             return Response(status_code=204)
         gate = _send_gate(request)
         if gate is None:
-            return JSONResponse({"detail": "Recipient send ordering is unavailable"}, status_code=503)
+            return JSONResponse(
+                {"detail": "Recipient send ordering is unavailable"}, status_code=503
+            )
         await gate.withdraw_recipient(recipient_id, iso_utc(_now(request)))
         return Response(status_code=204)
 
     @app.post("/api/visits/{visit_id}/recipients/{recipient_id}")
-    async def select_recipient(visit_id: str, recipient_id: str, request: Request) -> Response:
+    async def select_recipient(
+        visit_id: str, recipient_id: str, request: Request
+    ) -> Response:
         _, denied = await _authorized(request, "organizer", csrf=True)
         if denied:
             return denied
         identity = _identity_repository(request)
         visits = _visit_repository(request)
         if identity is None or visits is None:
-            return JSONResponse({"detail": "Recipient eligibility checks are unavailable"}, status_code=503)
+            return JSONResponse(
+                {"detail": "Recipient eligibility checks are unavailable"},
+                status_code=503,
+            )
         subject = await identity.recipient_subject(recipient_id)
         if subject is None:
-            return JSONResponse({"detail": "Recipient is not opted in"}, status_code=409)
+            return JSONResponse(
+                {"detail": "Recipient is not opted in"}, status_code=409
+            )
         now = _now(request)
         if not await visits.add_recipient(visit_id, recipient_id, now):
-            return JSONResponse({"detail": "Recipient could not be selected for this visit"}, status_code=409)
+            return JSONResponse(
+                {"detail": "Recipient could not be selected for this visit"},
+                status_code=409,
+            )
         return Response(status_code=204)
 
     @app.post("/api/visits/{visit_id}/stop")
@@ -492,7 +593,9 @@ def create_app(
             return denied
         gate = _send_gate(request)
         if gate is None:
-            return JSONResponse({"detail": "Visit send ordering is unavailable"}, status_code=503)
+            return JSONResponse(
+                {"detail": "Visit send ordering is unavailable"}, status_code=503
+            )
         state = await gate.stop_visit(visit_id, iso_utc(_now(request)))
         if state is None:
             return _api_error("visit_not_found", 404)
@@ -509,12 +612,16 @@ def create_app(
             return denied
         gate = _send_gate(request)
         if gate is None:
-            return JSONResponse({"detail": "Recipient send ordering is unavailable"}, status_code=503)
+            return JSONResponse(
+                {"detail": "Recipient send ordering is unavailable"}, status_code=503
+            )
         removed = await gate.remove_visit_recipient(
             visit_id, recipient_id, iso_utc(_now(request))
         )
         if not removed:
-            return JSONResponse({"detail": "Recipient was not selected for this visit"}, status_code=404)
+            return JSONResponse(
+                {"detail": "Recipient was not selected for this visit"}, status_code=404
+            )
         return Response(status_code=204)
 
     @app.post("/api/organizer/scheduler/recovery-hold", status_code=204)
@@ -524,7 +631,9 @@ def create_app(
             return denied
         gate = _send_gate(request)
         if gate is None:
-            return JSONResponse({"detail": "Scheduler recovery gate is unavailable"}, status_code=503)
+            return JSONResponse(
+                {"detail": "Scheduler recovery gate is unavailable"}, status_code=503
+            )
         await gate.hold_for_reconciliation()
         return Response(status_code=204)
 
@@ -544,19 +653,25 @@ def create_app(
             )
         gate = _send_gate(request)
         if gate is None:
-            return JSONResponse({"detail": "Scheduler recovery gate is unavailable"}, status_code=503)
+            return JSONResponse(
+                {"detail": "Scheduler recovery gate is unavailable"}, status_code=503
+            )
         if not await gate.resume_after_reconciliation(True):
             return JSONResponse({"detail": "Scheduler remains held"}, status_code=409)
         return Response(status_code=204)
 
     @app.post("/__niy006_test/{operation}")
-    async def local_scheduler_test_control(operation: str, request: Request) -> Response:
+    async def local_scheduler_test_control(
+        operation: str, request: Request
+    ) -> Response:
         env = request.scope.get("env")
         if str(_binding_value(env, "NIY006_LOCAL_TEST_MODE", "")) != "1":
             return Response(status_code=404)
         gate = _send_gate(request)
         if gate is None:
-            return JSONResponse({"detail": "Local test gate is unavailable"}, status_code=503)
+            return JSONResponse(
+                {"detail": "Local test gate is unavailable"}, status_code=503
+            )
         try:
             body = await request.json()
         except Exception:
@@ -566,14 +681,26 @@ def create_app(
         if operation == "organizer-session":
             settings = _login_settings(request)
             session = issue_session(
-                "niy006-synthetic-organizer", "organizer", settings.session_secret,
+                "niy006-synthetic-organizer",
+                "organizer",
+                settings.session_secret,
                 now=int(request.app.state.clock()),
             )
             response = JSONResponse({"issued": True})
-            response.set_cookie(SESSION_COOKIE_NAME, session.value,
-                **session_cookie_options(max_age=session.expires_at - int(request.app.state.clock())))
-            response.set_cookie(CSRF_COOKIE_NAME, session.csrf_token,
-                **csrf_cookie_options(max_age=session.expires_at - int(request.app.state.clock())))
+            response.set_cookie(
+                SESSION_COOKIE_NAME,
+                session.value,
+                **session_cookie_options(
+                    max_age=session.expires_at - int(request.app.state.clock())
+                ),
+            )
+            response.set_cookie(
+                CSRF_COOKIE_NAME,
+                session.csrf_token,
+                **csrf_cookie_options(
+                    max_age=session.expires_at - int(request.app.state.clock())
+                ),
+            )
             return response
         if operation == "seed":
             seeded = await gate.seed_test_visit(
@@ -640,7 +767,10 @@ def create_app(
         env = request.scope.get("env")
         if env is None:
             asset_path = (STATIC_ASSET_ROOT / (path or "index.html")).resolve()
-            if not asset_path.is_relative_to(STATIC_ASSET_ROOT.resolve()) or not asset_path.is_file():
+            if (
+                not asset_path.is_relative_to(STATIC_ASSET_ROOT.resolve())
+                or not asset_path.is_file()
+            ):
                 return Response(status_code=404)
             return FileResponse(asset_path)
 
@@ -674,7 +804,11 @@ def _login_settings(request: Request) -> LineLoginSettings:
     if test_mode and not values["SESSION_SIGNING_SECRET"]:
         values["SESSION_SIGNING_SECRET"] = "niy006-local-synthetic-session-secret-only"
     if test_mode:
-        subjects = set(part.strip() for part in values["ORGANIZER_LINE_SUBJECTS"].split(",") if part.strip())
+        subjects = set(
+            part.strip()
+            for part in values["ORGANIZER_LINE_SUBJECTS"].split(",")
+            if part.strip()
+        )
         subjects.add("niy006-synthetic-organizer")
         values["ORGANIZER_LINE_SUBJECTS"] = ",".join(subjects)
     return LineLoginSettings.from_mapping(values)
@@ -690,7 +824,15 @@ async def _organizer_body(request: Request) -> Mapping[str, Any] | None:
 
 def _visit_input(body: Mapping[str, Any]) -> dict[str, Any] | None:
     try:
-        if set(body) - {"hospital", "date", "department_code", "clinic_code", "session", "patient_number", "recipient_ids"}:
+        if set(body) - {
+            "hospital",
+            "date",
+            "department_code",
+            "clinic_code",
+            "session",
+            "patient_number",
+            "recipient_ids",
+        }:
             return None
         hospital = Hospital(str(body["hospital"])).value
         clinic_session = ClinicSession(str(body["session"])).value
@@ -699,11 +841,22 @@ def _visit_input(body: Mapping[str, Any]) -> dict[str, Any] | None:
         clinic_code = _bounded_code(body["clinic_code"])
         patient_number = body["patient_number"]
         recipient_ids = body["recipient_ids"]
-        if isinstance(patient_number, bool) or not isinstance(patient_number, int) or patient_number < 1:
+        if (
+            isinstance(patient_number, bool)
+            or not isinstance(patient_number, int)
+            or patient_number < 1
+        ):
             return None
-        if not isinstance(recipient_ids, list) or not recipient_ids or len(recipient_ids) > 50:
+        if (
+            not isinstance(recipient_ids, list)
+            or not recipient_ids
+            or len(recipient_ids) > 50
+        ):
             return None
-        if any(not isinstance(value, str) or not value or len(value) > 128 for value in recipient_ids):
+        if any(
+            not isinstance(value, str) or not value or len(value) > 128
+            for value in recipient_ids
+        ):
             return None
         return {
             "hospital": hospital,
@@ -821,7 +974,9 @@ async def _authorized(
     else:
         identity = _identity_repository(request)
         if identity is None:
-            return None, JSONResponse({"detail": "Recipient identity is unavailable"}, status_code=503)
+            return None, JSONResponse(
+                {"detail": "Recipient identity is unavailable"}, status_code=503
+            )
         active = await identity.recipient_is_active(claims.subject)
         pending = allow_pending and await identity.recipient_is_pending(claims.subject)
         if not active and not pending:
@@ -840,8 +995,12 @@ def _clear_login_cookie(response: Response) -> None:
 
 
 def _clear_session_cookies(response: Response) -> None:
-    response.delete_cookie(SESSION_COOKIE_NAME, path="/", secure=True, httponly=True, samesite="lax")
-    response.delete_cookie(CSRF_COOKIE_NAME, path="/", secure=True, httponly=False, samesite="lax")
+    response.delete_cookie(
+        SESSION_COOKIE_NAME, path="/", secure=True, httponly=True, samesite="lax"
+    )
+    response.delete_cookie(
+        CSRF_COOKIE_NAME, path="/", secure=True, httponly=False, samesite="lax"
+    )
 
 
 app = create_app()

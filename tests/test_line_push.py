@@ -31,13 +31,20 @@ def test_push_sends_one_selected_recipient_and_reuses_exact_retry_key():
         client = LinePushClient("server-only-token", transport)
         retry_key = "550e8400-e29b-41d4-a716-446655440000"
 
-        first = await client.push_text(RECIPIENT_USER_ID, "看診提醒 08", retry_key=retry_key)
-        second = await client.push_text(RECIPIENT_USER_ID, "看診提醒 08", retry_key=retry_key)
+        first = await client.push_text(
+            RECIPIENT_USER_ID, "看診提醒 08", retry_key=retry_key
+        )
+        second = await client.push_text(
+            RECIPIENT_USER_ID, "看診提醒 08", retry_key=retry_key
+        )
 
         assert first.outcome == "accepted"
         assert second.outcome == "accepted"
         assert first.accepted is True
-        assert [request[0] for request in transport.requests] == [LINE_PUSH_URL, LINE_PUSH_URL]
+        assert [request[0] for request in transport.requests] == [
+            LINE_PUSH_URL,
+            LINE_PUSH_URL,
+        ]
         assert transport.requests[0] == transport.requests[1]
         _, headers, body = transport.requests[0]
         assert headers == {
@@ -63,7 +70,9 @@ def test_push_sends_one_selected_recipient_and_reuses_exact_retry_key():
         (500, "unknown", False),
     ],
 )
-def test_push_maps_line_status_without_claiming_handset_delivery(status_code, outcome, accepted):
+def test_push_maps_line_status_without_claiming_handset_delivery(
+    status_code, outcome, accepted
+):
     async def scenario():
         client = LinePushClient(
             "server-only-token",

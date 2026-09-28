@@ -21,7 +21,9 @@ _MESSAGES = {
 
 
 class HospitalReader(Protocol):
-    async def observe(self, scope: ClinicScope, now: datetime) -> QueueObservation | None: ...
+    async def observe(
+        self, scope: ClinicScope, now: datetime
+    ) -> QueueObservation | None: ...
 
 
 class LineSender(Protocol):
@@ -94,7 +96,9 @@ class OutboxScheduler:
             sample_time = self._clock()
             if sample_time.tzinfo is None:
                 raise ValueError("scheduler clock must return an aware datetime")
-            cutoff = visit_cutoff(datetime.fromisoformat(str(visit["visit_date"])).date())
+            cutoff = visit_cutoff(
+                datetime.fromisoformat(str(visit["visit_date"])).date()
+            )
             if sample_time >= cutoff:
                 closed += await self._visits.expire_due_visits(sample_time)
                 continue
@@ -297,7 +301,9 @@ def _scope(row: Mapping[str, Any]) -> ClinicScope:
         department_code=str(row["department_code"]),
         clinic_code=str(row["clinic_code"]),
         session=ClinicSession(str(row["clinic_session"])),
-        doctor_code=str(row["doctor_code"]) if row.get("doctor_code") is not None else None,
+        doctor_code=str(row["doctor_code"])
+        if row.get("doctor_code") is not None
+        else None,
         room_code=str(row["room_code"]) if row.get("room_code") is not None else None,
     )
 
@@ -309,7 +315,9 @@ def _parse_time(value: str) -> datetime:
     return parsed
 
 
-def _source_read_status(observation, expected: ClinicScope, now: datetime) -> tuple[str, str]:
+def _source_read_status(
+    observation, expected: ClinicScope, now: datetime
+) -> tuple[str, str]:
     if observation is None:
         return "unavailable", "no_observation"
     try:
@@ -325,6 +333,10 @@ def _source_read_status(observation, expected: ClinicScope, now: datetime) -> tu
         return "scope_mismatch", "scope_mismatch"
     if not trustworthy:
         return "untrusted", "untrusted_source"
-    if isinstance(current_number, bool) or not isinstance(current_number, int) or current_number < 1:
+    if (
+        isinstance(current_number, bool)
+        or not isinstance(current_number, int)
+        or current_number < 1
+    ):
         return "invalid", "invalid_data"
     return "usable", "none"

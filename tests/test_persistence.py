@@ -110,7 +110,9 @@ async def test_first_start_freezes_roster_and_correction_preserves_event_cap() -
     assert await repo.start("v1", at("2026-09-27T02:00:00Z"))
     assert not await repo.add_recipient("v1", "r2", at("2026-09-27T02:01:00Z"))
 
-    visit = dict(store.connection.execute("SELECT * FROM visits WHERE id = 'v1'").fetchone())
+    visit = dict(
+        store.connection.execute("SELECT * FROM visits WHERE id = 'v1'").fetchone()
+    )
     events = store.connection.execute(
         "SELECT COUNT(*) FROM outbound_events WHERE visit_id = 'v1'"
     ).fetchone()[0]
@@ -161,8 +163,14 @@ async def test_removal_stops_future_membership_but_keeps_recent_event_audit() ->
 
     assert await repo.remove_recipient("v1", "r1")
     assert not await repo.add_recipient("v1", "r1", at("2026-09-27T00:05:00Z"))
-    assert store.connection.execute("SELECT COUNT(*) FROM visit_recipients").fetchone()[0] == 0
-    assert store.connection.execute("SELECT COUNT(*) FROM outbound_events").fetchone()[0] == 1
+    assert (
+        store.connection.execute("SELECT COUNT(*) FROM visit_recipients").fetchone()[0]
+        == 0
+    )
+    assert (
+        store.connection.execute("SELECT COUNT(*) FROM outbound_events").fetchone()[0]
+        == 1
+    )
     await store.close()
 
 
@@ -180,16 +188,22 @@ async def test_stop_waits_for_inflight_send_before_terminal_retention_clock() ->
 
     assert await repo.stop("v1", at("2026-09-27T01:00:00Z")) == "stopping"
     assert await repo.start("v1", at("2026-09-27T01:01:00Z")) is False
-    store.connection.execute("UPDATE outbound_events SET outcome = 'accepted' WHERE id = 'e1'")
+    store.connection.execute(
+        "UPDATE outbound_events SET outcome = 'accepted' WHERE id = 'e1'"
+    )
     assert await repo.finalize_stopping(at("2026-09-27T01:02:00Z")) == 1
-    visit = store.connection.execute("SELECT state, delete_after FROM visits WHERE id = 'v1'").fetchone()
+    visit = store.connection.execute(
+        "SELECT state, delete_after FROM visits WHERE id = 'v1'"
+    ).fetchone()
     assert visit["state"] == "stopped"
     assert visit["delete_after"] == "2026-09-29T01:02:00Z"
     await store.close()
 
 
 @pytest.mark.asyncio
-async def test_cutoff_is_based_on_taipei_2359_and_retains_terminal_data_48_hours() -> None:
+async def test_cutoff_is_based_on_taipei_2359_and_retains_terminal_data_48_hours() -> (
+    None
+):
     store, repo = await seeded_repository()
     await make_draft(repo)
     await repo.add_recipient("v1", "r1", at("2026-09-27T00:01:00Z"))
@@ -211,7 +225,9 @@ async def test_cutoff_is_based_on_taipei_2359_and_retains_terminal_data_48_hours
 
 
 @pytest.mark.asyncio
-async def test_cleanup_does_not_delete_a_terminal_visit_with_an_inflight_event() -> None:
+async def test_cleanup_does_not_delete_a_terminal_visit_with_an_inflight_event() -> (
+    None
+):
     store, repo = await seeded_repository()
     await make_draft(repo)
     await repo.add_recipient("v1", "r1", at("2026-09-27T00:01:00Z"))
@@ -226,14 +242,21 @@ async def test_cleanup_does_not_delete_a_terminal_visit_with_an_inflight_event()
     )
 
     assert await repo.delete_expired(at("2026-09-29T00:00:00Z")) == 0
-    store.connection.execute("UPDATE outbound_events SET outcome = 'unknown' WHERE id = 'e1'")
+    store.connection.execute(
+        "UPDATE outbound_events SET outcome = 'unknown' WHERE id = 'e1'"
+    )
     assert await repo.delete_expired(at("2026-09-29T00:00:00Z")) == 1
-    assert store.connection.execute("SELECT COUNT(*) FROM outbound_events").fetchone()[0] == 0
+    assert (
+        store.connection.execute("SELECT COUNT(*) FROM outbound_events").fetchone()[0]
+        == 0
+    )
     await store.close()
 
 
 @pytest.mark.asyncio
-async def test_withdrawal_disables_recipient_then_erases_after_inflight_send_settles() -> None:
+async def test_withdrawal_disables_recipient_then_erases_after_inflight_send_settles() -> (
+    None
+):
     store, repo = await seeded_repository()
     await make_draft(repo)
     await repo.add_recipient("v1", "r1", at("2026-09-27T00:01:00Z"))
@@ -245,19 +268,40 @@ async def test_withdrawal_disables_recipient_then_erases_after_inflight_send_set
     )
 
     assert await repo.withdraw_recipient("r1")
-    assert store.connection.execute("SELECT active FROM recipients WHERE id = 'r1'").fetchone()[0] == 0
-    assert store.connection.execute(
-        "SELECT COUNT(*) FROM outbound_events WHERE recipient_id = 'r1'"
-    ).fetchone()[0] == 1
-    store.connection.execute("UPDATE outbound_events SET outcome = 'accepted' WHERE id = 'e1'")
+    assert (
+        store.connection.execute(
+            "SELECT active FROM recipients WHERE id = 'r1'"
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        store.connection.execute(
+            "SELECT COUNT(*) FROM outbound_events WHERE recipient_id = 'r1'"
+        ).fetchone()[0]
+        == 1
+    )
+    store.connection.execute(
+        "UPDATE outbound_events SET outcome = 'accepted' WHERE id = 'e1'"
+    )
     assert await repo.erase_settled_withdrawals() == 1
-    assert store.connection.execute("SELECT COUNT(*) FROM recipients WHERE id = 'r1'").fetchone()[0] == 0
-    assert store.connection.execute(
-        "SELECT COUNT(*) FROM visit_recipients WHERE recipient_id = 'r1'"
-    ).fetchone()[0] == 0
-    assert store.connection.execute(
-        "SELECT COUNT(*) FROM outbound_events WHERE recipient_id = 'r1'"
-    ).fetchone()[0] == 0
+    assert (
+        store.connection.execute(
+            "SELECT COUNT(*) FROM recipients WHERE id = 'r1'"
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        store.connection.execute(
+            "SELECT COUNT(*) FROM visit_recipients WHERE recipient_id = 'r1'"
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        store.connection.execute(
+            "SELECT COUNT(*) FROM outbound_events WHERE recipient_id = 'r1'"
+        ).fetchone()[0]
+        == 0
+    )
     await store.close()
 
 
@@ -271,6 +315,8 @@ async def test_stop_rejects_naive_timestamp_without_changing_visit_state() -> No
     with pytest.raises(ValueError, match="timezone-aware"):
         await repo.stop("v1", datetime(2026, 9, 27, 1, 0))
 
-    visit = store.connection.execute("SELECT state FROM visits WHERE id = 'v1'").fetchone()
+    visit = store.connection.execute(
+        "SELECT state FROM visits WHERE id = 'v1'"
+    ).fetchone()
     assert visit["state"] == "active"
     await store.close()

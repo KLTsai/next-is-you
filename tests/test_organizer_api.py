@@ -32,7 +32,10 @@ class SQLiteStore:
         return self.connection.execute(statement.sql, statement.values).rowcount
 
     async def fetch_all(self, statement: Statement) -> list[Mapping[str, Any]]:
-        return [dict(row) for row in self.connection.execute(statement.sql, statement.values)]
+        return [
+            dict(row)
+            for row in self.connection.execute(statement.sql, statement.values)
+        ]
 
     async def batch(self, statements: Sequence[Statement]) -> list[int]:
         return [await self.execute(statement) for statement in statements]
@@ -72,15 +75,23 @@ def make_client():
         send_gate=Gate(),
         clock=lambda: datetime(2026, 9, 28, 10, 0, tzinfo=timezone.utc).timestamp(),
     )
-    http = AsyncClient(transport=ASGITransport(app=app), base_url="https://family.example")
+    http = AsyncClient(
+        transport=ASGITransport(app=app), base_url="https://family.example"
+    )
     return store, http
 
 
-def authorize(http: AsyncClient, subject="organizer", role="organizer") -> dict[str, str]:
+def authorize(
+    http: AsyncClient, subject="organizer", role="organizer"
+) -> dict[str, str]:
     now = int(datetime(2026, 9, 28, 10, 0, tzinfo=timezone.utc).timestamp())
     session = issue_session(subject, role, SECRET, now=now)
-    http.cookies.set(SESSION_COOKIE_NAME, session.value, domain="family.example", path="/")
-    http.cookies.set(CSRF_COOKIE_NAME, session.csrf_token, domain="family.example", path="/")
+    http.cookies.set(
+        SESSION_COOKIE_NAME, session.value, domain="family.example", path="/"
+    )
+    http.cookies.set(
+        CSRF_COOKIE_NAME, session.csrf_token, domain="family.example", path="/"
+    )
     return {"x-csrf-token": session.csrf_token}
 
 
@@ -94,28 +105,51 @@ def test_organizer_reads_eligible_roster_and_creates_draft_with_auth_and_csrf():
             missing_csrf = await http.post("/api/organizer/visits", json={})
             assert missing_csrf.status_code == 403
             recipients = await http.get("/api/organizer/recipients")
-            assert recipients.json() == {"recipients": [{"id": "eligible", "display_name": "Family Name"}]}
-            body = {
-                "hospital": "ntuh-main", "date": "2026-09-29", "department_code": "MED",
-                "clinic_code": "MED-A", "session": "morning", "patient_number": 85,
-                "recipient_ids": ["eligible"], "source_url": "https://attacker.invalid/echo",
+            assert recipients.json() == {
+                "recipients": [{"id": "eligible", "display_name": "Family Name"}]
             }
-            rejected_url = await http.post("/api/organizer/visits", json=body, headers=headers)
+            body = {
+                "hospital": "ntuh-main",
+                "date": "2026-09-29",
+                "department_code": "MED",
+                "clinic_code": "MED-A",
+                "session": "morning",
+                "patient_number": 85,
+                "recipient_ids": ["eligible"],
+                "source_url": "https://attacker.invalid/echo",
+            }
+            rejected_url = await http.post(
+                "/api/organizer/visits", json=body, headers=headers
+            )
             assert rejected_url.status_code == 400
             body.pop("source_url")
-            created = await http.post("/api/organizer/visits", json=body, headers=headers)
+            created = await http.post(
+                "/api/organizer/visits", json=body, headers=headers
+            )
             assert created.status_code == 201
             assert created.json()["state"] == "draft"
             shin_kong = {**body, "hospital": "shin-kong-taipei", "clinic_code": "MED-B"}
-            assert (await http.post("/api/organizer/visits", json=shin_kong, headers=headers)).status_code == 201
+            assert (
+                await http.post(
+                    "/api/organizer/visits", json=shin_kong, headers=headers
+                )
+            ).status_code == 201
             listing = await http.get("/api/organizer/visits")
             assert listing.status_code == 200
             visits = {visit["hospital"]: visit for visit in listing.json()["visits"]}
-            assert visits["ntuh-main"]["source_url"] == "https://registration.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0"
+            assert (
+                visits["ntuh-main"]["source_url"]
+                == "https://registration.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0"
+            )
             assert visits["shin-kong-taipei"]["source_url"] == "https://reg.skh.org.tw/"
             for visit in visits.values():
-                assert visit["source_read"] == {"status": "unavailable", "reason": "no_observation"}
-                assert visit["recipients"] == [{"id": "eligible", "display_name": "Family Name"}]
+                assert visit["source_read"] == {
+                    "status": "unavailable",
+                    "reason": "no_observation",
+                }
+                assert visit["recipients"] == [
+                    {"id": "eligible", "display_name": "Family Name"}
+                ]
             assert "private-subject" not in repr(listing.json())
             assert "retry_key" not in repr(listing.json())
             assert "attacker.invalid" not in repr(listing.json())
@@ -127,7 +161,10 @@ def test_organizer_reads_eligible_roster_and_creates_draft_with_auth_and_csrf():
 
 
 def test_progress_link_catalog_is_limited_to_fixed_https_hospitals():
-    assert progress_link("ntuh-main") == "https://registration.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0"
+    assert (
+        progress_link("ntuh-main")
+        == "https://registration.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0"
+    )
     assert progress_link("shin-kong-taipei") == "https://reg.skh.org.tw/"
     assert progress_link("unsupported-hospital") is None
     assert progress_link("https://attacker.invalid") is None
@@ -138,7 +175,10 @@ def test_mutations_recheck_allowlist_and_start_returns_typed_safe_error():
         _, http = make_client()
         try:
             authorize(http, subject="removed-organizer")
-            denied = await http.post("/api/organizer/visits/id/start", headers={"x-csrf-token": http.cookies[CSRF_COOKIE_NAME]})
+            denied = await http.post(
+                "/api/organizer/visits/id/start",
+                headers={"x-csrf-token": http.cookies[CSRF_COOKIE_NAME]},
+            )
             assert denied.status_code == 403
             headers = authorize(http)
             started = await http.post("/api/organizer/visits/id/start", headers=headers)
@@ -170,10 +210,14 @@ def test_synthetic_organizer_session_requires_explicit_niy006_test_binding():
 
         class TestConfigApp:
             async def __call__(self, scope, receive, send):
-                await app({**scope, "env": {"NIY006_LOCAL_TEST_MODE": "1"}}, receive, send)
+                await app(
+                    {**scope, "env": {"NIY006_LOCAL_TEST_MODE": "1"}}, receive, send
+                )
 
-        async with AsyncClient(transport=ASGITransport(app=TestConfigApp()),
-                base_url="https://family.example") as http:
+        async with AsyncClient(
+            transport=ASGITransport(app=TestConfigApp()),
+            base_url="https://family.example",
+        ) as http:
             fixture = await http.post("/__niy006_test/organizer-session", json={})
             assert fixture.status_code == 200
             assert SESSION_COOKIE_NAME in http.cookies

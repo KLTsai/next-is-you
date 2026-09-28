@@ -32,7 +32,10 @@ class SQLiteStore:
         return self.connection.execute(statement.sql, statement.values).rowcount
 
     async def fetch_all(self, statement: Statement) -> list[Mapping[str, Any]]:
-        return [dict(row) for row in self.connection.execute(statement.sql, statement.values)]
+        return [
+            dict(row)
+            for row in self.connection.execute(statement.sql, statement.values)
+        ]
 
     async def batch(self, statements: Sequence[Statement]) -> list[int]:
         self.connection.execute("BEGIN")
@@ -107,8 +110,12 @@ def make_app(store: SQLiteStore, friendship: FakeFriendship):
 
 def set_session(client: AsyncClient, subject: str, role: str) -> None:
     session = issue_session(subject, role, SECRET, now=1_000)
-    client.cookies.set(SESSION_COOKIE_NAME, session.value, domain="family.example", path="/")
-    client.cookies.set(CSRF_COOKIE_NAME, session.csrf_token, domain="family.example", path="/")
+    client.cookies.set(
+        SESSION_COOKIE_NAME, session.value, domain="family.example", path="/"
+    )
+    client.cookies.set(
+        CSRF_COOKIE_NAME, session.csrf_token, domain="family.example", path="/"
+    )
 
 
 def csrf(client: AsyncClient) -> dict[str, str]:
@@ -163,9 +170,9 @@ def test_invitation_enrollment_checks_friendship_then_requires_explicit_consent(
             denied = await http.post("/api/organizer/invitations", headers=csrf(http))
             assert denied.status_code == 403
 
-        assert "transient-user-token" not in repr(store.connection.execute(
-            "SELECT * FROM recipients"
-        ).fetchone())
+        assert "transient-user-token" not in repr(
+            store.connection.execute("SELECT * FROM recipients").fetchone()
+        )
 
     run(scenario())
 
@@ -184,7 +191,9 @@ def test_failed_or_unknown_friendship_check_does_not_consume_invitation():
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url="https://family.example"
             ) as http:
-                start = await http.get("/auth/line", params={"invite": invitation.token})
+                start = await http.get(
+                    "/auth/line", params={"invite": invitation.token}
+                )
                 state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
                 callback = await http.get(
                     "/auth/line/callback", params={"code": "local-code", "state": state}
@@ -196,7 +205,12 @@ def test_failed_or_unknown_friendship_check_does_not_consume_invitation():
                 (invite_hash(invitation.token),),
             ).fetchone()
             assert row["used_at"] is None
-            assert store.connection.execute("SELECT COUNT(*) FROM recipients").fetchone()[0] == 0
+            assert (
+                store.connection.execute("SELECT COUNT(*) FROM recipients").fetchone()[
+                    0
+                ]
+                == 0
+            )
 
     run(scenario())
 
@@ -236,7 +250,8 @@ def test_server_side_roles_and_selection_require_active_enrollment_and_consent()
         ) as recipient:
             set_session(recipient, "line-recipient", "recipient")
             forbidden = await recipient.post(
-                f"/api/visits/visit-1/recipients/{recipient_id}", headers=csrf(recipient)
+                f"/api/visits/visit-1/recipients/{recipient_id}",
+                headers=csrf(recipient),
             )
             assert forbidden.status_code == 403
 
@@ -245,7 +260,8 @@ def test_server_side_roles_and_selection_require_active_enrollment_and_consent()
         ) as organizer:
             set_session(organizer, "line-organizer", "organizer")
             not_yet_eligible = await organizer.post(
-                f"/api/visits/visit-1/recipients/{recipient_id}", headers=csrf(organizer)
+                f"/api/visits/visit-1/recipients/{recipient_id}",
+                headers=csrf(organizer),
             )
             assert not_yet_eligible.status_code == 409
 
@@ -253,7 +269,9 @@ def test_server_side_roles_and_selection_require_active_enrollment_and_consent()
             transport=ASGITransport(app=app), base_url="https://family.example"
         ) as recipient:
             set_session(recipient, "line-recipient", "recipient")
-            opted_in = await recipient.post("/api/recipient/opt-in", headers=csrf(recipient))
+            opted_in = await recipient.post(
+                "/api/recipient/opt-in", headers=csrf(recipient)
+            )
             assert opted_in.status_code == 204
 
         async with AsyncClient(
@@ -261,13 +279,17 @@ def test_server_side_roles_and_selection_require_active_enrollment_and_consent()
         ) as organizer:
             set_session(organizer, "line-organizer", "organizer")
             selected = await organizer.post(
-                f"/api/visits/visit-1/recipients/{recipient_id}", headers=csrf(organizer)
+                f"/api/visits/visit-1/recipients/{recipient_id}",
+                headers=csrf(organizer),
             )
             assert selected.status_code == 204
             assert friendship.tokens == []
-            assert store.connection.execute(
-                "SELECT COUNT(*) FROM visit_recipients WHERE visit_id = 'visit-1'"
-            ).fetchone()[0] == 1
+            assert (
+                store.connection.execute(
+                    "SELECT COUNT(*) FROM visit_recipients WHERE visit_id = 'visit-1'"
+                ).fetchone()[0]
+                == 1
+            )
 
     run(scenario())
 
@@ -280,7 +302,9 @@ def test_organizer_allowlist_and_csrf_are_rechecked_for_each_mutation():
             transport=ASGITransport(app=app), base_url="https://family.example"
         ) as client:
             set_session(client, "not-allowlisted", "organizer")
-            denied = await client.post("/api/organizer/invitations", headers=csrf(client))
+            denied = await client.post(
+                "/api/organizer/invitations", headers=csrf(client)
+            )
             assert denied.status_code == 403
 
             set_session(client, "line-organizer", "organizer")
@@ -294,7 +318,10 @@ def test_organizer_allowlist_and_csrf_are_rechecked_for_each_mutation():
         assert created.json()["invitation_url"].startswith(
             "https://family.example/auth/line?invite="
         )
-        assert store.connection.execute("SELECT COUNT(*) FROM invitations").fetchone()[0] == 1
+        assert (
+            store.connection.execute("SELECT COUNT(*) FROM invitations").fetchone()[0]
+            == 1
+        )
 
     run(scenario())
 
@@ -366,18 +393,25 @@ def test_withdrawal_revokes_recipient_session_authority():
             now=datetime.fromtimestamp(900, timezone.utc),
             friendship_checked_at=datetime.fromtimestamp(900, timezone.utc),
         )
-        await identity_repo.opt_in("line-recipient", datetime.fromtimestamp(1_000, timezone.utc))
+        await identity_repo.opt_in(
+            "line-recipient", datetime.fromtimestamp(1_000, timezone.utc)
+        )
 
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="https://family.example"
         ) as client:
             set_session(client, "line-recipient", "recipient")
-            withdrawn = await client.post("/api/recipient/withdraw", headers=csrf(client))
+            withdrawn = await client.post(
+                "/api/recipient/withdraw", headers=csrf(client)
+            )
             denied = await client.post("/api/recipient/opt-in", headers=csrf(client))
 
         assert withdrawn.status_code == 204
         assert denied.status_code == 403
-        assert store.connection.execute("SELECT COUNT(*) FROM recipients").fetchone()[0] == 0
+        assert (
+            store.connection.execute("SELECT COUNT(*) FROM recipients").fetchone()[0]
+            == 0
+        )
 
     run(scenario())
 

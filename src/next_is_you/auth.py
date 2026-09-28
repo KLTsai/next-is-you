@@ -99,13 +99,19 @@ def verify_session(
         raise AuthError("session role is invalid")
     if not isinstance(csrf_token, str) or not csrf_token:
         raise AuthError("session CSRF claim is invalid")
-    if isinstance(expires_at, bool) or not isinstance(expires_at, int) or expires_at <= now:
+    if (
+        isinstance(expires_at, bool)
+        or not isinstance(expires_at, int)
+        or expires_at <= now
+    ):
         raise AuthError("session has expired")
     return SessionClaims(subject, role, csrf_token, expires_at)
 
 
 def require_csrf(claims: SessionClaims, submitted_token: str | None) -> None:
-    if not submitted_token or not hmac.compare_digest(claims.csrf_token, submitted_token):
+    if not submitted_token or not hmac.compare_digest(
+        claims.csrf_token, submitted_token
+    ):
         raise AuthError("CSRF token is invalid")
 
 
@@ -174,7 +180,11 @@ def verify_login_transaction(
         raise AuthError("recipient login invitation is invalid")
     if flow == "organizer" and invitation_hash is not None:
         raise AuthError("organizer login cannot carry an invitation")
-    if isinstance(expires_at, bool) or not isinstance(expires_at, int) or expires_at <= now:
+    if (
+        isinstance(expires_at, bool)
+        or not isinstance(expires_at, int)
+        or expires_at <= now
+    ):
         raise AuthError("login transaction has expired")
     return LoginTransaction(value, state, nonce, expires_at, flow, invitation_hash)
 
@@ -247,6 +257,9 @@ def _b64encode(value: bytes) -> str:
 
 
 def _b64decode(value: str) -> bytes:
-    if not value or any(char not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_=" for char in value):
+    if not value or any(
+        char not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_="
+        for char in value
+    ):
         raise AuthError("base64url value is malformed")
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))

@@ -59,7 +59,10 @@ class IdentityRepository:
         """Consume an invitation once and create a pending, non-opted-in identity."""
         iso_utc(now)  # Reject naive timestamps before issuing a one-time transition.
         consumed_at = (
-            (now.astimezone(timezone.utc) + timedelta(microseconds=secrets.randbelow(1_000_000)))
+            (
+                now.astimezone(timezone.utc)
+                + timedelta(microseconds=secrets.randbelow(1_000_000))
+            )
             .isoformat(timespec="microseconds")
             .replace("+00:00", "Z")
         )
@@ -95,7 +98,9 @@ class IdentityRepository:
         )
         return changes == [1, 1]
 
-    async def set_friendship(self, line_subject: str, checked_at: datetime, is_friend: bool) -> bool:
+    async def set_friendship(
+        self, line_subject: str, checked_at: datetime, is_friend: bool
+    ) -> bool:
         rows = await self._store.execute(
             Statement(
                 "UPDATE recipients SET friendship_checked_at = ? WHERE line_subject = ?",
@@ -134,11 +139,16 @@ class IdentityRepository:
 
     async def recipient_display_name(self, line_subject: str) -> str | None:
         rows = await self._store.fetch_all(
-            Statement("SELECT display_name FROM recipients WHERE line_subject = ?", (line_subject,))
+            Statement(
+                "SELECT display_name FROM recipients WHERE line_subject = ?",
+                (line_subject,),
+            )
         )
         return str(rows[0]["display_name"]) if rows else None
 
-    async def recipient_id(self, line_subject: str, *, active: bool | None = None) -> str | None:
+    async def recipient_id(
+        self, line_subject: str, *, active: bool | None = None
+    ) -> str | None:
         predicate = "" if active is None else " AND active = ?"
         values = (line_subject,) if active is None else (line_subject, int(active))
         rows = await self._store.fetch_all(

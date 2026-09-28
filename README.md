@@ -54,6 +54,28 @@ Expected local result:
 
 The visit list shows the server-owned official source link for NTUH Main or Taipei Shin Kong when present in the visit projection. Shin Kong's link is its verified official registration portal, not a verified direct progress-query route. A missing link is shown as unavailable and is never made clickable. These static links make no hospital requests and do not imply freshness. The session field accepts only the domain's canonical values and does not display generic session options because there is no clinic/date-specific directory. Enter only a session code supplied by the hospital. The standard `npm run dev:local` path has no D1 or send-gate bindings; use it only to inspect the unauthenticated shell and unavailable-service behavior.
 
-The current runner has `uv 0.11.32`, while `pywrangler` requires `uv 0.12.3` or newer, so the local browser journey could not be run in this environment. There is no browser automation dependency in the repository; use the manual browser steps above when the local Wrangler runtime is available.
+The current runner has `uv 0.11.32`, below the `uv 0.12.3` minimum for `pywrangler`, so the Wrangler-backed manual journey above is unavailable here. The automated acceptance journey below instead runs the built UI in local headless Chromium against loopback Uvicorn, SQLite, synthetic fixtures, and fake transports.
 
 Run `npm run test:ui` for the focused lifecycle gate checks, `uv run pytest -q` for the full local Python suite, and `npm run build` for the frontend build. These commands do not contact hospitals or LINE and do not deploy.
+
+## CI and local acceptance (NIY-008)
+
+From a clean checkout, install the pinned dependencies and run the same deterministic gates as CI:
+
+```sh
+uv sync --group dev --locked
+npm ci
+uv run playwright install chromium
+uv run ruff format --check src tests scripts
+uv run ruff check src tests scripts
+npm run typecheck
+npm run test:ui
+npm run build
+uv run python scripts/check_migrations.py
+uv run pytest -q
+git diff --check
+```
+
+Expected outcomes: Ruff reports no formatting or lint issues, TypeScript exits successfully, all frontend tests pass, Vite builds `dist/`, the migration checker reports that every migration applied and SQLite schema checks passed, and pytest reports the complete Python suite passed. The Python suite includes `tests/test_local_acceptance.py`, which serves the built browser shell and drives organizer HTTP routes, SQLite, the synthetic hospital fixture, scheduled ticks, and the fake LINE transport in process. Scheduler tests also cover duplicate ticks and corrected watches, equality and jumps past the target, the one-time third-read unavailable warning, and both send/Stop orderings. None of these tests make hospital, LINE, Cloudflare, or deployment requests.
+
+The browser test requires the Playwright Chromium browser installed by the command above. The HTTP test uses ASGI transport; the browser test binds a temporary loopback server and blocks browser requests to every other origin. To repeat the separate Wrangler visual journey, follow **Local UI acceptance (NIY-007)** above when `pywrangler` is available. The current runner's `uv` is below its minimum version. See [the pre-live checklist](docs/PRE-LIVE-CHECKLIST.md) for gates local tests do not prove.

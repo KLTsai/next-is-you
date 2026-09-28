@@ -9,7 +9,12 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from next_is_you.line_messaging import LinePushClient, LinePushHttpResponse
-from next_is_you.persistence import CloudflareD1Store, Statement, VisitRepository, visit_cutoff
+from next_is_you.persistence import (
+    CloudflareD1Store,
+    Statement,
+    VisitRepository,
+    visit_cutoff,
+)
 from next_is_you.domain import ClinicScope, ClinicSession, Hospital
 from next_is_you.scheduler import HospitalReader, OutboxScheduler, TickPlan
 
@@ -41,7 +46,11 @@ class SystemSendGate(_DurableObjectBase):
                 return {"held": True}
             if not await self._check_ledger():
                 return {"held": True, "reason": "d1_ledger_mismatch"}
-            clock = (lambda: tick_time) if now is not None else lambda: datetime.now(timezone.utc)
+            clock = (
+                (lambda: tick_time)
+                if now is not None
+                else lambda: datetime.now(timezone.utc)
+            )
             scheduler = self._scheduler(clock)
             await scheduler.recover(tick_time)
             plan = await scheduler.prepare_tick(tick_time)
@@ -94,7 +103,9 @@ class SystemSendGate(_DurableObjectBase):
             await self._save_ledger()
             return state
 
-    async def start_visit(self, visit_id: str, now: str | None = None) -> dict[str, Any]:
+    async def start_visit(
+        self, visit_id: str, now: str | None = None
+    ) -> dict[str, Any]:
         """Start only after the gate obtains a fresh trusted exact-scope sample."""
         timestamp = _datetime(now)
         async with self._lock:
@@ -111,7 +122,9 @@ class SystemSendGate(_DurableObjectBase):
             # No production hospital reader is configured until NIY-004 supplies a
             # verified transport. The local reader exists only under NIY-006 test mode.
             if not _test_mode(self.env):
-                await repository.set_source_read(visit_id, "unavailable", "no_observation")
+                await repository.set_source_read(
+                    visit_id, "unavailable", "no_observation"
+                )
                 return {"error": "observation_unavailable"}
             try:
                 scope = ClinicScope(
@@ -120,32 +133,48 @@ class SystemSendGate(_DurableObjectBase):
                     department_code=str(visit["department_code"]),
                     clinic_code=str(visit["clinic_code"]),
                     session=ClinicSession(str(visit["clinic_session"])),
-                    doctor_code=str(visit["doctor_code"]) if visit.get("doctor_code") else None,
-                    room_code=str(visit["room_code"]) if visit.get("room_code") else None,
+                    doctor_code=str(visit["doctor_code"])
+                    if visit.get("doctor_code")
+                    else None,
+                    room_code=str(visit["room_code"])
+                    if visit.get("room_code")
+                    else None,
                 )
             except (ValueError, TypeError, KeyError):
                 await repository.set_source_read(visit_id, "invalid", "invalid_data")
                 return {"error": "observation_invalid"}
-            observation = await _TestHospitalReader(self.ctx.storage).observe(scope, timestamp)
+            observation = await _TestHospitalReader(self.ctx.storage).observe(
+                scope, timestamp
+            )
             if observation is None:
-                await repository.set_source_read(visit_id, "unavailable", "no_observation")
+                await repository.set_source_read(
+                    visit_id, "unavailable", "no_observation"
+                )
                 return {"error": "observation_unavailable"}
             try:
                 observed_at = _datetime(observation.observed_at)
             except (AttributeError, TypeError, ValueError):
                 await repository.set_source_read(visit_id, "invalid", "invalid_data")
                 return {"error": "observation_invalid"}
-            if observed_at > timestamp or timestamp - observed_at > timedelta(minutes=2):
+            if observed_at > timestamp or timestamp - observed_at > timedelta(
+                minutes=2
+            ):
                 await repository.set_source_read(visit_id, "stale", "stale_sample")
                 return {"error": "observation_stale"}
             if observation.scope != scope:
-                await repository.set_source_read(visit_id, "scope_mismatch", "scope_mismatch")
+                await repository.set_source_read(
+                    visit_id, "scope_mismatch", "scope_mismatch"
+                )
                 return {"error": "observation_scope_mismatch"}
-            if (not observation.trustworthy_current
-                    or isinstance(observation.current_number, bool)
-                    or not isinstance(observation.current_number, int)
-                    or observation.current_number < 1):
-                await repository.set_source_read(visit_id, "untrusted", "untrusted_source")
+            if (
+                not observation.trustworthy_current
+                or isinstance(observation.current_number, bool)
+                or not isinstance(observation.current_number, int)
+                or observation.current_number < 1
+            ):
+                await repository.set_source_read(
+                    visit_id, "untrusted", "untrusted_source"
+                )
                 return {"error": "observation_untrusted"}
             if not await repository.start(visit_id, timestamp):
                 return {"error": "ineligible_recipients"}
@@ -159,9 +188,18 @@ class SystemSendGate(_DurableObjectBase):
             await self._save_ledger()
             return {"state": "active"}
 
-    async def correct_stopped_visit(self, visit_id: str, *, hospital: str,
-            visit_day: date, department_code: str, clinic_code: str,
-            clinic_session: str, patient_number: int, recipient_ids: tuple[str, ...]) -> bool:
+    async def correct_stopped_visit(
+        self,
+        visit_id: str,
+        *,
+        hospital: str,
+        visit_day: date,
+        department_code: str,
+        clinic_code: str,
+        clinic_session: str,
+        patient_number: int,
+        recipient_ids: tuple[str, ...],
+    ) -> bool:
         """Reopen a stopped logical series without resetting its alert history."""
         async with self._lock:
             repository = self._repository()
@@ -178,10 +216,17 @@ class SystemSendGate(_DurableObjectBase):
                 return False
             if not await repository.prepare_correction(visit_id):
                 return False
-            if not await repository.correct_clinic(visit_id=visit_id, hospital=hospital,
-                    visit_day=visit_day, department_code=department_code,
-                    clinic_code=clinic_code, clinic_session=clinic_session,
-                    patient_number=patient_number, doctor_code=None, room_code=None):
+            if not await repository.correct_clinic(
+                visit_id=visit_id,
+                hospital=hospital,
+                visit_day=visit_day,
+                department_code=department_code,
+                clinic_code=clinic_code,
+                clinic_session=clinic_session,
+                patient_number=patient_number,
+                doctor_code=None,
+                room_code=None,
+            ):
                 return False
             for recipient_id in existing - selected:
                 await repository.remove_recipient(visit_id, recipient_id)
@@ -204,7 +249,9 @@ class SystemSendGate(_DurableObjectBase):
             await self._save_ledger()
             return removed
 
-    async def withdraw_recipient(self, recipient_id: str, now: str | None = None) -> bool:
+    async def withdraw_recipient(
+        self, recipient_id: str, now: str | None = None
+    ) -> bool:
         async with self._lock:
             timestamp = _datetime(now)
             repository = self._repository()

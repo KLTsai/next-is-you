@@ -38,7 +38,16 @@ def test_session_rejects_tampering_expiry_and_unknown_roles():
         issue_session("line-user-1", "admin", SECRET, now=1_000)
     with pytest.raises(AuthError):
         verify_session(
-            _signed_payload({"csrf": "x", "exp": 2_000, "purpose": "session", "role": [], "sub": "u", "v": 1}),
+            _signed_payload(
+                {
+                    "csrf": "x",
+                    "exp": 2_000,
+                    "purpose": "session",
+                    "role": [],
+                    "sub": "u",
+                    "v": 1,
+                }
+            ),
             SECRET,
             now=1_001,
         )
@@ -93,9 +102,11 @@ def _signed_payload(payload):
     import hmac
     import json
 
-    body = base64.urlsafe_b64encode(
-        json.dumps(payload, separators=(",", ":")).encode()
-    ).rstrip(b"=").decode()
+    body = (
+        base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode())
+        .rstrip(b"=")
+        .decode()
+    )
     signature = hmac.new(SECRET.encode(), body.encode(), hashlib.sha256).digest()
     encoded_signature = base64.urlsafe_b64encode(signature).rstrip(b"=").decode()
     return f"{body}.{encoded_signature}"

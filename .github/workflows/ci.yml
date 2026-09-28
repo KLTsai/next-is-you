@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: "0.11.32"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - run: uv sync --group dev --locked
+      - run: npm ci
+      - run: uv run ruff format --check src tests scripts
+      - run: uv run ruff check src tests scripts
+      - run: npm run typecheck
+      - run: npm run test:ui
+      - run: npm run build
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run python scripts/check_migrations.py
+      - run: uv run pytest -q
+      - run: git diff --check

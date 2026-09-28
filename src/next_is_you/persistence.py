@@ -49,10 +49,14 @@ class CloudflareD1Store:
         return list(rows)
 
     async def batch(self, statements: Sequence[Statement]) -> list[int]:
-        results = await self._binding.batch([self._prepare(item) for item in statements])
+        results = await self._binding.batch(
+            [self._prepare(item) for item in statements]
+        )
         if hasattr(results, "to_py"):
             results = results.to_py()
-        return [int(_property(_property(item, "meta"), "changes", 0)) for item in results]
+        return [
+            int(_property(_property(item, "meta"), "changes", 0)) for item in results
+        ]
 
 
 def _property(value: Any, key: str, default: Any = None) -> Any:
@@ -95,20 +99,27 @@ class VisitRepository:
         return rows[0] if rows else None
 
     async def eligible_recipients(self) -> list[Mapping[str, Any]]:
-        return await self._store.fetch_all(Statement(
-            """SELECT id, display_name FROM recipients WHERE active = 1
+        return await self._store.fetch_all(
+            Statement(
+                """SELECT id, display_name FROM recipients WHERE active = 1
                 AND consented_at IS NOT NULL AND friendship_checked_at IS NOT NULL
                 ORDER BY display_name, id"""
-        ))
+            )
+        )
 
     async def selected_recipient_ids(self, visit_id: str) -> set[str]:
-        rows = await self._store.fetch_all(Statement(
-            "SELECT recipient_id FROM visit_recipients WHERE visit_id = ?", (visit_id,)))
+        rows = await self._store.fetch_all(
+            Statement(
+                "SELECT recipient_id FROM visit_recipients WHERE visit_id = ?",
+                (visit_id,),
+            )
+        )
         return {str(row["recipient_id"]) for row in rows}
 
     async def organizer_visits(self) -> list[Mapping[str, Any]]:
-        return await self._store.fetch_all(Statement(
-            """SELECT v.id, v.hospital, v.visit_date, v.department_code, v.clinic_code,
+        return await self._store.fetch_all(
+            Statement(
+                """SELECT v.id, v.hospital, v.visit_date, v.department_code, v.clinic_code,
                 v.clinic_session, v.state, v.near_last_current_number, v.latest_observed_at,
                 v.latest_source_read_status, v.latest_source_read_reason,
                 vr.recipient_id, r.display_name,
@@ -119,25 +130,67 @@ class VisitRepository:
                 LEFT JOIN visit_recipients AS vr ON vr.visit_id = v.id
                 LEFT JOIN recipients AS r ON r.id = vr.recipient_id
                 LEFT JOIN outbound_events AS e ON e.visit_id = v.id AND e.recipient_id = vr.recipient_id
-                GROUP BY v.id, vr.recipient_id ORDER BY v.created_at DESC, v.id""")
+                GROUP BY v.id, vr.recipient_id ORDER BY v.created_at DESC, v.id"""
+            )
         )
 
     async def set_source_read(self, visit_id: str, status: str, reason: str) -> bool:
-        statuses = {"usable", "unavailable", "stale", "untrusted", "scope_mismatch", "invalid"}
-        reasons = {"none", "no_observation", "timeout", "stale_sample", "untrusted_source", "scope_mismatch", "empty_result", "schema_drift", "access_denied", "ambiguous_match", "invalid_data"}
+        statuses = {
+            "usable",
+            "unavailable",
+            "stale",
+            "untrusted",
+            "scope_mismatch",
+            "invalid",
+        }
+        reasons = {
+            "none",
+            "no_observation",
+            "timeout",
+            "stale_sample",
+            "untrusted_source",
+            "scope_mismatch",
+            "empty_result",
+            "schema_drift",
+            "access_denied",
+            "ambiguous_match",
+            "invalid_data",
+        }
         if status not in statuses or reason not in reasons:
             raise ValueError("invalid source-read metadata")
-        return await self._store.execute(Statement(
-            "UPDATE visits SET latest_source_read_status = ?, latest_source_read_reason = ? WHERE id = ?",
-            (status, reason, visit_id),
-        )) == 1
+        return (
+            await self._store.execute(
+                Statement(
+                    "UPDATE visits SET latest_source_read_status = ?, latest_source_read_reason = ? WHERE id = ?",
+                    (status, reason, visit_id),
+                )
+            )
+            == 1
+        )
 
-    async def create_organizer_draft(self, *, visit_id: str, hospital: str, visit_day: date,
-            department_code: str, clinic_code: str, clinic_session: str,
-            patient_number: int, recipient_ids: Sequence[str], now: datetime) -> bool:
-        await self.create_draft(visit_id=visit_id, hospital=hospital, visit_day=visit_day,
-            department_code=department_code, clinic_code=clinic_code,
-            clinic_session=clinic_session, patient_number=patient_number, now=now)
+    async def create_organizer_draft(
+        self,
+        *,
+        visit_id: str,
+        hospital: str,
+        visit_day: date,
+        department_code: str,
+        clinic_code: str,
+        clinic_session: str,
+        patient_number: int,
+        recipient_ids: Sequence[str],
+        now: datetime,
+    ) -> bool:
+        await self.create_draft(
+            visit_id=visit_id,
+            hospital=hospital,
+            visit_day=visit_day,
+            department_code=department_code,
+            clinic_code=clinic_code,
+            clinic_session=clinic_session,
+            patient_number=patient_number,
+            now=now,
+        )
         for recipient_id in dict.fromkeys(recipient_ids):
             if not await self.add_recipient(visit_id, recipient_id, now):
                 await self.delete_draft(visit_id)
@@ -147,9 +200,19 @@ class VisitRepository:
             return False
         return True
 
-    async def update_draft(self, *, visit_id: str, hospital: str, visit_day: date,
-            department_code: str, clinic_code: str, clinic_session: str,
-            patient_number: int, recipient_ids: Sequence[str], now: datetime) -> bool:
+    async def update_draft(
+        self,
+        *,
+        visit_id: str,
+        hospital: str,
+        visit_day: date,
+        department_code: str,
+        clinic_code: str,
+        clinic_session: str,
+        patient_number: int,
+        recipient_ids: Sequence[str],
+        now: datetime,
+    ) -> bool:
         visit = await self.get_visit(visit_id)
         if visit is None or visit["state"] != "draft" or visit["roster_frozen"]:
             return False
@@ -157,26 +220,45 @@ class VisitRepository:
             return False
         wanted = list(dict.fromkeys(recipient_ids))
         placeholders = ",".join("?" for _ in wanted)
-        eligible = await self._store.fetch_all(Statement(
-            f"""SELECT id FROM recipients WHERE id IN ({placeholders}) AND active = 1
-                AND consented_at IS NOT NULL AND friendship_checked_at IS NOT NULL""", tuple(wanted)))
+        eligible = await self._store.fetch_all(
+            Statement(
+                f"""SELECT id FROM recipients WHERE id IN ({placeholders}) AND active = 1
+                AND consented_at IS NOT NULL AND friendship_checked_at IS NOT NULL""",
+                tuple(wanted),
+            )
+        )
         if {str(row["id"]) for row in eligible} != set(wanted):
             return False
-        if not await self.correct_clinic(visit_id=visit_id, hospital=hospital,
-                visit_day=visit_day, department_code=department_code, clinic_code=clinic_code,
-                clinic_session=clinic_session, patient_number=patient_number,
-                doctor_code=None, room_code=None):
+        if not await self.correct_clinic(
+            visit_id=visit_id,
+            hospital=hospital,
+            visit_day=visit_day,
+            department_code=department_code,
+            clinic_code=clinic_code,
+            clinic_session=clinic_session,
+            patient_number=patient_number,
+            doctor_code=None,
+            room_code=None,
+        ):
             return False
-        current = await self._store.fetch_all(Statement(
-            "SELECT recipient_id FROM visit_recipients WHERE visit_id = ?", (visit_id,)))
+        current = await self._store.fetch_all(
+            Statement(
+                "SELECT recipient_id FROM visit_recipients WHERE visit_id = ?",
+                (visit_id,),
+            )
+        )
         for row in current:
             rid = str(row["recipient_id"])
             if rid not in wanted:
                 await self.remove_recipient(visit_id, rid)
         for rid in wanted:
             if not await self.add_recipient(visit_id, rid, now):
-                existing = await self._store.fetch_all(Statement(
-                    "SELECT 1 FROM visit_recipients WHERE visit_id = ? AND recipient_id = ?", (visit_id, rid)))
+                existing = await self._store.fetch_all(
+                    Statement(
+                        "SELECT 1 FROM visit_recipients WHERE visit_id = ? AND recipient_id = ?",
+                        (visit_id, rid),
+                    )
+                )
                 if not existing:
                     return False
         return True
@@ -220,7 +302,9 @@ class VisitRepository:
             [dict(row) for row in recipient_rows],
             [dict(row) for row in event_rows],
         ]
-        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+        encoded = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), default=str
+        )
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     async def active_schedule_rows(self) -> list[Mapping[str, Any]]:
@@ -388,7 +472,9 @@ class VisitRepository:
         if changes != 1:
             return None
         rows = await self._store.fetch_all(
-            Statement("SELECT attempt_count FROM outbound_events WHERE id = ?", (event_id,))
+            Statement(
+                "SELECT attempt_count FROM outbound_events WHERE id = ?", (event_id,)
+            )
         )
         return int(rows[0]["attempt_count"]) if rows else None
 
@@ -470,7 +556,9 @@ class VisitRepository:
     async def delete_draft(self, visit_id: str) -> bool:
         return (
             await self._store.execute(
-                Statement("DELETE FROM visits WHERE id = ? AND state = 'draft'", (visit_id,))
+                Statement(
+                    "DELETE FROM visits WHERE id = ? AND state = 'draft'", (visit_id,)
+                )
             )
             == 1
         )
@@ -526,7 +614,13 @@ class VisitRepository:
             else "r.friendship_checked_at IS NOT NULL"
         )
         values: tuple[Any, ...] = (
-            (visit_id, iso_utc(now), visit_id, recipient_id, iso_utc(friendship_checked_at))
+            (
+                visit_id,
+                iso_utc(now),
+                visit_id,
+                recipient_id,
+                iso_utc(friendship_checked_at),
+            )
             if friendship_checked_at is not None
             else (visit_id, iso_utc(now), visit_id, recipient_id)
         )
@@ -702,7 +796,10 @@ class VisitRepository:
 
     async def withdraw_recipient(self, recipient_id: str) -> bool:
         changes = await self._store.execute(
-            Statement("UPDATE recipients SET active = 0 WHERE id = ? AND active = 1", (recipient_id,))
+            Statement(
+                "UPDATE recipients SET active = 0 WHERE id = ? AND active = 1",
+                (recipient_id,),
+            )
         )
         await self.erase_settled_withdrawals()
         return changes == 1

@@ -73,7 +73,7 @@ def test_local_worker_serves_ui_and_built_assets_from_its_origin(tmp_path, monke
     index, script, health = asyncio.run(request_local_app())
 
     assert index.status_code == 200
-    assert '/assets/app.js' in index.text
+    assert "/assets/app.js" in index.text
     assert script.status_code == 200
     assert script.text == 'fetch("/api/healthz")'
     assert health.status_code == 200
@@ -84,7 +84,7 @@ def test_local_settings_load_from_root_dotenv_format_without_test_mode(tmp_path)
     env_file = tmp_path / ".env"
     env_file.write_text(
         "LINE_LOGIN_CHANNEL_ID=local-id\n"
-        "LINE_LOGIN_CHANNEL_SECRET=\"local-secret\"\n"
+        'LINE_LOGIN_CHANNEL_SECRET="local-secret"\n'
         "LINE_LOGIN_REDIRECT_URI=https://localhost/auth/line/callback\n"
         "SESSION_SIGNING_SECRET=local-session-signing-secret-with-32-bytes\n"
         "ORGANIZER_LINE_SUBJECTS=local-organizer, another-organizer\n"
@@ -126,7 +126,9 @@ def test_local_app_without_dotenv_fails_closed_and_keeps_test_controls_disabled(
     assert test_control.status_code == 404
 
 
-def test_local_launch_uses_root_dotenv_settings_but_ignores_test_mode(monkeypatch, tmp_path):
+def test_local_launch_uses_root_dotenv_settings_but_ignores_test_mode(
+    monkeypatch, tmp_path
+):
     monkeypatch.setattr("local_runtime.ROOT", tmp_path)
     (tmp_path / ".env").write_text(
         "LINE_LOGIN_CHANNEL_ID=local-id\n"
@@ -177,9 +179,7 @@ def test_local_runtime_keeps_dotenv_values_server_side_and_uses_fake_oauth(
         '<script type="module" src="/assets/app.js"></script>', encoding="utf-8"
     )
     (assets / "assets").mkdir()
-    (assets / "assets" / "app.js").write_text(
-        'fetch("/api/healthz")', encoding="utf-8"
-    )
+    (assets / "assets" / "app.js").write_text('fetch("/api/healthz")', encoding="utf-8")
     monkeypatch.setattr("local_runtime.ROOT", tmp_path)
     monkeypatch.setattr(worker, "STATIC_ASSET_ROOT", assets)
 
@@ -241,9 +241,7 @@ def test_env_files_are_ignored_but_template_is_tracked():
         ".dev.vars",
         ".dev.vars.local",
     ):
-        ignored = subprocess.run(
-            ["git", "check-ignore", "--quiet", path], check=False
-        )
+        ignored = subprocess.run(["git", "check-ignore", "--quiet", path], check=False)
         assert ignored.returncode == 0, f"{path} should be ignored"
 
     tracked = subprocess.run(

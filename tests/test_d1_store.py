@@ -39,10 +39,12 @@ async def test_d1_store_uses_bound_prepared_statements_and_reads_results() -> No
     binding = D1Binding()
     store = CloudflareD1Store(binding)
 
-    assert await store.execute(Statement("UPDATE visits SET state = ?", ("active",))) == 2
-    assert await store.fetch_all(Statement("SELECT id, state FROM visits WHERE id = ?", ("v1",))) == [
-        {"id": "v1", "state": "active"}
-    ]
+    assert (
+        await store.execute(Statement("UPDATE visits SET state = ?", ("active",))) == 2
+    )
+    assert await store.fetch_all(
+        Statement("SELECT id, state FROM visits WHERE id = ?", ("v1",))
+    ) == [{"id": "v1", "state": "active"}]
 
 
 @pytest.mark.asyncio

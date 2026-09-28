@@ -20,7 +20,7 @@ NIY-001 through NIY-007, NIY-010.
 
 ## Implementation and local validation
 
-- `.github/workflows/ci.yml` runs Ruff format and lint, the TypeScript check, frontend tests and build, Playwright Chromium installation, SQLite migration checks, the full Python suite, and `git diff --check`. CI uses Python 3.13 and Node 24 with locked dependencies. It has no deploy step or credentials.
+- `.github/workflows/ci.yml` runs Ruff format and lint, the TypeScript check, frontend tests and build, Playwright Chromium installation, SQLite migration checks, the full Python suite, and an event-aware diff whitespace check. It fetches full Git history; pull requests compare base to head, pushes compare before to after, and new branch pushes use the fetched default branch. Missing or unavailable ranges fail closed. CI uses Python 3.13 and Node 24 with locked dependencies. It has no deploy step or credentials.
 - `tests/test_local_acceptance.py` has an HTTP integration journey and a real headless-browser journey. Both use loopback/in-process routes, migrated in-memory SQLite, a synthetic organizer and recipients, the tracked NTUH-shaped fixture, the local scheduler, and fake LINE transport. The browser test blocks browser requests to every origin except its loopback server.
 - The journeys assert fail-closed Start without an observation, selected-recipient-only delivery for patient 85/current 82, one alert after repeated ticks, equality and a jump beyond the target producing no alert, Stop confirmation and no later sends. Existing alert/scheduler tests assert one warning on the third consecutive unusable read, no repeat warning, corrected-watch deduplication, and both send-first and Stop-first orderings.
 - Run from a clean checkout:

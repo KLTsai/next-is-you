@@ -137,14 +137,33 @@ class VisitRepository:
             )
         )
 
-    async def add_recipient(self, visit_id: str, recipient_id: str, now: datetime) -> bool:
+    async def add_recipient(
+        self,
+        visit_id: str,
+        recipient_id: str,
+        now: datetime,
+        *,
+        friendship_checked_at: datetime | None = None,
+    ) -> bool:
+        friendship_clause = (
+            "r.friendship_checked_at = ?"
+            if friendship_checked_at is not None
+            else "r.friendship_checked_at IS NOT NULL"
+        )
+        values: tuple[Any, ...] = (
+            (visit_id, iso_utc(now), visit_id, recipient_id, iso_utc(friendship_checked_at))
+            if friendship_checked_at is not None
+            else (visit_id, iso_utc(now), visit_id, recipient_id)
+        )
         changes = await self._store.execute(
             Statement(
-                """INSERT INTO visit_recipients (visit_id, recipient_id, selected_at)
+                f"""INSERT INTO visit_recipients (visit_id, recipient_id, selected_at)
                 SELECT ?, r.id, ? FROM recipients AS r
                 JOIN visits AS v ON v.id = ?
-                WHERE r.id = ? AND r.active = 1 AND v.state = 'draft' AND v.roster_frozen = 0""",
-                (visit_id, iso_utc(now), visit_id, recipient_id),
+                WHERE r.id = ? AND r.active = 1 AND r.consented_at IS NOT NULL
+                    AND {friendship_clause}
+                    AND v.state = 'draft' AND v.roster_frozen = 0""",
+                values,
             )
         )
         return changes == 1
@@ -176,6 +195,8 @@ class VisitRepository:
                     SELECT 1 FROM visit_recipients AS vr
                     JOIN recipients AS r ON r.id = vr.recipient_id
                     WHERE vr.visit_id = visits.id AND r.active = 1
+                        AND r.consented_at IS NOT NULL
+                        AND r.friendship_checked_at IS NOT NULL
                 )""",
                 (iso_utc(now), visit_id),
             )

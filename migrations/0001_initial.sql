@@ -4,7 +4,7 @@ CREATE TABLE recipients (
     id TEXT PRIMARY KEY NOT NULL,
     line_subject TEXT NOT NULL UNIQUE,
     display_name TEXT NOT NULL,
-    consented_at TEXT NOT NULL,
+    consented_at TEXT,
     friendship_checked_at TEXT,
     active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
     created_at TEXT NOT NULL

@@ -3,7 +3,7 @@ import asyncio
 from httpx import ASGITransport, AsyncClient
 
 import worker
-from worker import app
+from worker import LineLoginSettings, app
 
 
 def test_local_worker_health_is_explicitly_non_production():
@@ -18,6 +18,24 @@ def test_local_worker_health_is_explicitly_non_production():
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "mode": "local-development"}
+
+
+def test_line_login_settings_require_an_https_callback_without_userinfo():
+    values = {
+        "line_login_channel_id": "local-channel",
+        "line_login_channel_secret": "local-channel-secret",
+        "line_login_redirect_uri": "https://family.example/auth/line/callback",
+        "session_secret": "local-test-secret-with-at-least-32-bytes",
+        "organizer_subjects": {"local-organizer"},
+    }
+
+    assert LineLoginSettings.from_mapping(values).ready
+    assert not LineLoginSettings.from_mapping(
+        values | {"line_login_redirect_uri": "http://family.example/callback"}
+    ).ready
+    assert not LineLoginSettings.from_mapping(
+        values | {"line_login_redirect_uri": "https://user@family.example/callback"}
+    ).ready
 
 
 def test_api_routes_are_registered_before_the_static_fallback():

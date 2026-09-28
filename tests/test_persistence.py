@@ -53,12 +53,12 @@ def at(value: str) -> datetime:
 async def seeded_repository() -> tuple[SQLiteStore, VisitRepository]:
     store = SQLiteStore()
     store.connection.execute(
-        """INSERT INTO recipients (id, line_subject, display_name, consented_at, created_at)
-        VALUES ('r1', 'line-r1', 'Family A', '2026-09-27T00:00:00Z', '2026-09-27T00:00:00Z')"""
+        """INSERT INTO recipients (id, line_subject, display_name, consented_at, friendship_checked_at, created_at)
+        VALUES ('r1', 'line-r1', 'Family A', '2026-09-27T00:00:00Z', '2026-09-27T00:00:00Z', '2026-09-27T00:00:00Z')"""
     )
     store.connection.execute(
-        """INSERT INTO recipients (id, line_subject, display_name, consented_at, created_at)
-        VALUES ('r2', 'line-r2', 'Family B', '2026-09-27T00:00:00Z', '2026-09-27T00:00:00Z')"""
+        """INSERT INTO recipients (id, line_subject, display_name, consented_at, friendship_checked_at, created_at)
+        VALUES ('r2', 'line-r2', 'Family B', '2026-09-27T00:00:00Z', '2026-09-27T00:00:00Z', '2026-09-27T00:00:00Z')"""
     )
     return store, VisitRepository(store)
 

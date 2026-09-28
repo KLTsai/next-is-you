@@ -14,6 +14,9 @@ This repository does not yet use an external issue tracker. These checked-in tic
 | NIY-006 | Done | [Scheduler, outbox, and send coordination](NIY-006-scheduler-outbox.md) | NIY-003, NIY-004, NIY-005 |
 | NIY-007 | Open | [Settings, status, and stop UI](NIY-007-user-interface.md) | NIY-002 through NIY-006 |
 | NIY-008 | Open | [CI and local acceptance journey](NIY-008-ci-acceptance.md) | NIY-001 through NIY-007 |
+| NIY-009 | Open | [Runtime configuration and secrets management](NIY-009-runtime-configuration-secrets.md) | NIY-002, NIY-005, NIY-006 |
+| NIY-014 | Open | [Research documentation navigation](NIY-014-research-navigation.md) | None |
+| NIY-015 | Open | [Repository structure review and disposition](NIY-015-repository-structure-review.md) | None |
 
 ## Acceptance guardrails
 

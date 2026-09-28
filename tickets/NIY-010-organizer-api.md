@@ -8,8 +8,9 @@ Provide the organizer API used by the settings UI to manage eligible family reci
 
 ## Scope
 
-- Add organizer-authenticated endpoints to list currently eligible recipients and to list visits with a settings-ready status projection. The projection includes only the visit's clinic/date/session scope, selected recipient display data, lifecycle state, latest safe observation summary/check time, and notification outcome summary needed by the UI.
+- Add organizer-authenticated endpoints to list currently eligible recipients and to list visits with a settings-ready status projection. The projection includes only the visit's clinic/date/session scope, selected recipient display data, lifecycle state, latest safe observation summary/check time, latest source-read status and reason, and notification outcome summary needed by the UI. Include the hospital source URL only when supplied by the selected hospital adapter/catalog; never accept or echo a caller-provided URL.
 - Add draft creation and correction operations. Validate selected recipients as currently eligible and opted in. Draft edits may change the intended clinic/date/session and selection according to the lifecycle rules; they do not start monitoring or send notifications.
+- Persist the latest source-read status and reason as bounded enums for the UI when the current observation schema cannot provide them. Status values are `usable`, `unavailable`, `stale`, `untrusted`, `scope_mismatch`, and `invalid`; reason values are `none`, `no_observation`, `timeout`, `stale_sample`, `untrusted_source`, `scope_mismatch`, `empty_result`, `schema_drift`, `access_denied`, `ambiguous_match`, and `invalid_data`. Store no raw response body or free-form error text. Allow only the minimal migration required for this metadata.
 - Add a Start operation mediated by the NIY-006 serialized gate. Before activation, require a fresh, trusted observation whose clinic/date/session exactly matches the requested visit scope. Fail closed when no verified observation is available. Freeze the eligible recipient roster at the first successful Start, as defined by NIY-003/006.
 - Add gate-mediated Stop integration using the existing lifecycle and gate behavior, exposing a confirmed stopped result only after the close operation has taken effect under NIY-006 semantics.
 - Add correction for a stopped series by updating its watch while preserving the same logical visit ID and existing one-alert caps. Do not offer a correction path that resets notification history or silently creates a new logical visit.
@@ -20,7 +21,8 @@ Provide the organizer API used by the settings UI to manage eligible family reci
 
 ## Acceptance criteria
 
-- An authenticated organizer can retrieve eligible recipients and a list of visits with the status and notification projection required by NIY-007, without receiving provider payloads, identity subjects, credentials, retry keys, or exception internals.
+- An authenticated organizer can retrieve eligible recipients and a list of visits with the status and notification projection required by NIY-007, including the latest source-read status/reason and selected hospital's trusted source URL from its adapter/catalog. No endpoint accepts an arbitrary URL for this projection. Responses contain no provider payloads, identity subjects, credentials, retry keys, or exception internals.
+- Persisted source-read status and reason use only the enumerated values in this ticket. The minimal migration, if needed, stores only this bounded metadata and does not add raw response or free-form exception fields.
 - An organizer can create and edit a draft and can correct a stopped series. Correction retains the original logical visit ID and cannot reset per-recipient `near` or `unavailable` alert uniqueness/caps.
 - Start cannot activate a visit unless the gate accepts a fresh, trusted observation for the exact clinic/date/session scope and freezes the eligible roster. Unavailable, stale, untrusted, or mismatched observations leave the visit a draft and produce the corresponding typed error.
 - Stop is mediated by the NIY-006 gate and reports success only in accordance with its close/settlement contract. No API path bypasses the gate to start a LINE request or confirm Stop.
@@ -34,7 +36,7 @@ Provide the organizer API used by the settings UI to manage eligible family reci
 - NIY-004 live hospital transport and independent source freshness verification. Existing parsers/fixtures do not establish a verified live source; production Start remains unavailable unless the exact-scope observation is fresh and trusted.
 - Real LINE calls, changes to LINE Login or recipient enrollment, and deployment.
 - A new send API. Notification requests remain solely under NIY-006 scheduler/outbox and gate control.
-- Changes to database schema or runtime configuration unless separately scoped and reviewed.
+- Schema changes beyond the minimal migration for bounded latest source-read status/reason metadata, and any runtime configuration changes.
 
 ## Dependencies
 

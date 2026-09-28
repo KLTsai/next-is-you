@@ -19,6 +19,7 @@ This repository does not yet use an external issue tracker. These checked-in tic
 | NIY-014 | Open | [Research documentation navigation](NIY-014-research-navigation.md) | None |
 | NIY-015 | Open | [Repository structure review and disposition](NIY-015-repository-structure-review.md) | None |
 | NIY-016 | Complete (2026-09-28) | [Trusted hospital progress links](NIY-016-trusted-progress-links.md) | NIY-010 |
+| NIY-017 | Open | [Remove the unrelated NIY-014 ticket](NIY-017-remove-niy-014.md) | None |
 
 ## Acceptance guardrails
 

@@ -1,10 +1,13 @@
 import asyncio
+import logging
 import subprocess
+from urllib.parse import parse_qs, urlsplit
 
 from httpx import ASGITransport, AsyncClient
 
 import worker
 from local_runtime import create_local_app, load_local_settings
+from next_is_you.line_login import VerifiedLineIdentity
 from worker import LineLoginSettings, app
 
 
@@ -152,8 +155,92 @@ def test_local_launch_uses_root_dotenv_settings_but_ignores_test_mode(monkeypatc
     assert response.status_code == 404
 
 
+def test_local_runtime_keeps_dotenv_values_server_side_and_uses_fake_oauth(
+    monkeypatch, tmp_path, caplog
+):
+    values = {
+        "LINE_LOGIN_CHANNEL_ID": "local-channel-id-marker",
+        "LINE_LOGIN_CHANNEL_SECRET": "local-channel-secret-marker",
+        "LINE_LOGIN_REDIRECT_URI": "https://redirect-uri-marker.invalid/callback",
+        "SESSION_SIGNING_SECRET": "local-session-secret-marker-with-32-bytes",
+        "ORGANIZER_LINE_SUBJECTS": "local-organizer-marker",
+        "LINE_CHANNEL_ACCESS_TOKEN": "local-push-token-marker",
+        "NIY006_LOCAL_TEST_MODE": "1",
+    }
+    (tmp_path / ".env").write_text(
+        "".join(f"{name}={value}\n" for name, value in values.items()),
+        encoding="utf-8",
+    )
+    assets = tmp_path / "dist"
+    assets.mkdir()
+    (assets / "index.html").write_text(
+        '<script type="module" src="/assets/app.js"></script>', encoding="utf-8"
+    )
+    (assets / "assets").mkdir()
+    (assets / "assets" / "app.js").write_text(
+        'fetch("/api/healthz")', encoding="utf-8"
+    )
+    monkeypatch.setattr("local_runtime.ROOT", tmp_path)
+    monkeypatch.setattr(worker, "STATIC_ASSET_ROOT", assets)
+
+    class FakeOAuth:
+        calls = []
+
+        async def verify_login(self, **kwargs):
+            self.calls.append(kwargs)
+            return VerifiedLineIdentity("not-an-organizer", "fake-user-token")
+
+    fake_oauth = FakeOAuth()
+    caplog.set_level(logging.DEBUG)
+    local_app = create_local_app(line_client=fake_oauth)
+
+    async def exercise_local_runtime():
+        async with AsyncClient(
+            transport=ASGITransport(app=local_app),
+            base_url="https://localhost",
+        ) as client:
+            start = await client.get("/auth/line", follow_redirects=False)
+            query = parse_qs(urlsplit(start.headers["location"]).query)
+            callback = await client.get(
+                "/auth/line/callback",
+                params={"code": "fake-code", "state": query["state"][0]},
+            )
+            index = await client.get("/")
+            script = await client.get("/assets/app.js")
+            test_control = await client.post("/__niy006_test/snapshot")
+            return start, callback, index, script, test_control
+
+    start, callback, index, script, test_control = asyncio.run(exercise_local_runtime())
+
+    assert start.status_code == 302
+    assert callback.status_code == 403
+    assert len(fake_oauth.calls) == 1
+    oauth_call = fake_oauth.calls[0]
+    assert oauth_call["code"] == "fake-code"
+    assert oauth_call["redirect_uri"] == values["LINE_LOGIN_REDIRECT_URI"]
+    assert oauth_call["channel_id"] == values["LINE_LOGIN_CHANNEL_ID"]
+    assert oauth_call["channel_secret"] == values["LINE_LOGIN_CHANNEL_SECRET"]
+    assert oauth_call["nonce"]
+    assert local_app.state.send_gate is None
+    assert test_control.status_code == 404
+    for response_text in (start.text, callback.text, index.text, script.text):
+        assert all(value not in response_text for value in values.values())
+    logged_names = [
+        name
+        for name, value in values.items()
+        if name != "NIY006_LOCAL_TEST_MODE" and value in caplog.text
+    ]
+    assert not logged_names, f"configuration values were logged: {logged_names}"
+
+
 def test_env_files_are_ignored_but_template_is_tracked():
-    for path in (".env", ".env.local", ".env.example", ".dev.vars"):
+    for path in (
+        ".env",
+        ".env.local",
+        ".env.example",
+        ".dev.vars",
+        ".dev.vars.local",
+    ):
         ignored = subprocess.run(
             ["git", "check-ignore", "--quiet", path], check=False
         )

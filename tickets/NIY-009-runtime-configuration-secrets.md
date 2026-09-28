@@ -1,6 +1,6 @@
 # NIY-009: Runtime configuration and secrets management
 
-Status: Open
+Status: Complete
 
 ## Goal
 
@@ -10,8 +10,8 @@ Make the application's runtime configuration explicit, make root `.env` values u
 
 - `src/worker.py` reads LINE Login settings from the Worker request environment: `LINE_LOGIN_CHANNEL_ID`, `LINE_LOGIN_CHANNEL_SECRET`, `LINE_LOGIN_REDIRECT_URI`, `SESSION_SIGNING_SECRET`, and `ORGANIZER_LINE_SUBJECTS`.
 - `src/next_is_you/send_gate.py` reads `LINE_CHANNEL_ACCESS_TOKEN` and `NIY006_LOCAL_TEST_MODE` from the Worker environment. `ASSETS`, `DB`, and `SEND_GATE` are platform bindings configured by Wrangler, not values currently loaded from `.env`.
-- `.env_template` currently names only `LINE_CHANNEL_ACCESS_TOKEN` and `NIY006_LOCAL_TEST_MODE`. `.gitignore` ignores `.env`, `.env.*`, `.dev.vars`, and `.dev.vars.*`; `.env_template` remains trackable.
-- `npm run dev:local` starts Uvicorn without an env-file option. The app reads request-scoped Worker bindings and does not load process environment variables, so copying `.env_template` to `.env` does not currently configure that launch path.
+- `.env_template` documents each application setting with blank values. `.gitignore` ignores `.env`, `.env.*`, `.dev.vars`, and `.dev.vars.*`; `.env_template` remains trackable.
+- `npm run dev:local` builds the UI and runs `src/local_runtime.py`, which reads the repository-root `.env` without logging or exporting its values. The local app receives settings directly and does not receive Cloudflare bindings or test controls.
 - NIY-006 owns scheduler/outbox behavior and its local test harness, including the test-only mode and push-token checks already recorded there. Its ticket body says `Complete`, while the ticket index says `Open`; this ticket owns the broader application configuration catalog and local configuration workflow without changing NIY-006's recorded scope or status.
 
 ## Configuration inventory

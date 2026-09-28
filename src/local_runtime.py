@@ -8,6 +8,7 @@ from fastapi import FastAPI
 import uvicorn
 from dotenv import dotenv_values
 
+from next_is_you.line_login import LineOAuthClient
 from worker import LineLoginSettings, create_app
 
 
@@ -27,9 +28,9 @@ def load_local_settings(env_path: Path | None = None) -> LineLoginSettings:
     )
 
 
-def create_local_app() -> FastAPI:
+def create_local_app(*, line_client: LineOAuthClient | None = None) -> FastAPI:
     """Create the local app without Cloudflare bindings or test controls."""
-    return create_app(settings=load_local_settings())
+    return create_app(settings=load_local_settings(), line_client=line_client)
 
 
 if __name__ == "__main__":

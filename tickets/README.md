@@ -18,7 +18,7 @@ This repository does not yet use an external issue tracker. These checked-in tic
 | NIY-010 | Complete (2026-09-28) | [Organizer API](NIY-010-organizer-api.md) | NIY-001 through NIY-006, NIY-009 |
 | NIY-014 | Open | [Research documentation navigation](NIY-014-research-navigation.md) | None |
 | NIY-015 | Open | [Repository structure review and disposition](NIY-015-repository-structure-review.md) | None |
-| NIY-016 | Open | [Trusted hospital progress links](NIY-016-trusted-progress-links.md) | NIY-010 |
+| NIY-016 | Complete (2026-09-28) | [Trusted hospital progress links](NIY-016-trusted-progress-links.md) | NIY-010 |
 
 ## Acceptance guardrails
 

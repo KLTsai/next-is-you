@@ -1,6 +1,6 @@
 # NIY-016: Trusted hospital progress links
 
-Status: Open
+Status: Complete (2026-09-28)
 
 ## Goal
 

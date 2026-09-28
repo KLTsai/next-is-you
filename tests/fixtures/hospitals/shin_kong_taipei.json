@@ -1,0 +1,19 @@
+{
+  "status": "success",
+  "updatedAt": "2026-09-27T09:00:00+08:00",
+  "rows": [
+    {
+      "VisitDate": "2026-09-27T00:00:00",
+      "ShiftName": "上午",
+      "DivisionCode": "ND0004",
+      "ClinicCode": "236",
+      "ClinicName": "本館 3 樓 236 診",
+      "DoctorEmpNo": "D-236",
+      "ClinicVisitState": "1",
+      "CurrentVisitSeq": "82",
+      "CurrentVisitSeqDesc": "順號",
+      "NextVisitSeq": "79",
+      "NextVisitSeqDesc": "檢查"
+    }
+  ]
+}

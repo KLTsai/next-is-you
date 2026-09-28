@@ -18,6 +18,25 @@ class ClinicSession(StrEnum):
     EVENING = "evening"
 
 
+_CALL_TYPE_ALIASES = {
+    "regular": "regular",
+    "順號": "regular",
+    "examination": "examination",
+    "檢查": "examination",
+    "senior": "senior",
+    "高齡號": "senior",
+    "overdue": "overdue",
+    "過號": "overdue",
+}
+
+
+def normalize_call_type(value: str | None) -> str | None:
+    """Normalize recognized labels without treating unknown text as regular."""
+    if value is None:
+        return None
+    return _CALL_TYPE_ALIASES.get(value.strip().casefold())
+
+
 @dataclass(frozen=True, slots=True)
 class ClinicScope:
     hospital: Hospital
@@ -35,6 +54,7 @@ class QueueObservation:
     observed_at: str
     current_number: int | None
     next_number: int | None = None
+    highest_called_number: int | None = None
     current_call_type: str | None = None
     next_call_type: str | None = None
     source_updated_at: str | None = None

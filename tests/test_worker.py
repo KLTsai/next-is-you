@@ -1,8 +1,10 @@
 import asyncio
+import subprocess
 
 from httpx import ASGITransport, AsyncClient
 
 import worker
+from local_runtime import create_local_app, load_local_settings
 from worker import LineLoginSettings, app
 
 
@@ -73,3 +75,94 @@ def test_local_worker_serves_ui_and_built_assets_from_its_origin(tmp_path, monke
     assert script.text == 'fetch("/api/healthz")'
     assert health.status_code == 200
     assert health.json() == {"status": "ok", "mode": "local-development"}
+
+
+def test_local_settings_load_from_root_dotenv_format_without_test_mode(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "LINE_LOGIN_CHANNEL_ID=local-id\n"
+        "LINE_LOGIN_CHANNEL_SECRET=\"local-secret\"\n"
+        "LINE_LOGIN_REDIRECT_URI=https://localhost/auth/line/callback\n"
+        "SESSION_SIGNING_SECRET=local-session-signing-secret-with-32-bytes\n"
+        "ORGANIZER_LINE_SUBJECTS=local-organizer, another-organizer\n"
+        "NIY006_LOCAL_TEST_MODE=1\n",
+        encoding="utf-8",
+    )
+
+    settings = load_local_settings(env_file)
+
+    assert settings.channel_id == "local-id"
+    assert settings.channel_secret == "local-secret"
+    assert settings.redirect_uri == "https://localhost/auth/line/callback"
+    assert settings.organizer_subjects == {"local-organizer", "another-organizer"}
+    assert settings.ready
+
+
+def test_local_app_without_dotenv_fails_closed_and_keeps_test_controls_disabled(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr("local_runtime.ROOT", tmp_path)
+    app_without_env = create_local_app()
+
+    assert app_without_env.state.line_login_settings is not None
+    assert not app_without_env.state.line_login_settings.ready
+
+    async def request_test_control():
+        async with AsyncClient(
+            transport=ASGITransport(app=app_without_env),
+            base_url="http://worker.local",
+        ) as client:
+            return (
+                await client.get("/auth/line"),
+                await client.post("/__niy006_test/snapshot"),
+            )
+
+    login, test_control = asyncio.run(request_test_control())
+
+    assert login.status_code == 503
+    assert test_control.status_code == 404
+
+
+def test_local_launch_uses_root_dotenv_settings_but_ignores_test_mode(monkeypatch, tmp_path):
+    monkeypatch.setattr("local_runtime.ROOT", tmp_path)
+    (tmp_path / ".env").write_text(
+        "LINE_LOGIN_CHANNEL_ID=local-id\n"
+        "LINE_LOGIN_CHANNEL_SECRET=local-secret\n"
+        "LINE_LOGIN_REDIRECT_URI=https://localhost/auth/line/callback\n"
+        "SESSION_SIGNING_SECRET=local-session-signing-secret-with-32-bytes\n"
+        "ORGANIZER_LINE_SUBJECTS=local-organizer\n"
+        "NIY006_LOCAL_TEST_MODE=1\n",
+        encoding="utf-8",
+    )
+
+    local_app = create_local_app()
+
+    assert local_app.state.line_login_settings.ready
+    assert local_app.state.send_gate is None
+
+    async def request_test_control():
+        async with AsyncClient(
+            transport=ASGITransport(app=local_app),
+            base_url="http://worker.local",
+        ) as client:
+            return await client.post("/__niy006_test/snapshot")
+
+    response = asyncio.run(request_test_control())
+
+    assert response.status_code == 404
+
+
+def test_env_files_are_ignored_but_template_is_tracked():
+    for path in (".env", ".env.local", ".env.example", ".dev.vars"):
+        ignored = subprocess.run(
+            ["git", "check-ignore", "--quiet", path], check=False
+        )
+        assert ignored.returncode == 0, f"{path} should be ignored"
+
+    tracked = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", ".env_template"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert tracked.returncode == 0

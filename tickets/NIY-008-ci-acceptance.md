@@ -16,4 +16,4 @@ Add deterministic CI gates and a local synthetic end-to-end journey across the b
 
 ## Dependencies
 
-NIY-001 through NIY-007.
+NIY-001 through NIY-007, NIY-010.

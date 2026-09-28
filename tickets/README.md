@@ -12,9 +12,10 @@ This repository does not yet use an external issue tracker. These checked-in tic
 | NIY-004 | Open | [Hospital adapters and synthetic fixtures](NIY-004-hospital-adapters.md) | NIY-001, NIY-003 |
 | NIY-005 | Done | [LINE identity and targeted delivery](NIY-005-line-integration.md) | NIY-002, NIY-003 |
 | NIY-006 | Done | [Scheduler, outbox, and send coordination](NIY-006-scheduler-outbox.md) | NIY-003, NIY-004, NIY-005 |
-| NIY-007 | Open | [Settings, status, and stop UI](NIY-007-user-interface.md) | NIY-002 through NIY-006 |
-| NIY-008 | Open | [CI and local acceptance journey](NIY-008-ci-acceptance.md) | NIY-001 through NIY-007 |
+| NIY-007 | Open | [Settings, status, and stop UI](NIY-007-user-interface.md) | NIY-002 through NIY-006, NIY-010 |
+| NIY-008 | Open | [CI and local acceptance journey](NIY-008-ci-acceptance.md) | NIY-001 through NIY-007, NIY-010 |
 | NIY-009 | Open | [Runtime configuration and secrets management](NIY-009-runtime-configuration-secrets.md) | NIY-002, NIY-005, NIY-006 |
+| NIY-010 | Open | [Organizer API](NIY-010-organizer-api.md) | NIY-001 through NIY-006, NIY-009 |
 | NIY-014 | Open | [Research documentation navigation](NIY-014-research-navigation.md) | None |
 | NIY-015 | Open | [Repository structure review and disposition](NIY-015-repository-structure-review.md) | None |
 

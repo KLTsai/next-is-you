@@ -16,4 +16,3 @@ Review the documented repository inventory and decide whether any cleanup, conso
 ## Related tickets
 
 - [NIY-009: Runtime configuration and secrets management](NIY-009-runtime-configuration-secrets.md) owns the runtime configuration and local secrets workflow.
-- [NIY-014: Research documentation navigation](NIY-014-research-navigation.md) owns the research entry point and its privacy boundary; this ticket covers the wider repository inventory.

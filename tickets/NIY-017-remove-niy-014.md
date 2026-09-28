@@ -1,6 +1,6 @@
 # NIY-017: Remove the unrelated NIY-014 ticket
 
-Status: Open
+Status: Complete
 
 ## Goal
 

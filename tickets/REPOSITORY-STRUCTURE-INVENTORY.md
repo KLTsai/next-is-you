@@ -4,7 +4,7 @@
 
 This inventory uses tracked paths and repository references in the isolated task worktree, plus a Firstmate read-only scan report received on 2026-09-28. It records recommendations only. No existing content was deleted, moved, archived, renamed, or rewritten. Firstmate reports that ignored `research/private/` material is present in the primary checkout but absent from this task worktree. Its contents and exact file list were not inspected here.
 
-The detailed cleanup review is tracked by [NIY-015](NIY-015-repository-structure-review.md). Runtime configuration recommendations are tracked separately by [NIY-009](NIY-009-runtime-configuration-secrets.md). [NIY-014](NIY-014-research-navigation.md) covers research navigation, not whole-repository organization or environment setup.
+The detailed cleanup review is tracked by [NIY-015](NIY-015-repository-structure-review.md). Runtime configuration recommendations are tracked separately by [NIY-009](NIY-009-runtime-configuration-secrets.md).
 
 ## Tracked top-level directories
 
@@ -16,7 +16,7 @@ The detailed cleanup review is tracked by [NIY-015](NIY-015-repository-structure
 | `tests/` | Keep | `pyproject.toml` sets it as pytest's test root. The tests cover domain, routes, persistence, scheduling, and Worker behavior. | Application maintainer |
 | `tests/fixtures/hospitals/` | Keep | `tests/test_hospital_adapters.py` reads the HTML and JSON samples. NIY-004 identifies them as synthetic source-shaped fixtures; they are test inputs, not patient records or verified live connectors. | Hospital-adapter maintainer |
 | `tickets/` | Keep | `tickets/README.md` is the checked-in backlog index and the ticket files are the current local implementation authority. There is no external issue tracker in use. | Ticket owners; Captain for backlog policy |
-| `research/` | Keep | Its tracked `README.md` links implementation tickets and identifies the boundary between implementation authority and supporting evidence, as specified by NIY-014. | Research/documentation owner |
+| `research/` | Keep | Its tracked `README.md` links implementation tickets and identifies the boundary between implementation authority and supporting evidence. | Research/documentation owner |
 | `research/private/` | Needs Captain decision | Firstmate reports ignored material in this directory in the primary checkout; it is absent from this task worktree. The tracked `research/README.md` identifies `research/private/mvp-spec-review-2026-09-27-v2.md` as the current spec and `research/private/README.md` as its supporting/archive index. That index points to supporting and archived material. No private contents, archive entries, or additional taxonomy are copied into this report. Retention and any archive decision stay with Captain. | Captain |
 
 No tracked prototype directory or tracked archive directory was found. No archive recommendation is made for existing tracked content. Any additional untracked or ignored planning material requires a separate Captain inventory before disposition.
@@ -32,7 +32,6 @@ No tracked prototype directory or tracked archive directory was found. No archiv
 | `README.md` and `AGENTS.md` | Keep | The README documents the local Worker command; AGENTS.md establishes repository language and collaboration rules. Neither is a generated artifact. | Captain/documentation owner |
 | `migrations/*.sql` | Keep | These are schema history consumed by Wrangler and tests. Rewriting or folding migrations can invalidate existing D1 databases. | Persistence maintainer |
 | `tests/fixtures/hospitals/*` | Keep | Synthetic HTML/JSON files support deterministic adapter tests; deleting them removes the only fixture inputs for those shapes. | Hospital-adapter maintainer |
-| `tickets/NIY-014-research-navigation.md` | Keep | Its scope is a research starting point and privacy boundary. It does not own runtime configuration or whole-repository cleanup; NIY-009 and NIY-015 avoid changing or duplicating its scope. | NIY-014 owner |
 | Ticket status index | Needs Captain decision | `tickets/README.md` lists NIY-005 and NIY-006 as `Open`, but their ticket bodies say `Complete`. The disagreement makes the backlog status ambiguous. Existing status values were left unchanged. | Captain and ticket owners |
 | CI workflow/configuration | Needs Captain decision | No tracked `.github/` workflow or other CI configuration appears in `git ls-files`; NIY-008 remains the ticket for CI and local acceptance. Decide CI ownership and provider within NIY-008. | NIY-008 owner; Captain for provider |
 

@@ -62,11 +62,31 @@ class FakeFriendship:
         return FriendshipResult(self.result)
 
 
+class FakeSendGate:
+    def __init__(self, visits: VisitRepository) -> None:
+        self.visits = visits
+        self.held = False
+
+    async def withdraw_recipient(self, recipient_id: str, _now: str) -> bool:
+        return await self.visits.withdraw_recipient(recipient_id)
+
+    async def hold_for_reconciliation(self) -> bool:
+        self.held = True
+        return True
+
+    async def resume_after_reconciliation(self, reconciled: bool) -> bool:
+        if not reconciled or not self.held:
+            return False
+        self.held = False
+        return True
+
+
 def run(coroutine):
     return asyncio.run(coroutine)
 
 
 def make_app(store: SQLiteStore, friendship: FakeFriendship):
+    visit_repository = VisitRepository(store)
     return create_app(
         settings={
             "line_login_channel_id": "local-channel",
@@ -78,7 +98,8 @@ def make_app(store: SQLiteStore, friendship: FakeFriendship):
         line_client=FakeOAuth(),
         friendship_client=friendship,
         identity_repository=IdentityRepository(store),
-        visit_repository=VisitRepository(store),
+        visit_repository=visit_repository,
+        send_gate=FakeSendGate(visit_repository),
         clock=lambda: 1_000,
     )
 
@@ -273,6 +294,58 @@ def test_organizer_allowlist_and_csrf_are_rechecked_for_each_mutation():
             "https://family.example/auth/line?invite="
         )
         assert store.connection.execute("SELECT COUNT(*) FROM invitations").fetchone()[0] == 1
+
+    run(scenario())
+
+
+def test_scheduler_recovery_controls_require_organizer_csrf_and_explicit_resume():
+    async def scenario():
+        store = SQLiteStore()
+        app = make_app(store, FakeFriendship())
+        gate = app.state.send_gate
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="https://family.example"
+        ) as client:
+            set_session(client, "line-organizer", "organizer")
+
+            denied = await client.post("/api/organizer/scheduler/recovery-hold")
+            assert denied.status_code == 403
+            assert gate.held is False
+
+            held = await client.post(
+                "/api/organizer/scheduler/recovery-hold", headers=csrf(client)
+            )
+            assert held.status_code == 204
+            assert gate.held is True
+
+            missing_confirmation = await client.post(
+                "/api/organizer/scheduler/resume", headers=csrf(client), json={}
+            )
+            assert missing_confirmation.status_code == 400
+            assert gate.held is True
+
+            wrong_csrf = await client.post(
+                "/api/organizer/scheduler/resume",
+                headers={"x-csrf-token": "wrong"},
+                json={"reconciled": True},
+            )
+            assert wrong_csrf.status_code == 403
+            assert gate.held is True
+
+            resumed = await client.post(
+                "/api/organizer/scheduler/resume",
+                headers=csrf(client),
+                json={"reconciled": True},
+            )
+            assert resumed.status_code == 204
+            assert gate.held is False
+
+            already_running = await client.post(
+                "/api/organizer/scheduler/resume",
+                headers=csrf(client),
+                json={"reconciled": True},
+            )
+            assert already_running.status_code == 409
 
     run(scenario())
 

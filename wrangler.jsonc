@@ -16,5 +16,22 @@
       "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
     }
-  ]
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SEND_GATE",
+        "class_name": "SystemSendGate"
+      }
+    ]
+  },
+  "exports": {
+    "SystemSendGate": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "triggers": {
+    "crons": ["* * * * *"]
+  }
 }

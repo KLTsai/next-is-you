@@ -1,0 +1,40 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "next-is-you-niy006-local-test",
+  "main": "src/worker.py",
+  "compatibility_date": "2026-09-25",
+  "compatibility_flags": ["python_workers"],
+  "assets": {
+    "directory": "./dist/",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "next-is-you-niy006-local-test",
+      "database_id": "00000000-0000-0000-0000-000000000006",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SEND_GATE",
+        "class_name": "SystemSendGate"
+      }
+    ]
+  },
+  "exports": {
+    "SystemSendGate": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "vars": {
+    "NIY006_LOCAL_TEST_MODE": "1"
+  }
+}

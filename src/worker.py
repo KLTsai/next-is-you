@@ -33,6 +33,7 @@ from next_is_you.line_messaging import (
     WorkersLineFriendshipClient,
 )
 from next_is_you.persistence import CloudflareD1Store, VisitRepository, iso_utc
+from next_is_you.send_gate import SystemSendGate
 
 try:
     from workers import asgi
@@ -102,6 +103,7 @@ def create_app(
     friendship_client: LineFriendshipClient | None = None,
     identity_repository: IdentityRepository | None = None,
     visit_repository: VisitRepository | None = None,
+    send_gate: Any | None = None,
     clock: Callable[[], int | float] = time.time,
 ) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None)
@@ -114,6 +116,7 @@ def create_app(
     app.state.friendship_client = friendship_client
     app.state.identity_repository = identity_repository
     app.state.visit_repository = visit_repository
+    app.state.send_gate = send_gate
     app.state.clock = clock
 
     @app.get("/api/healthz")
@@ -320,7 +323,10 @@ def create_app(
         recipient_id = await identity.recipient_id(claims.subject, active=True)
         if recipient_id is None:
             return Response(status_code=204)
-        await visits.withdraw_recipient(recipient_id)
+        gate = _send_gate(request)
+        if gate is None:
+            return JSONResponse({"detail": "Recipient send ordering is unavailable"}, status_code=503)
+        await gate.withdraw_recipient(recipient_id, iso_utc(_now(request)))
         return Response(status_code=204)
 
     @app.post("/api/visits/{visit_id}/recipients/{recipient_id}")
@@ -339,6 +345,141 @@ def create_app(
         if not await visits.add_recipient(visit_id, recipient_id, now):
             return JSONResponse({"detail": "Recipient could not be selected for this visit"}, status_code=409)
         return Response(status_code=204)
+
+    @app.post("/api/visits/{visit_id}/stop")
+    async def stop_visit(visit_id: str, request: Request) -> Response:
+        _, denied = await _authorized(request, "organizer", csrf=True)
+        if denied:
+            return denied
+        gate = _send_gate(request)
+        if gate is None:
+            return JSONResponse({"detail": "Visit send ordering is unavailable"}, status_code=503)
+        state = await gate.stop_visit(visit_id, iso_utc(_now(request)))
+        if state is None:
+            return JSONResponse({"detail": "Visit was not found"}, status_code=404)
+        return JSONResponse({"state": state})
+
+    @app.delete("/api/visits/{visit_id}/recipients/{recipient_id}", status_code=204)
+    async def remove_visit_recipient(
+        visit_id: str, recipient_id: str, request: Request
+    ) -> Response:
+        _, denied = await _authorized(request, "organizer", csrf=True)
+        if denied:
+            return denied
+        gate = _send_gate(request)
+        if gate is None:
+            return JSONResponse({"detail": "Recipient send ordering is unavailable"}, status_code=503)
+        removed = await gate.remove_visit_recipient(
+            visit_id, recipient_id, iso_utc(_now(request))
+        )
+        if not removed:
+            return JSONResponse({"detail": "Recipient was not selected for this visit"}, status_code=404)
+        return Response(status_code=204)
+
+    @app.post("/api/organizer/scheduler/recovery-hold", status_code=204)
+    async def hold_scheduler_for_reconciliation(request: Request) -> Response:
+        _, denied = await _authorized(request, "organizer", csrf=True)
+        if denied:
+            return denied
+        gate = _send_gate(request)
+        if gate is None:
+            return JSONResponse({"detail": "Scheduler recovery gate is unavailable"}, status_code=503)
+        await gate.hold_for_reconciliation()
+        return Response(status_code=204)
+
+    @app.post("/api/organizer/scheduler/resume", status_code=204)
+    async def resume_scheduler_after_reconciliation(request: Request) -> Response:
+        _, denied = await _authorized(request, "organizer", csrf=True)
+        if denied:
+            return denied
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        if not isinstance(body, Mapping) or body.get("reconciled") is not True:
+            return JSONResponse(
+                {"detail": "Explicit reconciliation confirmation is required"},
+                status_code=400,
+            )
+        gate = _send_gate(request)
+        if gate is None:
+            return JSONResponse({"detail": "Scheduler recovery gate is unavailable"}, status_code=503)
+        if not await gate.resume_after_reconciliation(True):
+            return JSONResponse({"detail": "Scheduler remains held"}, status_code=409)
+        return Response(status_code=204)
+
+    @app.post("/__niy006_test/{operation}")
+    async def local_scheduler_test_control(operation: str, request: Request) -> Response:
+        env = request.scope.get("env")
+        if str(_binding_value(env, "NIY006_LOCAL_TEST_MODE", "")) != "1":
+            return Response(status_code=404)
+        gate = _send_gate(request)
+        if gate is None:
+            return JSONResponse({"detail": "Local test gate is unavailable"}, status_code=503)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, Mapping):
+            return JSONResponse({"detail": "Invalid test request"}, status_code=400)
+        if operation == "seed":
+            seeded = await gate.seed_test_visit(
+                str(body["visit_id"]),
+                str(body["recipient_id"]),
+                str(body["visit_day"]),
+                int(body["patient_number"]),
+                str(body["now"]),
+            )
+            return JSONResponse({"seeded": seeded}, status_code=201 if seeded else 409)
+        if operation == "observation":
+            current = body.get("current_number")
+            configured = await gate.set_test_observation(
+                int(current) if current is not None else None,
+                body.get("trustworthy") is True,
+            )
+            return JSONResponse({"configured": configured})
+        if operation == "stop":
+            state = await gate.stop_visit(str(body["visit_id"]), str(body["now"]))
+            return JSONResponse({"state": state})
+        if operation == "remove":
+            removed = await gate.remove_visit_recipient(
+                str(body["visit_id"]),
+                str(body["recipient_id"]),
+                str(body["now"]),
+            )
+            return JSONResponse({"removed": removed})
+        if operation == "withdraw":
+            withdrawn = await gate.withdraw_recipient(
+                str(body["recipient_id"]), str(body["now"])
+            )
+            return JSONResponse({"withdrawn": withdrawn})
+        if operation == "hold":
+            await gate.hold_for_reconciliation()
+            return JSONResponse({"held": True})
+        if operation == "line-mode":
+            await gate.set_test_line_mode(str(body["mode"]))
+            return Response(status_code=204)
+        if operation == "wait-request":
+            await gate.wait_test_request_started()
+            return Response(status_code=204)
+        if operation == "release-request":
+            await gate.release_test_request()
+            return Response(status_code=204)
+        if operation == "tick":
+            return JSONResponse(await gate.scheduled_tick(str(body["now"])))
+        if operation == "snapshot":
+            return JSONResponse(await gate.test_snapshot())
+        if operation == "correct-watch":
+            corrected = await gate.correct_test_watch(
+                str(body["visit_id"]),
+                str(body["visit_day"]),
+                int(body["patient_number"]),
+                str(body["now"]),
+            )
+            return JSONResponse({"corrected": corrected})
+        if operation == "restore-shaped":
+            return JSONResponse({"restored": await gate.restore_test_state()})
+        return Response(status_code=404)
 
     @app.get("/{path:path}")
     async def serve_static_asset(path: str, request: Request) -> Response:
@@ -418,6 +559,26 @@ def _visit_repository(request: Request) -> VisitRepository | None:
     return VisitRepository(store) if store is not None else None
 
 
+def _send_gate(request: Request) -> Any | None:
+    configured = request.app.state.send_gate
+    if configured is not None:
+        return configured
+    env = request.scope.get("env")
+    namespace = _binding_value(env, "SEND_GATE")
+    if namespace is None:
+        return None
+    get_by_name = getattr(namespace, "getByName", None)
+    if get_by_name is None:
+        return None
+    return get_by_name("next-is-you-system")
+
+
+def _binding_value(env: Any, name: str, default: Any = None) -> Any:
+    if isinstance(env, Mapping):
+        return env.get(name, default)
+    return getattr(env, name, default) if env is not None else default
+
+
 def _friendship_client(request: Request) -> LineFriendshipClient | None:
     configured = request.app.state.friendship_client
     return configured if configured is not None else WorkersLineFriendshipClient()
@@ -478,4 +639,9 @@ def _clear_session_cookies(response: Response) -> None:
 app = create_app()
 
 if asgi is not None:
-    Default = asgi.entrypoint(app)
+    ASGIEntrypoint = asgi.entrypoint(app)
+
+    class Default(ASGIEntrypoint):
+        async def scheduled(self, controller, env, ctx):
+            gate = self.env.SEND_GATE.getByName("next-is-you-system")
+            await gate.scheduled_tick()

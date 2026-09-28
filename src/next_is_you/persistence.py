@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Mapping, Protocol, Sequence
@@ -91,6 +93,292 @@ class VisitRepository:
             Statement("SELECT * FROM visits WHERE id = ?", (visit_id,))
         )
         return rows[0] if rows else None
+
+    async def scheduler_ledger_digest(
+        self, *, exclude_event_id: str | None = None
+    ) -> str:
+        """Fingerprint D1 state that can affect future sends or sent-event dedupe."""
+        visit_rows = await self._store.fetch_all(
+            Statement(
+                """SELECT id, hospital, visit_date, department_code, clinic_code,
+                    clinic_session, doctor_code, room_code, patient_number, state,
+                    roster_frozen, consecutive_unusable_reads, near_last_current_number,
+                    latest_observed_at, started_at, stopped_at, delete_after
+                FROM visits WHERE state != 'draft' ORDER BY id"""
+            )
+        )
+        recipient_rows = await self._store.fetch_all(
+            Statement(
+                """SELECT vr.visit_id, r.id, r.line_subject, r.consented_at,
+                    r.friendship_checked_at, r.active
+                FROM visit_recipients AS vr
+                JOIN visits AS v ON v.id = vr.visit_id
+                JOIN recipients AS r ON r.id = vr.recipient_id
+                WHERE v.state != 'draft'
+                ORDER BY vr.visit_id, r.id"""
+            )
+        )
+        event_sql = """SELECT id, visit_id, recipient_id, event_kind, retry_key,
+                    payload_json, outcome, created_at, request_started_at, settled_at,
+                    error_code, first_request_at, attempt_count
+                FROM outbound_events"""
+        event_statement = (
+            Statement(f"{event_sql} WHERE id != ? ORDER BY id", (exclude_event_id,))
+            if exclude_event_id is not None
+            else Statement(f"{event_sql} ORDER BY id")
+        )
+        event_rows = await self._store.fetch_all(event_statement)
+        payload = [
+            [dict(row) for row in visit_rows],
+            [dict(row) for row in recipient_rows],
+            [dict(row) for row in event_rows],
+        ]
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    async def active_schedule_rows(self) -> list[Mapping[str, Any]]:
+        """Return active visit and eligible recipient pairs for one serialized tick."""
+        return await self._store.fetch_all(
+            Statement(
+                """SELECT v.*, r.id AS recipient_id, r.line_subject
+                FROM visits AS v
+                JOIN visit_recipients AS vr ON vr.visit_id = v.id
+                JOIN recipients AS r ON r.id = vr.recipient_id
+                WHERE v.state = 'active' AND r.active = 1
+                    AND r.consented_at IS NOT NULL
+                    AND r.friendship_checked_at IS NOT NULL
+                ORDER BY v.id, r.id"""
+            )
+        )
+
+    async def event_kinds(self, visit_id: str) -> set[tuple[str, str]]:
+        rows = await self._store.fetch_all(
+            Statement(
+                "SELECT recipient_id, event_kind FROM outbound_events WHERE visit_id = ?",
+                (visit_id,),
+            )
+        )
+        return {(str(row["recipient_id"]), str(row["event_kind"])) for row in rows}
+
+    async def retryable_events(self, visit_id: str) -> list[Mapping[str, Any]]:
+        return await self._store.fetch_all(
+            Statement(
+                """SELECT e.*, r.line_subject
+                FROM outbound_events AS e
+                JOIN recipients AS r ON r.id = e.recipient_id
+                JOIN visit_recipients AS vr
+                    ON vr.visit_id = e.visit_id AND vr.recipient_id = e.recipient_id
+                WHERE e.visit_id = ? AND e.outcome IN ('pending', 'unknown')
+                    AND r.active = 1 AND r.consented_at IS NOT NULL
+                    AND r.friendship_checked_at IS NOT NULL
+                ORDER BY e.created_at, e.id""",
+                (visit_id,),
+            )
+        )
+
+    async def retryable_event(self, event_id: str) -> Mapping[str, Any] | None:
+        rows = await self._store.fetch_all(
+            Statement(
+                """SELECT e.*, r.line_subject, v.visit_date, v.state AS visit_state
+                FROM outbound_events AS e
+                JOIN recipients AS r ON r.id = e.recipient_id
+                JOIN visit_recipients AS vr
+                    ON vr.visit_id = e.visit_id AND vr.recipient_id = e.recipient_id
+                JOIN visits AS v ON v.id = e.visit_id
+                WHERE e.id = ? AND e.outcome IN ('pending', 'unknown')
+                    AND v.state = 'active' AND r.active = 1
+                    AND r.consented_at IS NOT NULL
+                    AND r.friendship_checked_at IS NOT NULL""",
+                (event_id,),
+            )
+        )
+        return rows[0] if rows else None
+
+    async def create_event_if_absent(
+        self,
+        *,
+        event_id: str,
+        visit_id: str,
+        recipient_id: str,
+        event_kind: str,
+        retry_key: str,
+        payload_json: str,
+        now: datetime,
+    ) -> Mapping[str, Any]:
+        await self._store.execute(
+            Statement(
+                """INSERT OR IGNORE INTO outbound_events (
+                    id, visit_id, recipient_id, event_kind, retry_key,
+                    payload_json, outcome, created_at
+                ) SELECT ?, ?, ?, ?, ?, ?, 'pending', ?
+                WHERE EXISTS (
+                    SELECT 1 FROM visits AS v
+                    JOIN visit_recipients AS vr ON vr.visit_id = v.id
+                    JOIN recipients AS r ON r.id = vr.recipient_id
+                    WHERE v.id = ? AND v.state = 'active'
+                        AND r.id = ? AND r.active = 1
+                        AND r.consented_at IS NOT NULL
+                        AND r.friendship_checked_at IS NOT NULL
+                )""",
+                (
+                    event_id,
+                    visit_id,
+                    recipient_id,
+                    event_kind,
+                    retry_key,
+                    payload_json,
+                    iso_utc(now),
+                    visit_id,
+                    recipient_id,
+                ),
+            )
+        )
+        rows = await self._store.fetch_all(
+            Statement(
+                """SELECT * FROM outbound_events
+                WHERE visit_id = ? AND recipient_id = ? AND event_kind = ?""",
+                (visit_id, recipient_id, event_kind),
+            )
+        )
+        if not rows:
+            raise RuntimeError("outbox event was not persisted for an active recipient")
+        return rows[0]
+
+    async def update_observation(
+        self,
+        visit_id: str,
+        *,
+        current_number: int | None,
+        observed_at: datetime,
+        consecutive_unusable_reads: int,
+    ) -> bool:
+        return (
+            await self._store.execute(
+                Statement(
+                    """UPDATE visits SET near_last_current_number = ?,
+                        latest_observed_at = ?, consecutive_unusable_reads = ?
+                    WHERE id = ? AND state = 'active'""",
+                    (
+                        current_number,
+                        iso_utc(observed_at),
+                        consecutive_unusable_reads,
+                        visit_id,
+                    ),
+                )
+            )
+            == 1
+        )
+
+    async def recover_in_flight_events(self, now: datetime) -> int:
+        """After an invocation restart, fence old senders as unknown before reopening."""
+        return await self._store.execute(
+            Statement(
+                """UPDATE outbound_events SET outcome = 'unknown', settled_at = ?,
+                    error_code = 'invocation_restarted'
+                WHERE outcome = 'in_flight'""",
+                (iso_utc(now),),
+            )
+        )
+
+    async def begin_event_attempt(self, event_id: str, now: datetime) -> int | None:
+        changes = await self._store.execute(
+            Statement(
+                """UPDATE outbound_events SET outcome = 'in_flight',
+                    request_started_at = ?, first_request_at = COALESCE(first_request_at, ?),
+                    attempt_count = attempt_count + 1, settled_at = NULL, error_code = NULL
+                WHERE id = ? AND outcome IN ('pending', 'unknown')
+                    AND EXISTS (
+                        SELECT 1 FROM visits AS v
+                        JOIN visit_recipients AS vr ON vr.visit_id = v.id
+                        JOIN recipients AS r ON r.id = vr.recipient_id
+                        WHERE v.id = outbound_events.visit_id AND v.state = 'active'
+                            AND vr.recipient_id = outbound_events.recipient_id
+                            AND r.active = 1 AND r.consented_at IS NOT NULL
+                    )""",
+                (iso_utc(now), iso_utc(now), event_id),
+            )
+        )
+        if changes != 1:
+            return None
+        rows = await self._store.fetch_all(
+            Statement("SELECT attempt_count FROM outbound_events WHERE id = ?", (event_id,))
+        )
+        return int(rows[0]["attempt_count"]) if rows else None
+
+    async def settle_event_attempt(
+        self,
+        event_id: str,
+        attempt_count: int,
+        outcome: str,
+        now: datetime,
+        error_code: str | None = None,
+    ) -> bool:
+        if outcome not in {"accepted", "failed", "unknown"}:
+            raise ValueError("invalid settled outcome")
+        return (
+            await self._store.execute(
+                Statement(
+                    """UPDATE outbound_events SET outcome = ?, settled_at = ?, error_code = ?
+                    WHERE id = ? AND attempt_count = ? AND outcome = 'in_flight'""",
+                    (outcome, iso_utc(now), error_code, event_id, attempt_count),
+                )
+            )
+            == 1
+        )
+
+    async def abort_event_attempt(
+        self,
+        event_id: str,
+        attempt_count: int,
+        *,
+        previous_outcome: str,
+        previous_request_started_at: str | None,
+        previous_first_request_at: str | None,
+        previous_settled_at: str | None,
+        previous_error_code: str | None,
+    ) -> bool:
+        """Roll back a prepared send when its final pre-request checks fail."""
+        if previous_outcome not in {"pending", "unknown"}:
+            raise ValueError("invalid previous outbox outcome")
+        return (
+            await self._store.execute(
+                Statement(
+                    """UPDATE outbound_events SET outcome = ?, request_started_at = ?,
+                        first_request_at = ?, settled_at = ?, error_code = ?,
+                        attempt_count = attempt_count - 1
+                    WHERE id = ? AND attempt_count = ? AND outcome = 'in_flight'""",
+                    (
+                        previous_outcome,
+                        previous_request_started_at,
+                        previous_first_request_at,
+                        previous_settled_at,
+                        previous_error_code,
+                        event_id,
+                        attempt_count,
+                    ),
+                )
+            )
+            == 1
+        )
+
+    async def erase_removed_recipient_events(
+        self, visit_id: str, recipient_id: str
+    ) -> bool:
+        rows = await self._store.fetch_all(
+            Statement(
+                "SELECT 1 FROM outbound_events WHERE visit_id = ? AND recipient_id = ? AND outcome = 'in_flight'",
+                (visit_id, recipient_id),
+            )
+        )
+        if rows:
+            return False
+        await self._store.execute(
+            Statement(
+                "DELETE FROM outbound_events WHERE visit_id = ? AND recipient_id = ?",
+                (visit_id, recipient_id),
+            )
+        )
+        return True
 
     async def delete_draft(self, visit_id: str) -> bool:
         return (

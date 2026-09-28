@@ -35,7 +35,7 @@ Provide the organizer API used by the settings UI to manage eligible family reci
 
 - NIY-004 live hospital transport and independent source freshness verification. Existing parsers/fixtures do not establish a verified live source; production Start remains unavailable unless the exact-scope observation is fresh and trusted.
 - Real LINE calls, changes to LINE Login or recipient enrollment, and deployment.
-- A new send API. Notification requests remain solely under NIY-006 scheduler/outbox and gate control.
+- A browser-callable or manual endpoint that directly triggers arbitrary LINE sends or bypasses gate ordering. Automatic LINE notifications remain part of the product and continue to be triggered internally by the NIY-006 scheduler/outbox/gate when its conditions are met. This ticket uses fake LINE transport for local acceptance only and makes no live LINE calls; it does not remove or change automatic production notification behavior.
 - Schema changes beyond the minimal migration for bounded latest source-read status/reason metadata, and any runtime configuration changes.
 
 ## Dependencies

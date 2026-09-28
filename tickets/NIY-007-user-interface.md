@@ -1,6 +1,6 @@
 # NIY-007: Settings, status, and stop UI
 
-Status: Open
+Status: Complete (2026-09-28)
 
 ## Goal
 

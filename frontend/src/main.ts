@@ -11,6 +11,7 @@ import {
 } from "./organizer-api.js";
 import type { Hospital, OrganizerVisit, Recipient, VisitInput } from "./organizer-api.js";
 import { canRequestStart, formatSourceStatus, formatVisitState, visitStatusKey } from "./visit-state.js";
+import { sourceLinkMarkup } from "./source-link.js";
 
 const app = document.querySelector<HTMLElement>("#app");
 const serviceStatus = document.querySelector<HTMLSpanElement>("#service-status");
@@ -43,16 +44,6 @@ const pendingStarts = new Set<string>();
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] || char);
-}
-
-function safeSourceUrl(value?: string): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && !url.username && !url.password ? url.href : null;
-  } catch {
-    return null;
-  }
 }
 
 function text(value: string | number | null | undefined): string {
@@ -112,13 +103,13 @@ function formMarkup(): string {
         <label class="field"><span>掛號序號</span><input name="patient_number" type="number" min="1" max="999999" value="" required inputmode="numeric"><small>${item ? "請重新輸入掛號序號以修正草稿。" : "僅供這筆提醒使用，不會顯示在狀態清單。"}</small></label>
         <label class="field"><span>科別代碼</span><input name="department_code" maxlength="64" value="${escapeHtml(item?.department_code ?? "")}" required autocomplete="off"></label>
         <label class="field"><span>診間代碼</span><input name="clinic_code" maxlength="64" value="${escapeHtml(item?.clinic_code ?? "")}" required autocomplete="off"></label>
-        <label class="field"><span>診次代碼</span><input name="session" value="${escapeHtml(item?.session ?? "")}" pattern="morning|afternoon|evening" title="請輸入 morning、afternoon 或 evening" required autocomplete="off"><small>輸入院方對應的診次；不提供未經來源確認的選項。</small></label>
+        <label class="field"><span>診次代碼</span><input name="session" value="${escapeHtml(item?.session ?? "")}" pattern="morning|afternoon|evening" required autocomplete="off"><small>請依院方提供的代碼輸入；目前沒有依醫院、日期及診間核對過的診次目錄，因此不列出通用選項。</small></label>
       </div>
       <fieldset class="recipient-panel"><legend>通知對象</legend><div class="recipient-list">${recipientChoices(selectedRecipients)}</div></fieldset>
       <div class="action-row"><button class="primary-button" type="submit">${submitLabel}</button>${item ? `<button class="secondary-button" id="cancel-edit" type="button">取消修正</button>` : ""}</div>
     </form>
     ${message ? `<p class="message" role="status">${escapeHtml(message)}</p>` : ""}
-    <p class="gate-note">院方來源連結只會顯示 API 提供的 HTTPS 連結；目前沒有已設定的診次目錄或來源連結。</p>
+    <p class="gate-note">提醒清單會顯示 API 提供的院方官方來源連結。診次目錄尚未提供，請只輸入院方已提供的診次資料。</p>
   </section>`;
 }
 
@@ -127,7 +118,6 @@ function visitCard(item: OrganizerVisit): string {
   const active = item.state === "active";
   const pendingStop = pendingStops.has(item.id);
   const pendingStart = pendingStarts.has(item.id);
-  const sourceLink = safeSourceUrl(item.source_url);
   const recipientsText = item.recipients.length
     ? item.recipients.map((recipient) => escapeHtml(recipient.display_name)).join("、")
     : "沒有選取通知對象";
@@ -138,7 +128,7 @@ function visitCard(item: OrganizerVisit): string {
     <div class="visit-heading"><div><p class="eyebrow">${escapeHtml(hospitalNames[item.hospital] ?? item.hospital)}</p><h3 id="visit-${escapeHtml(item.id)}">${escapeHtml(item.date)} · ${escapeHtml(item.department_code)} · ${escapeHtml(item.clinic_code)}</h3><p class="visit-session">${escapeHtml(item.session)}</p></div><span class="state state-${stateKey}">${stateKey === "source-unavailable" ? "來源 unavailable · 草稿" : stateKey === "terminal" ? "已結束" : formatVisitState(item.state)}</span></div>
     <dl class="details">
       <div><dt>科別・診間・診次</dt><dd>${escapeHtml(item.department_code)}・${escapeHtml(item.clinic_code)}・${escapeHtml(item.session)}</dd></div>
-      <div><dt>院方資料來源</dt><dd>${sourceLink ? `<a href="${escapeHtml(sourceLink)}" target="_blank" rel="noreferrer">開啟院方來源</a>` : "來源連結尚未提供"}</dd></div>
+      <div><dt>院方資料來源</dt><dd>${sourceLinkMarkup(item.source_url)}</dd></div>
       <div><dt>通知對象</dt><dd>${recipientsText}</dd></div>
       <div><dt>最近檢查</dt><dd>${escapeHtml(text(item.observation?.checked_at))}</dd></div>
       <div><dt>院方觀察</dt><dd>${item.observation?.current_number ? `目前號碼 ${escapeHtml(String(item.observation.current_number))}` : "尚無可用的號碼觀察"}</dd></div>

@@ -41,6 +41,21 @@ test("GET clients use the approved organizer list routes and response envelopes"
   ]);
 });
 
+test("visit projection preserves trusted source links for both supported hospitals", async () => {
+  const sourceUrls = [
+    "https://registration.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0",
+    "https://reg.skh.org.tw/",
+  ];
+  const visits = ["ntuh-main", "shin-kong-taipei"].map((hospital, index) => ({
+    id: `v${index}`, hospital, source_url: sourceUrls[index],
+  }));
+  const projection = await listVisits({ fetcher: async () => response({ visits }) });
+  assert.deepEqual(projection.visits.map(({ hospital, source_url }) => [hospital, source_url]), [
+    ["ntuh-main", sourceUrls[0]],
+    ["shin-kong-taipei", sourceUrls[1]],
+  ]);
+});
+
 test("draft create, edit, correct, Start, and Stop use approved routes and CSRF", async () => {
   const calls = [];
   const fetcher = async (path, options) => {

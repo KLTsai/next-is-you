@@ -29,6 +29,7 @@ from next_is_you.auth import (
 )
 from next_is_you.identity import IdentityRepository, hash_invitation
 from next_is_you.domain import ClinicSession, Hospital
+from next_is_you.progress_links import progress_link
 from next_is_you.line_login import LineOAuthClient, WorkersLineOAuthClient
 from next_is_you.line_messaging import (
     LineFriendshipClient,
@@ -334,6 +335,9 @@ def create_app(
                 "notification": {"count": int(row["notification_count"] or 0), "accepted": int(row["accepted_count"] or 0), "issues": int(row["issue_count"] or 0)},
                 "recipients": [],
             })
+            source_url = progress_link(str(row["hospital"]))
+            if source_url is not None:
+                item["source_url"] = source_url
             if row["recipient_id"] is not None:
                 item["recipients"].append({"id": str(row["recipient_id"]), "display_name": str(row["display_name"])})
         return JSONResponse({"visits": list(grouped.values())})

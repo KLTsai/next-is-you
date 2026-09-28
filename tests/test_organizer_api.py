@@ -11,6 +11,7 @@ from httpx import ASGITransport, AsyncClient
 from next_is_you.auth import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME, issue_session
 from next_is_you.identity import IdentityRepository
 from next_is_you.persistence import Statement, VisitRepository
+from next_is_you.progress_links import progress_link
 from worker import create_app
 
 
@@ -105,19 +106,31 @@ def test_organizer_reads_eligible_roster_and_creates_draft_with_auth_and_csrf():
             created = await http.post("/api/organizer/visits", json=body, headers=headers)
             assert created.status_code == 201
             assert created.json()["state"] == "draft"
+            shin_kong = {**body, "hospital": "shin-kong-taipei", "clinic_code": "MED-B"}
+            assert (await http.post("/api/organizer/visits", json=shin_kong, headers=headers)).status_code == 201
             listing = await http.get("/api/organizer/visits")
             assert listing.status_code == 200
-            visit = listing.json()["visits"][0]
-            assert visit["source_read"] == {"status": "unavailable", "reason": "no_observation"}
-            assert visit["recipients"] == [{"id": "eligible", "display_name": "Family Name"}]
-            assert "source_url" not in repr(visit)
+            visits = {visit["hospital"]: visit for visit in listing.json()["visits"]}
+            assert visits["ntuh-main"]["source_url"] == "https://registration.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0"
+            assert visits["shin-kong-taipei"]["source_url"] == "https://reg.skh.org.tw/"
+            for visit in visits.values():
+                assert visit["source_read"] == {"status": "unavailable", "reason": "no_observation"}
+                assert visit["recipients"] == [{"id": "eligible", "display_name": "Family Name"}]
             assert "private-subject" not in repr(listing.json())
             assert "retry_key" not in repr(listing.json())
+            assert "attacker.invalid" not in repr(listing.json())
             assert "payload_json" not in repr(listing.json())
         finally:
             await http.aclose()
 
     asyncio.run(scenario())
+
+
+def test_progress_link_catalog_is_limited_to_fixed_https_hospitals():
+    assert progress_link("ntuh-main") == "https://registration.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0"
+    assert progress_link("shin-kong-taipei") == "https://reg.skh.org.tw/"
+    assert progress_link("unsupported-hospital") is None
+    assert progress_link("https://attacker.invalid") is None
 
 
 def test_mutations_recheck_allowlist_and_start_returns_typed_safe_error():

@@ -24,6 +24,7 @@ Implement scheduled evaluation, durable event creation, retry-key reuse, and str
 - Race tests cover Stop, recipient withdrawal/removal, and send start in both orderings. If send start wins, the close waits for settlement or durable unknown classification. If close wins, the LINE transport is not called. Once close is confirmed, a later tick cannot start a request.
 - Injected Taipei times immediately before, exactly at, and immediately after 23:59 verify the request-start boundary, including clock advancement during pre-request persistence. Draft expiry is verified at the 48-hour boundary.
 - A restore-shaped test sets the DO recovery hold, restores D1 from an earlier snapshot, proves Cron and sends remain held across a Worker/DO restart, then reconciles the records and proves only explicit authenticated resume re-enables sends.
+- `.env_template` is the only tracked environment template. It documents the NIY-006 keys `LINE_CHANNEL_ACCESS_TOKEN` and `NIY006_LOCAL_TEST_MODE` with blank placeholders and tells developers to copy it to local `.env` before filling values. Production supplies the LINE token as a Worker secret; the local test Wrangler config supplies the test-mode flag, and `SEND_GATE` is a Wrangler Durable Object binding. `.env` and `.env.*` remain ignored, `.env.example` is not trackable, and no real credentials are committed.
 - Run the full Python suite, frontend build, local Worker/DO/Cron smoke and race tests, and `git diff --check`. Mark this ticket complete only when all pass. Production Cloudflare integration, quota/load headroom, D1 restore procedure, the NIY-004 hospital transport/freshness integration, and real LINE behavior remain unproven and must stay identified as such.
 
 ## Local validation
@@ -33,6 +34,8 @@ Implement scheduled evaluation, durable event creation, retry-key reuse, and str
 - Local `pywrangler dev` used `wrangler.niy006.test.jsonc`, local D1, a SQLite Durable Object, synthetic records, injected times, and fake hospital/LINE transports. Worker, FastAPI, D1, DO, and Cron smoke passed. Duplicate tick and correction caps, Stop and withdrawal races, the Taipei cutoff, and a recovery hold surviving a local Worker restart were exercised.
 - Unit-level gate tests cover uncertain retry-key reuse and expiry, invocation restart, draft expiry, D1 restore reconciliation, and authenticated explicit resume.
 - The existing NIY-004 hospital modules are parsers without a verified live transport or freshness provider. Production has no hospital reader wired here and requires a separately configured LINE access token before any outbound request can run.
+- `.env_template` contains blank placeholders only. `.env` and `.env.*` are ignored, and no local `.env` or real credential was used.
+- Git ignore checks confirmed `.env` and `.env.example` are ignored and `.env_template` is the only tracked environment template.
 - `git diff --check`: passed. No remote bindings or external hospital/LINE requests were used.
 
 ## Dependencies

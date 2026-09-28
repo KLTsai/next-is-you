@@ -2,7 +2,7 @@
 
 ## Scope and handling
 
-This inventory uses tracked paths and repository references in the isolated task worktree. It records recommendations only. No existing content was deleted, moved, archived, renamed, or rewritten. The private research files referenced by `research/README.md` were not present in this worktree and were not inspected.
+This inventory uses tracked paths and repository references in the isolated task worktree, plus a Firstmate read-only scan report received on 2026-09-28. It records recommendations only. No existing content was deleted, moved, archived, renamed, or rewritten. Firstmate reports that ignored `research/private/` material is present in the primary checkout but absent from this task worktree. Its contents and exact file list were not inspected here.
 
 The detailed cleanup review is tracked by [NIY-015](NIY-015-repository-structure-review.md). Runtime configuration recommendations are tracked separately by [NIY-009](NIY-009-runtime-configuration-secrets.md). [NIY-014](NIY-014-research-navigation.md) covers research navigation, not whole-repository organization or environment setup.
 
@@ -17,7 +17,7 @@ The detailed cleanup review is tracked by [NIY-015](NIY-015-repository-structure
 | `tests/fixtures/hospitals/` | Keep | `tests/test_hospital_adapters.py` reads the HTML and JSON samples. NIY-004 identifies them as synthetic source-shaped fixtures; they are test inputs, not patient records or verified live connectors. | Hospital-adapter maintainer |
 | `tickets/` | Keep | `tickets/README.md` is the checked-in backlog index and the ticket files are the current local implementation authority. There is no external issue tracker in use. | Ticket owners; Captain for backlog policy |
 | `research/` | Keep | Its tracked `README.md` links implementation tickets and identifies the boundary between implementation authority and supporting evidence, as specified by NIY-014. | Research/documentation owner |
-| `research/private/` | Needs Captain decision | The tracked research README says the current spec and supporting/archive index exist only in the Captain primary checkout and are ignored/untracked. They are absent here. Retention, archive, and any later publication decision stays with Captain; this inventory did not access those files. | Captain |
+| `research/private/` | Needs Captain decision | Firstmate reports ignored material in this directory in the primary checkout; it is absent from this task worktree. The tracked `research/README.md` identifies `research/private/mvp-spec-review-2026-09-27-v2.md` as the current spec and `research/private/README.md` as its supporting/archive index. That index points to supporting and archived material. No private contents, archive entries, or additional taxonomy are copied into this report. Retention and any archive decision stay with Captain. | Captain |
 
 No tracked prototype directory or tracked archive directory was found. No archive recommendation is made for existing tracked content. Any additional untracked or ignored planning material requires a separate Captain inventory before disposition.
 
@@ -38,13 +38,14 @@ No tracked prototype directory or tracked archive directory was found. No archiv
 
 ## Generated and ignored local outputs
 
-The worktree contains ignored `dist/`, `node_modules/`, `.venv/`, `.venv-workers/`, `.pytest_cache/`, and Python `__pycache__/` directories. They are not part of the tracked inventory. `.gitignore`, Vite output settings, and the package/Python lockfiles establish their generated or reproducible roles.
+The worktree contains ignored `dist/`, `node_modules/`, `.venv/`, `.venv-workers/`, `.pytest_cache/`, and Python `__pycache__/` directories. They are not part of the tracked inventory. `.gitignore`, Vite output settings, and the package/Python lockfiles establish their generated or reproducible roles. Firstmate's scan also reports ignored `.DS_Store` files; their paths were not inspected or recorded here.
 
 | Area | Recommendation | Evidence and impact | Proposed owner |
 | --- | --- | --- | --- |
 | `dist/` | Keep | Vite writes built assets here; the local Worker fallback and Wrangler assets binding serve these files. It is reproducible but needed for the current local asset path. | Frontend/runtime owner |
 | `node_modules/`, `.venv/`, `.venv-workers/` | Delete candidate | Ignored local dependency environments can be regenerated from `package-lock.json`, `uv.lock`, and `pyproject.toml`. Removing an environment interrupts any process using it and requires reinstalling dependencies. | Captain or worktree operator, after confirming no active process depends on it |
 | `.pytest_cache/`, `src/**/__pycache__/`, `tests/**/__pycache__/` | Delete candidate | Ignored test/interpreter caches are reproducible and are not test fixtures. Removal affects no tracked source but may interrupt an active run if done concurrently. | Routine worktree cleanup owner, after confirming no active run |
+| Ignored `.DS_Store` files | Delete candidate | Firstmate's read-only scan reports ignored macOS directory metadata files. They are not application inputs; this inventory did not inspect their locations. | Captain or worktree operator, after reviewing the reported locations |
 
 These are cleanup candidates only. This task did not remove them. Do not clean a shared or active worktree without its owner's confirmation.
 
@@ -64,7 +65,8 @@ Recommendation: implement the application-wide template and explicit local loadi
 ## Captain decisions still open
 
 - Decide whether the ignored local dependency environments and caches should be cleaned, and when it is safe to do so. They were left untouched.
-- Decide whether the private spec/archive material referenced by the research README should remain in place, be archived, or be handled another way. No private source content was inspected or changed.
+- Decide whether the private spec/archive material present in the primary checkout should remain in place, be archived, or be handled another way. It is absent from this task worktree; no private source content was inspected or changed.
+- Decide whether and when to remove the ignored `.DS_Store` files reported by Firstmate. Their locations were not inspected, and they were left untouched.
 - Decide CI provider/ownership through NIY-008; no workflow was added here.
 - Reconcile the NIY-005 and NIY-006 status mismatch between the ticket index and their ticket bodies. No existing statuses were changed.
 - Review NIY-009's proposed local `.env` workflow and production secret boundary before implementation. No runtime values or secrets were changed.

@@ -94,6 +94,93 @@ class VisitRepository:
         )
         return rows[0] if rows else None
 
+    async def eligible_recipients(self) -> list[Mapping[str, Any]]:
+        return await self._store.fetch_all(Statement(
+            """SELECT id, display_name FROM recipients WHERE active = 1
+                AND consented_at IS NOT NULL AND friendship_checked_at IS NOT NULL
+                ORDER BY display_name, id"""
+        ))
+
+    async def selected_recipient_ids(self, visit_id: str) -> set[str]:
+        rows = await self._store.fetch_all(Statement(
+            "SELECT recipient_id FROM visit_recipients WHERE visit_id = ?", (visit_id,)))
+        return {str(row["recipient_id"]) for row in rows}
+
+    async def organizer_visits(self) -> list[Mapping[str, Any]]:
+        return await self._store.fetch_all(Statement(
+            """SELECT v.id, v.hospital, v.visit_date, v.department_code, v.clinic_code,
+                v.clinic_session, v.state, v.near_last_current_number, v.latest_observed_at,
+                v.latest_source_read_status, v.latest_source_read_reason,
+                vr.recipient_id, r.display_name,
+                COUNT(e.id) AS notification_count,
+                SUM(CASE WHEN e.outcome = 'accepted' THEN 1 ELSE 0 END) AS accepted_count,
+                SUM(CASE WHEN e.outcome IN ('failed', 'unknown') THEN 1 ELSE 0 END) AS issue_count
+                FROM visits AS v
+                LEFT JOIN visit_recipients AS vr ON vr.visit_id = v.id
+                LEFT JOIN recipients AS r ON r.id = vr.recipient_id
+                LEFT JOIN outbound_events AS e ON e.visit_id = v.id AND e.recipient_id = vr.recipient_id
+                GROUP BY v.id, vr.recipient_id ORDER BY v.created_at DESC, v.id""")
+        )
+
+    async def set_source_read(self, visit_id: str, status: str, reason: str) -> bool:
+        statuses = {"usable", "unavailable", "stale", "untrusted", "scope_mismatch", "invalid"}
+        reasons = {"none", "no_observation", "timeout", "stale_sample", "untrusted_source", "scope_mismatch", "empty_result", "schema_drift", "access_denied", "ambiguous_match", "invalid_data"}
+        if status not in statuses or reason not in reasons:
+            raise ValueError("invalid source-read metadata")
+        return await self._store.execute(Statement(
+            "UPDATE visits SET latest_source_read_status = ?, latest_source_read_reason = ? WHERE id = ?",
+            (status, reason, visit_id),
+        )) == 1
+
+    async def create_organizer_draft(self, *, visit_id: str, hospital: str, visit_day: date,
+            department_code: str, clinic_code: str, clinic_session: str,
+            patient_number: int, recipient_ids: Sequence[str], now: datetime) -> bool:
+        await self.create_draft(visit_id=visit_id, hospital=hospital, visit_day=visit_day,
+            department_code=department_code, clinic_code=clinic_code,
+            clinic_session=clinic_session, patient_number=patient_number, now=now)
+        for recipient_id in dict.fromkeys(recipient_ids):
+            if not await self.add_recipient(visit_id, recipient_id, now):
+                await self.delete_draft(visit_id)
+                return False
+        if not recipient_ids:
+            await self.delete_draft(visit_id)
+            return False
+        return True
+
+    async def update_draft(self, *, visit_id: str, hospital: str, visit_day: date,
+            department_code: str, clinic_code: str, clinic_session: str,
+            patient_number: int, recipient_ids: Sequence[str], now: datetime) -> bool:
+        visit = await self.get_visit(visit_id)
+        if visit is None or visit["state"] != "draft" or visit["roster_frozen"]:
+            return False
+        if not recipient_ids:
+            return False
+        wanted = list(dict.fromkeys(recipient_ids))
+        placeholders = ",".join("?" for _ in wanted)
+        eligible = await self._store.fetch_all(Statement(
+            f"""SELECT id FROM recipients WHERE id IN ({placeholders}) AND active = 1
+                AND consented_at IS NOT NULL AND friendship_checked_at IS NOT NULL""", tuple(wanted)))
+        if {str(row["id"]) for row in eligible} != set(wanted):
+            return False
+        if not await self.correct_clinic(visit_id=visit_id, hospital=hospital,
+                visit_day=visit_day, department_code=department_code, clinic_code=clinic_code,
+                clinic_session=clinic_session, patient_number=patient_number,
+                doctor_code=None, room_code=None):
+            return False
+        current = await self._store.fetch_all(Statement(
+            "SELECT recipient_id FROM visit_recipients WHERE visit_id = ?", (visit_id,)))
+        for row in current:
+            rid = str(row["recipient_id"])
+            if rid not in wanted:
+                await self.remove_recipient(visit_id, rid)
+        for rid in wanted:
+            if not await self.add_recipient(visit_id, rid, now):
+                existing = await self._store.fetch_all(Statement(
+                    "SELECT 1 FROM visit_recipients WHERE visit_id = ? AND recipient_id = ?", (visit_id, rid)))
+                if not existing:
+                    return False
+        return True
+
     async def scheduler_ledger_digest(
         self, *, exclude_event_id: str | None = None
     ) -> str:
@@ -485,6 +572,12 @@ class VisitRepository:
                     WHERE vr.visit_id = visits.id AND r.active = 1
                         AND r.consented_at IS NOT NULL
                         AND r.friendship_checked_at IS NOT NULL
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM visit_recipients AS vr
+                    JOIN recipients AS r ON r.id = vr.recipient_id
+                    WHERE vr.visit_id = visits.id AND (r.active != 1
+                        OR r.consented_at IS NULL OR r.friendship_checked_at IS NULL)
                 )""",
                 (iso_utc(now), visit_id),
             )

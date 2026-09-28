@@ -18,14 +18,15 @@ from worker import create_app
 
 
 SECRET = "local-test-secret-with-at-least-32-bytes"
-MIGRATION = Path(__file__).resolve().parents[1] / "migrations" / "0001_initial.sql"
+MIGRATIONS = sorted((Path(__file__).resolve().parents[1] / "migrations").glob("*.sql"))
 
 
 class SQLiteStore:
     def __init__(self) -> None:
         self.connection = sqlite3.connect(":memory:", isolation_level=None)
         self.connection.row_factory = sqlite3.Row
-        self.connection.executescript(MIGRATION.read_text())
+        for migration in MIGRATIONS:
+            self.connection.executescript(migration.read_text())
 
     async def execute(self, statement: Statement) -> int:
         return self.connection.execute(statement.sql, statement.values).rowcount

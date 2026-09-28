@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import time
+import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 from urllib.parse import urlencode, urlsplit
@@ -27,6 +28,7 @@ from next_is_you.auth import (
     verify_session,
 )
 from next_is_you.identity import IdentityRepository, hash_invitation
+from next_is_you.domain import ClinicSession, Hospital
 from next_is_you.line_login import LineOAuthClient, WorkersLineOAuthClient
 from next_is_you.line_messaging import (
     LineFriendshipClient,
@@ -299,6 +301,139 @@ def create_app(
             status_code=201,
         )
 
+    @app.get("/api/organizer/recipients")
+    async def organizer_recipients(request: Request) -> Response:
+        _, denied = await _authorized(request, "organizer", csrf=False)
+        if denied:
+            return denied
+        repository = _visit_repository(request)
+        if repository is None:
+            return _api_error("service_unavailable", 503)
+        rows = await repository.eligible_recipients()
+        return JSONResponse({"recipients": [dict(row) for row in rows]})
+
+    @app.get("/api/organizer/visits")
+    async def organizer_visits(request: Request) -> Response:
+        _, denied = await _authorized(request, "organizer", csrf=False)
+        if denied:
+            return denied
+        repository = _visit_repository(request)
+        if repository is None:
+            return _api_error("service_unavailable", 503)
+        rows = await repository.organizer_visits()
+        grouped: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            visit_id = str(row["id"])
+            item = grouped.setdefault(visit_id, {
+                "id": visit_id, "hospital": str(row["hospital"]),
+                "date": str(row["visit_date"]), "department_code": str(row["department_code"]),
+                "clinic_code": str(row["clinic_code"]), "session": str(row["clinic_session"]),
+                "state": str(row["state"]),
+                "observation": {"current_number": row["near_last_current_number"], "checked_at": row["latest_observed_at"]},
+                "source_read": {"status": str(row["latest_source_read_status"]), "reason": str(row["latest_source_read_reason"])},
+                "notification": {"count": int(row["notification_count"] or 0), "accepted": int(row["accepted_count"] or 0), "issues": int(row["issue_count"] or 0)},
+                "recipients": [],
+            })
+            if row["recipient_id"] is not None:
+                item["recipients"].append({"id": str(row["recipient_id"]), "display_name": str(row["display_name"])})
+        return JSONResponse({"visits": list(grouped.values())})
+
+    @app.post("/api/organizer/visits", status_code=201)
+    async def create_organizer_visit(request: Request) -> Response:
+        _, denied = await _authorized(request, "organizer", csrf=True)
+        if denied:
+            return denied
+        body = await _organizer_body(request)
+        if body is None:
+            return _api_error("invalid_request", 400)
+        parsed = _visit_input(body)
+        repository = _visit_repository(request)
+        if parsed is None:
+            return _api_error("invalid_request", 400)
+        if repository is None:
+            return _api_error("service_unavailable", 503)
+        visit_id = str(uuid.uuid4())
+        try:
+            created = await repository.create_organizer_draft(visit_id=visit_id, now=_now(request), **parsed)
+        except Exception:
+            return _api_error("ineligible_recipients", 409)
+        if not created:
+            return _api_error("ineligible_recipients", 409)
+        return JSONResponse({"id": visit_id, "state": "draft"}, status_code=201)
+
+    @app.patch("/api/organizer/visits/{visit_id}")
+    async def update_organizer_visit(visit_id: str, request: Request) -> Response:
+        _, denied = await _authorized(request, "organizer", csrf=True)
+        if denied:
+            return denied
+        body = await _organizer_body(request)
+        parsed = _visit_input(body) if body is not None else None
+        repository = _visit_repository(request)
+        if parsed is None:
+            return _api_error("invalid_request", 400)
+        if repository is None:
+            return _api_error("service_unavailable", 503)
+        if not await repository.update_draft(visit_id=visit_id, now=_now(request), **parsed):
+            return _api_error("invalid_lifecycle_state", 409)
+        return JSONResponse({"id": visit_id, "state": "draft"})
+
+    @app.post("/api/organizer/visits/{visit_id}/start")
+    async def start_organizer_visit(visit_id: str, request: Request) -> Response:
+        _, denied = await _authorized(request, "organizer", csrf=True)
+        if denied:
+            return denied
+        gate = _send_gate(request)
+        if gate is None:
+            return _api_error("service_unavailable", 503)
+        result = await gate.start_visit(visit_id, iso_utc(_now(request)))
+        if "error" in result:
+            errors = {
+                "visit_not_found": ("visit_not_found", 404),
+                "invalid_lifecycle_state": ("invalid_lifecycle_state", 409),
+                "observation_unavailable": ("observation_unavailable", 503),
+                "observation_stale": ("observation_stale", 409),
+                "observation_scope_mismatch": ("observation_scope_mismatch", 409),
+                "observation_untrusted": ("observation_untrusted", 409),
+                "observation_invalid": ("observation_invalid", 409),
+                "ineligible_recipients": ("ineligible_recipients", 409),
+                "scheduler_held": ("scheduler_held", 503),
+            }
+            code, status = errors.get(result["error"], ("service_unavailable", 503))
+            return _api_error(code, status)
+        return JSONResponse(result)
+
+    @app.post("/api/organizer/visits/{visit_id}/stop")
+    async def stop_organizer_visit(visit_id: str, request: Request) -> Response:
+        _, denied = await _authorized(request, "organizer", csrf=True)
+        if denied:
+            return denied
+        gate = _send_gate(request)
+        if gate is None:
+            return _api_error("service_unavailable", 503)
+        state = await gate.stop_visit(visit_id, iso_utc(_now(request)))
+        if state is None:
+            return _api_error("visit_not_found", 404)
+        if state == "invalid_lifecycle_state":
+            return _api_error("invalid_lifecycle_state", 409)
+        return JSONResponse({"state": state})
+
+    @app.post("/api/organizer/visits/{visit_id}/correct")
+    async def correct_organizer_visit(visit_id: str, request: Request) -> Response:
+        _, denied = await _authorized(request, "organizer", csrf=True)
+        if denied:
+            return denied
+        body = await _organizer_body(request)
+        parsed = _visit_input(body) if body is not None else None
+        gate = _send_gate(request)
+        if parsed is None:
+            return _api_error("invalid_request", 400)
+        if gate is None:
+            return _api_error("service_unavailable", 503)
+        corrected = await gate.correct_stopped_visit(visit_id, **parsed)
+        if not corrected:
+            return _api_error("invalid_lifecycle_state", 409)
+        return JSONResponse({"id": visit_id, "state": "draft"})
+
     @app.post("/api/recipient/opt-in")
     async def opt_in_recipient(request: Request) -> Response:
         claims, denied = await _authorized(request, "recipient", csrf=True, allow_pending=True)
@@ -356,7 +491,9 @@ def create_app(
             return JSONResponse({"detail": "Visit send ordering is unavailable"}, status_code=503)
         state = await gate.stop_visit(visit_id, iso_utc(_now(request)))
         if state is None:
-            return JSONResponse({"detail": "Visit was not found"}, status_code=404)
+            return _api_error("visit_not_found", 404)
+        if state == "invalid_lifecycle_state":
+            return _api_error("invalid_lifecycle_state", 409)
         return JSONResponse({"state": state})
 
     @app.delete("/api/visits/{visit_id}/recipients/{recipient_id}", status_code=204)
@@ -422,6 +559,18 @@ def create_app(
             body = {}
         if not isinstance(body, Mapping):
             return JSONResponse({"detail": "Invalid test request"}, status_code=400)
+        if operation == "organizer-session":
+            settings = _login_settings(request)
+            session = issue_session(
+                "niy006-synthetic-organizer", "organizer", settings.session_secret,
+                now=int(request.app.state.clock()),
+            )
+            response = JSONResponse({"issued": True})
+            response.set_cookie(SESSION_COOKIE_NAME, session.value,
+                **session_cookie_options(max_age=session.expires_at - int(request.app.state.clock())))
+            response.set_cookie(CSRF_COOKIE_NAME, session.csrf_token,
+                **csrf_cookie_options(max_age=session.expires_at - int(request.app.state.clock())))
+            return response
         if operation == "seed":
             seeded = await gate.seed_test_visit(
                 str(body["visit_id"]),
@@ -507,6 +656,7 @@ def _login_settings(request: Request) -> LineLoginSettings:
     if configured is not None:
         return configured
     env = request.scope.get("env")
+    test_mode = str(_binding(env, "NIY006_LOCAL_TEST_MODE")) == "1"
     values = {
         name: _binding(env, name)
         for name in (
@@ -517,7 +667,61 @@ def _login_settings(request: Request) -> LineLoginSettings:
             "ORGANIZER_LINE_SUBJECTS",
         )
     }
+    if test_mode and not values["SESSION_SIGNING_SECRET"]:
+        values["SESSION_SIGNING_SECRET"] = "niy006-local-synthetic-session-secret-only"
+    if test_mode:
+        subjects = set(part.strip() for part in values["ORGANIZER_LINE_SUBJECTS"].split(",") if part.strip())
+        subjects.add("niy006-synthetic-organizer")
+        values["ORGANIZER_LINE_SUBJECTS"] = ",".join(subjects)
     return LineLoginSettings.from_mapping(values)
+
+
+async def _organizer_body(request: Request) -> Mapping[str, Any] | None:
+    try:
+        body = await request.json()
+    except Exception:
+        return None
+    return body if isinstance(body, Mapping) else None
+
+
+def _visit_input(body: Mapping[str, Any]) -> dict[str, Any] | None:
+    try:
+        if set(body) - {"hospital", "date", "department_code", "clinic_code", "session", "patient_number", "recipient_ids"}:
+            return None
+        hospital = Hospital(str(body["hospital"])).value
+        clinic_session = ClinicSession(str(body["session"])).value
+        visit_day = date.fromisoformat(str(body["date"]))
+        department_code = _bounded_code(body["department_code"])
+        clinic_code = _bounded_code(body["clinic_code"])
+        patient_number = body["patient_number"]
+        recipient_ids = body["recipient_ids"]
+        if isinstance(patient_number, bool) or not isinstance(patient_number, int) or patient_number < 1:
+            return None
+        if not isinstance(recipient_ids, list) or not recipient_ids or len(recipient_ids) > 50:
+            return None
+        if any(not isinstance(value, str) or not value or len(value) > 128 for value in recipient_ids):
+            return None
+        return {
+            "hospital": hospital,
+            "visit_day": visit_day,
+            "department_code": department_code,
+            "clinic_code": clinic_code,
+            "clinic_session": clinic_session,
+            "patient_number": patient_number,
+            "recipient_ids": tuple(recipient_ids),
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _bounded_code(value: Any) -> str:
+    if not isinstance(value, str) or not value or len(value) > 64 or not value.strip():
+        raise ValueError("invalid clinic code")
+    return value.strip()
+
+
+def _api_error(code: str, status_code: int) -> JSONResponse:
+    return JSONResponse({"error": {"code": code}}, status_code=status_code)
 
 
 def _binding(env: Any, name: str) -> str:

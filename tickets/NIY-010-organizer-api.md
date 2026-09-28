@@ -1,6 +1,6 @@
 # NIY-010: Organizer API
 
-Status: Open
+Status: Complete (2026-09-28)
 
 ## Goal
 

@@ -15,7 +15,7 @@ This repository does not yet use an external issue tracker. These checked-in tic
 | NIY-007 | Open | [Settings, status, and stop UI](NIY-007-user-interface.md) | NIY-002 through NIY-006, NIY-010 |
 | NIY-008 | Open | [CI and local acceptance journey](NIY-008-ci-acceptance.md) | NIY-001 through NIY-007, NIY-010 |
 | NIY-009 | Complete | [Runtime configuration and secrets management](NIY-009-runtime-configuration-secrets.md) | NIY-002, NIY-005, NIY-006 |
-| NIY-010 | Open | [Organizer API](NIY-010-organizer-api.md) | NIY-001 through NIY-006, NIY-009 |
+| NIY-010 | Complete (2026-09-28) | [Organizer API](NIY-010-organizer-api.md) | NIY-001 through NIY-006, NIY-009 |
 | NIY-014 | Open | [Research documentation navigation](NIY-014-research-navigation.md) | None |
 | NIY-015 | Open | [Repository structure review and disposition](NIY-015-repository-structure-review.md) | None |
 

@@ -100,7 +100,19 @@ class OutboxScheduler:
                 continue
 
             scope = _scope(visit)
-            observation = await self._hospital.observe(scope, sample_time)
+            try:
+                observation = await self._hospital.observe(scope, sample_time)
+            except TimeoutError:
+                observation = None
+                source_status, source_reason = "unavailable", "timeout"
+            except Exception:
+                observation = None
+                source_status, source_reason = "invalid", "invalid_data"
+            else:
+                source_status, source_reason = _source_read_status(
+                    observation, scope, sample_time
+                )
+            await self._visits.set_source_read(visit_id, source_status, source_reason)
             existing = await self._visits.event_kinds(visit_id)
             recipients = tuple(str(row["recipient_id"]) for row in selected_rows)
             near_already = frozenset(
@@ -295,3 +307,24 @@ def _parse_time(value: str) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError("stored timestamps must be timezone-aware")
     return parsed
+
+
+def _source_read_status(observation, expected: ClinicScope, now: datetime) -> tuple[str, str]:
+    if observation is None:
+        return "unavailable", "no_observation"
+    try:
+        observed_at = _parse_time(observation.observed_at)
+        scope = observation.scope
+        trustworthy = observation.trustworthy_current
+        current_number = observation.current_number
+    except (AttributeError, TypeError, ValueError):
+        return "invalid", "invalid_data"
+    if observed_at > now or now - observed_at > timedelta(minutes=2):
+        return "stale", "stale_sample"
+    if scope != expected:
+        return "scope_mismatch", "scope_mismatch"
+    if not trustworthy:
+        return "untrusted", "untrusted_source"
+    if isinstance(current_number, bool) or not isinstance(current_number, int) or current_number < 1:
+        return "invalid", "invalid_data"
+    return "usable", "none"

@@ -29,10 +29,10 @@ Implement scheduled evaluation, durable event creation, retry-key reuse, and str
 
 ## Local validation
 
-- `python -m pytest -q`: 96 passed.
+- `PYTHONDONTWRITEBYTECODE=1 uv run --offline pytest -q -p no:cacheprovider`: 97 passed, including the recipient-removal-first ordering test.
 - `npm run build`: passed.
 - Local `pywrangler dev` used `wrangler.niy006.test.jsonc`, local D1, a SQLite Durable Object, synthetic records, injected times, and fake hospital/LINE transports. Worker, FastAPI, D1, DO, and Cron smoke passed. Duplicate tick and correction caps, Stop and withdrawal races, the Taipei cutoff, and a recovery hold surviving a local Worker restart were exercised.
-- Unit-level gate tests cover uncertain retry-key reuse and expiry, invocation restart, draft expiry, D1 restore reconciliation, and authenticated explicit resume.
+- Unit-level gate tests cover uncertain retry-key reuse and expiry, invocation restart, draft expiry, D1 restore reconciliation, and authenticated explicit resume. Recipient-removal races cover both orderings, including removal winning before a scheduled tick and suppressing the fake LINE request.
 - The existing NIY-004 hospital modules are parsers without a verified live transport or freshness provider. Production has no hospital reader wired here and requires a separately configured LINE access token before any outbound request can run.
 - `.env_template` contains blank placeholders only. `.env` and `.env.*` are ignored, and no local `.env` or real credential was used.
 - Git ignore checks confirmed `.env` and `.env.example` are ignored and `.env_template` is the only tracked environment template.

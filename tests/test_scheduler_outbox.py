@@ -310,6 +310,26 @@ async def test_visit_recipient_removal_waits_then_erases_events_and_blocks_futur
 
 
 @pytest.mark.asyncio
+async def test_visit_recipient_removal_wins_ordering_and_blocks_future_sends() -> None:
+    database = LocalD1()
+    gate = make_gate(database)
+    await seed(gate)
+    await gate.set_test_observation(82)
+
+    removing = asyncio.create_task(
+        gate.remove_visit_recipient("v1", "r1", "2026-09-27T13:00:00Z")
+    )
+    sending = asyncio.create_task(tick(gate, "2026-09-27T13:01:00Z"))
+
+    assert await removing
+    await sending
+
+    snapshot = await gate.test_snapshot()
+    assert snapshot["line_requests"] == []
+    assert snapshot["events"] == []
+
+
+@pytest.mark.asyncio
 async def test_close_wins_ordering_and_no_request_begins_after_close() -> None:
     database = LocalD1()
     gate = make_gate(database)

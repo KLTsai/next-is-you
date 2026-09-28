@@ -17,14 +17,44 @@ Production uses Cloudflare Worker configuration. Store `LINE_LOGIN_CHANNEL_SECRE
 
 ## Local UI acceptance (NIY-007)
 
-Run `npm ci`, `uv sync --group dev`, then `npm run dev:local`. Open `http://127.0.0.1:8787`. This path binds to loopback and needs no `.env` for the UI. Do not add credentials for this check.
+For the API-backed browser journey, install dependencies with `npm ci` and `uv sync --group dev`, then build with `npm run build`. Start the local Worker with `uv run pywrangler dev --local --config wrangler.niy006.test.jsonc`; this config supplies local D1, a SQLite Durable Object, a fake hospital reader, fake LINE transport, and the explicit test-only session fixture. Open `http://127.0.0.1:8787`. The Wrangler path binds locally and does not deploy. Do not add `.env` credentials.
 
 Expected local result:
 
-1. The header reports that the local service is healthy. The clinic catalog reports unavailable because this runtime has no clinic-catalog or hospital-reading route.
-2. Choose either supported hospital and a date, then select **建立草稿**. The status card shows a draft, missing clinic/session data, no source link, no recipient roster, no trusted observation, and no send result. Change hospital/date and create the draft again to check the correction flow.
-3. **開始提醒** stays disabled. The UI requires a fresh (under two minutes), trusted observation that exactly matches hospital, date, department, clinic, and session, plus a selected recipient. Fixture adapter results are untrusted and cannot satisfy this gate.
-4. No active visit can be created through the current local app: visit creation/listing, clinic choices, and a recipient roster are not exposed by the API, and the local runtime has no database or send gate. The Stop control is shown on an active visit and posts to the existing `/api/visits/{visit_id}/stop` route; it cannot be reached in this local setup until those backend capabilities are connected. When Stop is pending, the UI says it is stopping; on a failed request it restores the active state and offers another attempt.
-5. The interface has distinct draft, active, stopping, stopped, source-unavailable, and terminal labels. Source unavailability leaves a visit as a draft and never enables Start.
+1. Click **本機合成測試登入**. It succeeds only because this local config enables `NIY006_LOCAL_TEST_MODE`; it does not call LINE.
+2. Set the fake source to a trusted number well outside the alert window, then seed an active synthetic visit for the Stop journey. Both operations affect only local test bindings:
+
+   ```sh
+   curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/observation \
+     -H 'content-type: application/json' \
+     --data '{"current_number":70,"trustworthy":true}'
+
+   curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/seed \
+     -H 'content-type: application/json' \
+     --data "{\"visit_id\":\"niy007-stop-demo\",\"recipient_id\":\"niy007-family\",\"visit_day\":\"$(date -u -v+1d +%F)\",\"patient_number\":85,\"now\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
+   ```
+
+   Return to the browser and select **重新整理**. The visit should show **監控中**, the synthetic recipient, source status, and notification summary. Select **停止提醒**; it should show the pending stop state, then **已停止** after the API confirms closure. The configured fake number is 15 numbers from its target, so scheduled checks do not create an alert.
+3. Create another draft using the listed **Synthetic recipient**, a future visit date, hospital **臺大醫院總院**, department `SYN`, clinic `SYN-1`, session `afternoon`, and synthetic patient number `85`. These values are local test data. The form does not offer guessed clinic/session choices; use only the source values supplied for your test. The API-backed draft should appear with its recipient and **來源 unavailable** because it has no usable observation yet.
+4. Clear the fake observation, then select **檢查資料並開始**. The route should return the typed unavailable error, keep the visit in **草稿**, and show the source reason. Configure a fresh trusted synthetic observation at `70` and try Start again:
+
+   ```sh
+   curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/observation \
+     -H 'content-type: application/json' \
+     --data '{"current_number":null,"trustworthy":false}'
+
+   # Click Start in the browser and confirm the draft remains unavailable.
+
+   curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/observation \
+     -H 'content-type: application/json' \
+     --data '{"current_number":70,"trustworthy":true}'
+   ```
+
+   The Worker gate validates freshness, trust, and exact visit scope; only its successful response changes the visit to active. The UI does not call a hospital.
+5. Select **停止提醒** on that active visit and verify the stopping and stopped states. On a stopped visit, **修正後重新檢查** keeps the same logical visit ID and the eligible existing recipient set.
+
+The source link appears only when the API supplies a trusted HTTPS URL; the current local API has no configured hospital catalog, so no source link is shown. The session field accepts only the domain's canonical values and never presents a fabricated session list. The standard `npm run dev:local` path has no D1 or send-gate bindings; use it only to inspect the unauthenticated shell and unavailable-service behavior.
+
+The current runner has `uv 0.11.32`, while `pywrangler` requires `uv 0.12.3` or newer, so the local browser journey could not be run in this environment. There is no browser automation dependency in the repository; use the manual browser steps above when the local Wrangler runtime is available.
 
 Run `npm run test:ui` for the focused lifecycle gate checks, `uv run pytest -q` for the full local Python suite, and `npm run build` for the frontend build. These commands do not contact hospitals or LINE and do not deploy.

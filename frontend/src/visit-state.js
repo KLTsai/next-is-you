@@ -1,34 +1,40 @@
-export const VISIT_STATUSES = Object.freeze([
-  "draft",
-  "active",
-  "stopping",
-  "stopped",
-  "source-unavailable",
-  "terminal",
-]);
+export const VISIT_STATES = Object.freeze(["draft", "active", "stopping", "stopped", "expired"]);
+export const SOURCE_STATUSES = Object.freeze(["usable", "unavailable", "stale", "untrusted", "scope_mismatch", "invalid"]);
 
-const LABELS = Object.freeze({
+const STATE_LABELS = Object.freeze({
   draft: "草稿",
   active: "監控中",
   stopping: "停止中",
   stopped: "已停止",
-  "source-unavailable": "來源 unavailable",
-  terminal: "已結束",
+  expired: "已結束",
 });
-
-export function formatStatus(status) {
-  return LABELS[status] ?? "狀態未知";
+const SOURCE_LABELS = Object.freeze({
+  usable: "資料已核對",
+  unavailable: "來源 unavailable",
+  stale: "資料已過期",
+  untrusted: "來源尚未驗證",
+  scope_mismatch: "診次資料不相符",
+  invalid: "資料格式無效",
+});
+export function formatVisitState(state) {
+  return STATE_LABELS[state] ?? "狀態未知";
 }
 
-export function isFreshMatchingObservation(observation, expected, now = Date.now()) {
-  if (!observation || observation.trustworthy !== true) return false;
-  if (!Number.isInteger(observation.currentNumber) || observation.currentNumber <= 0) return false;
-  if (!expected || !expected.departmentCode || !expected.clinicCode || !expected.session) return false;
-  if (["hospital", "visitDate", "departmentCode", "clinicCode", "session"].some((key) => observation[key] !== expected[key])) return false;
-  const observedAt = Date.parse(observation.observedAt);
-  return Number.isFinite(observedAt) && observedAt <= now && now - observedAt <= 120_000;
+export function formatSourceStatus(status) {
+  return SOURCE_LABELS[status] ?? "來源狀態未知";
 }
 
-export function canStartVisit(visit, now = Date.now()) {
-  return visit?.status === "draft" && visit.recipients?.length > 0 && isFreshMatchingObservation(visit.observation, visit, now);
+export function visitStatusKey(visit) {
+  if (visit?.state === "draft" && visit.source_read?.status !== "usable") return "source-unavailable";
+  if (visit?.state === "expired") return "terminal";
+  return visit?.state ?? "terminal";
+}
+
+export function canRequestStart(visit) {
+  if (!visit || visit.state !== "draft") return false;
+  if (!Array.isArray(visit.recipients) || visit.recipients.length === 0) return false;
+  if (!visit.hospital || !visit.date || !visit.department_code || !visit.clinic_code || !visit.session) return false;
+  // Start performs a new gate-mediated source read. A cached projection may be
+  // unavailable or stale; only the server can authorize the state transition.
+  return true;
 }

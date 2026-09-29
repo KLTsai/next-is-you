@@ -175,6 +175,52 @@ async def test_removal_stops_future_membership_but_keeps_recent_event_audit() ->
 
 
 @pytest.mark.asyncio
+async def test_draft_update_reconciles_recipient_removed_after_membership_read() -> None:
+    class ConcurrentRemovalStore(SQLiteStore):
+        repository: VisitRepository
+
+        async def fetch_all(self, statement: Statement) -> list[Mapping[str, Any]]:
+            rows = await super().fetch_all(statement)
+            if statement.sql == (
+                "SELECT recipient_id FROM visit_recipients WHERE visit_id = ?"
+            ):
+                await self.repository.remove_recipient("v1", "r1")
+            return rows
+
+        async def batch(self, statements: Sequence[Statement]) -> list[int]:
+            await self.repository.remove_recipient("v1", "r1")
+            return await super().batch(statements)
+
+    store = ConcurrentRemovalStore()
+    store.connection.execute(
+        """INSERT INTO recipients (id, line_subject, display_name, consented_at,
+        friendship_checked_at, created_at) VALUES
+        ('r1', 'line-r1', 'Family A', '2026-09-27T00:00:00Z',
+        '2026-09-27T00:00:00Z', '2026-09-27T00:00:00Z')"""
+    )
+    repo = VisitRepository(store)
+    store.repository = repo
+    await make_draft(repo)
+    assert await repo.add_recipient("v1", "r1", at("2026-09-27T00:01:00Z"))
+
+    updated = await repo.update_draft(
+        visit_id="v1",
+        hospital="ntuh-main",
+        visit_day=date(2026, 9, 27),
+        department_code="IM",
+        clinic_code="IM-A",
+        clinic_session="morning",
+        patient_number=86,
+        recipient_ids=("r1",),
+        now=at("2026-09-27T00:02:00Z"),
+    )
+
+    assert updated
+    assert await repo.selected_recipient_ids("v1") == {"r1"}
+    await store.close()
+
+
+@pytest.mark.asyncio
 async def test_stop_waits_for_inflight_send_before_terminal_retention_clock() -> None:
     store, repo = await seeded_repository()
     await make_draft(repo)

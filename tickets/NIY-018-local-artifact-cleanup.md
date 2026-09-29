@@ -32,8 +32,8 @@ The cleanup must preserve:
 - tracked tests, fixtures, and migrations
 - `wrangler.niy006.test.jsonc`
 - `.env_template`
-- the currently uncommitted `.gitignore`
-- the currently uncommitted `pylock.toml`
+- the tracked `.gitignore`, including the `python_modules/` ignore rule
+- local uncommitted `pylock.toml`, when present
 
 The cleanup must not read `research/private/` contents and must not create `.env` or any other local secret file.
 
@@ -49,9 +49,10 @@ The cleanup must not read `research/private/` contents and must not create `.env
 - The listed rebuildable artifacts are absent after cleanup: `.venv/`, `.venv-workers/`, `node_modules/`, `python_modules/`, `dist/`, `.pytest_cache/`, every `__pycache__/`, and the root, `frontend/`, and `research/` `.DS_Store` files.
 - Protected items still exist when they existed before cleanup, including `.wrangler/` local D1 state, `research/private/`, tracked tests, fixtures, migrations, `wrangler.niy006.test.jsonc`, `.env_template`, `.gitignore`, and `pylock.toml`.
 - Tracked files are unchanged after cleanup.
-- `.gitignore` and `pylock.toml` remain in their original uncommitted state.
+- The tracked `.gitignore` remains unchanged after cleanup, and local uncommitted `pylock.toml` remains in its original local state when present.
 - No `.env` file is created, no private research content is read, no live hospital, LINE, or Cloudflare request is made, and no deployment, push, or publication occurs.
 
 ## Related tickets
 
 - [NIY-015: Repository structure review and disposition](NIY-015-repository-structure-review.md) records the repository cleanup decision that opened this ticket.
+- [NIY-019: Ignore local Python module cache](NIY-019-ignore-python-modules.md) records the tracked ignore rule that keeps `python_modules/` local and reproducible.

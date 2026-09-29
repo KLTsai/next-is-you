@@ -20,6 +20,7 @@ This repository does not yet use an external issue tracker. These checked-in tic
 | NIY-016 | Complete (2026-09-28) | [Trusted hospital progress links](NIY-016-trusted-progress-links.md) | NIY-010 |
 | NIY-017 | Complete (2026-09-28) | [Research ticket removal](NIY-017-remove-niy-014.md) | None |
 | NIY-018 | Open | [Local rebuildable artifact cleanup](NIY-018-local-artifact-cleanup.md) | NIY-015 |
+| NIY-019 | Complete | [Ignore local Python module cache](NIY-019-ignore-python-modules.md) | NIY-018 |
 
 ## Acceptance guardrails
 

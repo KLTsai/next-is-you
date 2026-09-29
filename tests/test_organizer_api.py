@@ -128,6 +128,14 @@ def test_organizer_reads_eligible_roster_and_creates_draft_with_auth_and_csrf():
             )
             assert created.status_code == 201
             assert created.json()["state"] == "draft"
+            updated_body = {**body, "session": "evening", "patient_number": 86}
+            updated = await http.patch(
+                f"/api/organizer/visits/{created.json()['id']}",
+                json=updated_body,
+                headers=headers,
+            )
+            assert updated.status_code == 200
+            assert updated.json() == {"id": created.json()["id"], "state": "draft"}
             shin_kong = {**body, "hospital": "shin-kong-taipei", "clinic_code": "MED-B"}
             assert (
                 await http.post(
@@ -137,6 +145,7 @@ def test_organizer_reads_eligible_roster_and_creates_draft_with_auth_and_csrf():
             listing = await http.get("/api/organizer/visits")
             assert listing.status_code == 200
             visits = {visit["hospital"]: visit for visit in listing.json()["visits"]}
+            assert visits["ntuh-main"]["session"] == "evening"
             assert (
                 visits["ntuh-main"]["source_url"]
                 == "https://registration.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0"

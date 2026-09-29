@@ -16,9 +16,10 @@ This repository does not yet use an external issue tracker. These checked-in tic
 | NIY-008 | Complete (local acceptance passed, 2026-09-28) | [CI and local acceptance journey](NIY-008-ci-acceptance.md) | NIY-001 through NIY-007, NIY-010 |
 | NIY-009 | Complete | [Runtime configuration and secrets management](NIY-009-runtime-configuration-secrets.md) | NIY-002, NIY-005, NIY-006 |
 | NIY-010 | Complete (2026-09-28) | [Organizer API](NIY-010-organizer-api.md) | NIY-001 through NIY-006, NIY-009 |
-| NIY-015 | Open | [Repository structure review and disposition](NIY-015-repository-structure-review.md) | None |
+| NIY-015 | Open (local cleanup route selected) | [Repository structure review and disposition](NIY-015-repository-structure-review.md) | None |
 | NIY-016 | Complete (2026-09-28) | [Trusted hospital progress links](NIY-016-trusted-progress-links.md) | NIY-010 |
 | NIY-017 | Complete (2026-09-28) | [Research ticket removal](NIY-017-remove-niy-014.md) | None |
+| NIY-018 | Open | [Local rebuildable artifact cleanup](NIY-018-local-artifact-cleanup.md) | NIY-015 |
 
 ## Acceptance guardrails
 

@@ -1,6 +1,6 @@
 # NIY-015: Repository structure review and disposition
 
-Status: Open
+Status: Open (local cleanup route selected)
 
 ## Goal
 
@@ -13,6 +13,13 @@ Review the documented repository inventory and decide whether any cleanup, conso
 - Any approved cleanup is handled by a separate ticket naming exact paths, tracking/privacy impact, ownership, and a recovery plan. No content is moved, renamed, archived, or deleted until that decision is recorded.
 - Keep this ticket limited to repository organization; do not change application behavior, requirements, or secrets.
 
+## Captain decision update
+
+Captain selected route A for local rebuildable artifact cleanup. This withdraws any prior conclusion to keep all local environments, generated caches, and `.DS_Store` files by default. Those ignored and reproducible local artifacts are now scoped for cleanup in [NIY-018](NIY-018-local-artifact-cleanup.md).
+
+The original retention boundaries remain unchanged for research private data and archived planning material. `research/private/` and its private/archive index contents are not inspected, copied, deleted, rewritten, or moved by the local artifact cleanup route. Tracked tests, fixtures, migrations, runtime templates, and Wrangler test configuration remain repository content unless a separate ticket says otherwise.
+
 ## Related tickets
 
 - [NIY-009: Runtime configuration and secrets management](NIY-009-runtime-configuration-secrets.md) owns the runtime configuration and local secrets workflow.
+- [NIY-018: Local rebuildable artifact cleanup](NIY-018-local-artifact-cleanup.md) owns the exact local cleanup scope selected from this review.

@@ -71,6 +71,11 @@ class FakeSendGate:
         self.visits = visits
         self.held = False
 
+    async def add_visit_recipient(
+        self, visit_id: str, recipient_id: str, now: datetime
+    ) -> bool:
+        return await self.visits.add_recipient(visit_id, recipient_id, now)
+
     async def withdraw_recipient(self, recipient_id: str, _now: str) -> bool:
         return await self.visits.withdraw_recipient(recipient_id)
 

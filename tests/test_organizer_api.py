@@ -226,7 +226,8 @@ def test_synthetic_session_fixture_is_missing_without_explicit_test_binding():
 def test_synthetic_organizer_session_requires_explicit_niy006_test_binding():
     async def scenario():
         clock_now = int(datetime(2026, 9, 28, 10, 0, tzinfo=timezone.utc).timestamp())
-        app = create_app(clock=lambda: clock_now, send_gate=Gate())
+        visits = VisitRepository(SQLiteStore())
+        app = create_app(clock=lambda: clock_now, send_gate=Gate(visits))
 
         class TestConfigApp:
             async def __call__(self, scope, receive, send):

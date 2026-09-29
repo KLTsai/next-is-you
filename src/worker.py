@@ -455,9 +455,7 @@ def create_app(
         gate = _send_gate(request)
         if gate is None:
             return _api_error("service_unavailable", 503)
-        if not await gate.update_draft(
-            visit_id=visit_id, now=_now(request), **parsed
-        ):
+        if not await gate.update_draft(visit_id=visit_id, now=_now(request), **parsed):
             return _api_error("invalid_lifecycle_state", 409)
         return JSONResponse({"id": visit_id, "state": "draft"})
 

@@ -1,6 +1,6 @@
 # NIY-015: Repository structure review and disposition
 
-Status: Open (local cleanup route selected)
+Status: Complete
 
 ## Goal
 
@@ -18,6 +18,8 @@ Review the documented repository inventory and decide whether any cleanup, conso
 Captain selected route A for local rebuildable artifact cleanup. This withdraws any prior conclusion to keep all local environments, generated caches, and `.DS_Store` files by default. Those ignored and reproducible local artifacts are now scoped for cleanup in [NIY-018](NIY-018-local-artifact-cleanup.md).
 
 The original retention boundaries remain unchanged for research private data and archived planning material. `research/private/` and its private/archive index contents are not inspected, copied, deleted, rewritten, or moved by the local artifact cleanup route. Tracked tests, fixtures, migrations, runtime templates, and Wrangler test configuration remain repository content unless a separate ticket says otherwise.
+
+The approved local cleanup is complete under [NIY-018](NIY-018-local-artifact-cleanup.md). The selected generated environments and caches and the specified `.DS_Store` files were removed. `.wrangler/` and local D1 state, `research/private/`, tracked tests, fixtures and migrations, `.env_template`, and the local untracked `pylock.toml` were preserved.
 
 ## Related tickets
 

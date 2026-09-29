@@ -1,6 +1,6 @@
 # NIY-018: Local rebuildable artifact cleanup
 
-Status: Open
+Status: Complete
 
 ## Goal
 
@@ -51,6 +51,16 @@ The cleanup must not read `research/private/` contents and must not create `.env
 - Tracked files are unchanged after cleanup.
 - The tracked `.gitignore` remains unchanged after cleanup, and local uncommitted `pylock.toml` remains in its original local state when present.
 - No `.env` file is created, no private research content is read, no live hospital, LINE, or Cloudflare request is made, and no deployment, push, or publication occurs.
+
+## Completion record
+
+The approved local cleanup is complete. Removed artifacts:
+
+- `.venv/`, `.venv-workers/`, `node_modules/`, `python_modules/`, and `dist/`
+- `.pytest_cache/` and all repository `__pycache__/` directories
+- `.DS_Store`, `frontend/.DS_Store`, and `research/.DS_Store`
+
+Preserved `.wrangler/` and its local D1 state, `research/private/`, tracked tests, fixtures and migrations, `.env_template`, and the local untracked `pylock.toml`.
 
 ## Related tickets
 

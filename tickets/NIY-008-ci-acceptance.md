@@ -1,6 +1,16 @@
 # NIY-008: CI and local acceptance journey
 
-Status: Complete (local acceptance passed, 2026-09-28)
+Status: Open (GitHub Action reference follow-up, 2026-09-29)
+
+## Follow-up: GitHub Action reference
+
+The first GitHub Actions run after publishing the initial repository state failed before any test job ran because `astral-sh/setup-uv@v10` could not be resolved. Restore a resolvable published action reference and confirm the workflow reaches and passes its deterministic gates.
+
+### Follow-up acceptance criteria
+
+- Every action reference used by the workflow resolves to a published version.
+- A GitHub Actions run for the repair completes the setup steps and reaches the deterministic checks.
+- All deterministic checks pass, with no live hospital or LINE requests, secrets setup, or deployment.
 
 ## Goal
 

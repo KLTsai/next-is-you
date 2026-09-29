@@ -12,7 +12,7 @@ Start the local test app using the **Local UI acceptance (NIY-007)** setup in [R
 4. Change the department to `UNSAVED`, then select **重新整理**. Expected: the unsaved value remains in the form and the list still shows the saved department `SYN`.
 5. Choose **取消修正**. Expected: the form returns to new-draft mode, the unsaved value is gone, and the saved visit remains unchanged.
 6. Edit again, select `evening`, enter synthetic patient number `85`, then select **儲存草稿**. Expected: the list shows **晚診（evening）** and the saved-change message says to recheck and start. Saving updates a draft only; it does not start monitoring.
-7. Observe the session field's note. The three codes are accepted by the current API, not a clinic/date availability list. Do not infer that morning, afternoon, or evening is actually offered. Dynamic session options and patient-number prefill remain deferred. API/source follow-up requires manual observations during active clinic sessions: at least two observations per hospital, including a displayed source timestamp where available. See the [NIY-021 findings summary](../research/NIY-021-findings-summary.md).
+7. Observe the session field's note. The three codes are accepted by the current API, not a clinic/date availability list. Do not infer that morning, afternoon, or evening is actually offered. The [NIY-021 findings summary](../research/NIY-021-findings-summary.md) records the evidence and follow-up gate.
 
 ## Recheck, start, and stop
 

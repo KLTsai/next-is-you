@@ -241,41 +241,15 @@ class VisitRepository:
             room_code=None,
         ):
             return False
-        reconcile = [
-            Statement(
-                f"""DELETE FROM visit_recipients
-                WHERE visit_id = ? AND (
-                    recipient_id NOT IN ({placeholders}) OR NOT EXISTS (
-                        SELECT 1 FROM recipients AS r
-                        WHERE r.id = visit_recipients.recipient_id AND r.active = 1
-                            AND r.consented_at IS NOT NULL
-                            AND r.friendship_checked_at IS NOT NULL
-                    )
-                )""",
-                (visit_id, *wanted),
-            )
-        ]
+        current_ids = await self.selected_recipient_ids(visit_id)
+        for rid in current_ids - set(wanted):
+            await self.remove_recipient(visit_id, rid)
         for rid in wanted:
-            reconcile.append(
-                Statement(
-                    f"""INSERT INTO visit_recipients (visit_id, recipient_id, selected_at)
-                    SELECT ?, r.id, ? FROM recipients AS r
-                    JOIN visits AS v ON v.id = ?
-                    WHERE r.id = ? AND r.active = 1 AND r.consented_at IS NOT NULL
-                        AND r.friendship_checked_at IS NOT NULL
-                        AND v.state = 'draft' AND v.roster_frozen = 0
-                    ON CONFLICT (visit_id, recipient_id) DO NOTHING""",
-                    (visit_id, iso_utc(now), visit_id, rid),
-                )
-            )
-        await self._store.batch(reconcile)
-        current = await self._store.fetch_all(
-            Statement(
-                "SELECT recipient_id FROM visit_recipients WHERE visit_id = ?",
-                (visit_id,),
-            )
-        )
-        return {str(row["recipient_id"]) for row in current} == set(wanted)
+            if rid not in current_ids and not await self.add_recipient(
+                visit_id, rid, now
+            ):
+                return False
+        return True
 
     async def scheduler_ledger_digest(
         self, *, exclude_event_id: str | None = None

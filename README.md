@@ -35,8 +35,8 @@ Expected local result:
    ```
 
    Return to the browser and select **重新整理**. The visit should show **監控中**, the synthetic recipient, source status, and notification summary. Select **停止提醒**; it should show the pending stop state, then **已停止** after the API confirms closure. The configured fake number is 15 numbers from its target, so scheduled checks do not create an alert.
-3. Clear the fake observation, then create a draft using the listed **Synthetic recipient**, a future visit date, hospital **臺大醫院總院**, department `SYN`, clinic `SYN-1`, session `afternoon`, and synthetic patient number `85`. These values are local test data. The form does not offer guessed clinic/session choices; use only the source values supplied for your test. The API-backed draft should appear with its recipient, the NTUH official source link, and **來源 unavailable**. The link is a static official reference; it does not mean the app has read or verified current hospital data.
-4. Select **檢查資料並開始**. The route should return the typed unavailable error, keep the visit in **草稿**, and show the source reason. Configure a fresh trusted synthetic observation at `70` and try Start again:
+3. Clear the fake observation, then create a draft using the listed **Synthetic recipient**, a future visit date, hospital **臺大醫院總院**, department `SYN`, clinic `SYN-1`, session `afternoon`, and synthetic patient number `85`. These values are local test data. The form lists the API-supported session codes but does not verify clinic/date availability. The API-backed draft should appear with its recipient, the NTUH official source link, and **來源 unavailable**. The link is a static official reference; it does not mean the app has read or verified current hospital data.
+4. Select **重新檢查並開始提醒**. The route should return the typed unavailable error, keep the visit in **草稿**, and show the source reason. Configure a fresh trusted synthetic observation at `70` and try Start again:
 
    ```sh
    curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/observation \
@@ -48,11 +48,13 @@ Expected local result:
      --data '{"current_number":70,"trustworthy":true}'
    ```
 
-   After setting the observation, select **檢查資料並開始** again. The route checks freshness, trust, and exact visit scope; only its successful response changes the visit to **監控中**. The UI does not call a hospital.
+   After setting the observation, select **重新檢查並開始提醒** again. The route checks freshness, trust, and exact visit scope; only its successful response changes the visit to **監控中**. The UI does not call a hospital.
 
 5. Select **停止提醒** on that active visit and verify the stopping and stopped states. On a stopped visit, **修正後重新檢查** keeps the same logical visit ID and the eligible existing recipient set.
 
-The visit list shows the server-owned official source link for NTUH Main or Taipei Shin Kong when present in the visit projection. Shin Kong's link is its verified official registration portal, not a verified direct progress-query route. A missing link is shown as unavailable and is never made clickable. These static links make no hospital requests and do not imply freshness. The session field accepts only the domain's canonical values and does not display generic session options because there is no clinic/date-specific directory. Enter only a session code supplied by the hospital. The standard `npm run dev:local` path has no D1 or send-gate bindings; use it only to inspect the unauthenticated shell and unavailable-service behavior.
+The visit list shows the server-owned official source link for NTUH Main or Taipei Shin Kong when present in the visit projection. Shin Kong's link is its verified official registration portal, not a verified direct progress-query route. A missing link is shown as unavailable and is never made clickable. These static links make no hospital requests and do not imply freshness. The form lists the three session codes accepted by the API, with readable labels. They do not confirm that a clinic offers a session on the selected date; dynamic clinic/date-specific options and saved patient-number prefill remain deferred. API/source follow-up requires manual observations during active clinic sessions: at least two observations per hospital, including a displayed source timestamp where available. See the [NIY-021 findings summary](research/NIY-021-findings-summary.md). The standard `npm run dev:local` path has no D1 or send-gate bindings; use it only to inspect the unauthenticated shell and unavailable-service behavior.
+
+Follow the [NIY-020 local manual acceptance checklist](docs/NIY-020-LOCAL-MANUAL-CHECKLIST.md) for the draft, correction, recheck, save, cancel, and Stop screens and expected results.
 
 The current runner has `uv 0.11.32`, below the `uv 0.12.3` minimum for `pywrangler`, so the Wrangler-backed manual journey above is unavailable here. The automated acceptance journey below instead runs the built UI in local headless Chromium against loopback Uvicorn, SQLite, synthetic fixtures, and fake transports.
 

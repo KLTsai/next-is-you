@@ -247,20 +247,17 @@ class VisitRepository:
                 (visit_id,),
             )
         )
+        current_ids = {str(row["recipient_id"]) for row in current}
         for row in current:
             rid = str(row["recipient_id"])
             if rid not in wanted:
                 await self.remove_recipient(visit_id, rid)
+                current_ids.discard(rid)
         for rid in wanted:
+            if rid in current_ids:
+                continue
             if not await self.add_recipient(visit_id, rid, now):
-                existing = await self._store.fetch_all(
-                    Statement(
-                        "SELECT 1 FROM visit_recipients WHERE visit_id = ? AND recipient_id = ?",
-                        (visit_id, rid),
-                    )
-                )
-                if not existing:
-                    return False
+                return False
         return True
 
     async def scheduler_ledger_digest(

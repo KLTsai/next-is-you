@@ -339,7 +339,7 @@ def test_local_browser_acceptance_journey() -> None:
                 page.locator("input[name=patient_number]").fill("85")
                 page.locator("input[name=department_code]").fill("MED")
                 page.locator("input[name=clinic_code]").fill("MED-101")
-                page.locator("input[name=session]").fill("afternoon")
+                page.locator('select[name="session"]').select_option("afternoon")
                 page.locator(
                     'input[name=recipient_ids][value="selected-family"]'
                 ).check()
@@ -355,17 +355,59 @@ def test_local_browser_acceptance_journey() -> None:
                 )
                 assert page.get_by_text("unavailable", exact=False).count() >= 1
 
-                page.get_by_role("button", name="檢查資料並開始").click()
+                page.get_by_role("button", name="重新檢查並開始提醒").click()
                 page.get_by_text(
                     "目前沒有可用的可信院方觀察，提醒維持草稿。"
                 ).first.wait_for()
+                assert "草稿" in page.locator("article.visit-card .state").inner_text()
+
+                # The API projection supplies these settings but not patient_number.
+                # Re-rendering during an edit must retain unsaved values; Cancel then
+                # returns to the saved draft without changing it.
+                page.get_by_role("button", name="修正草稿").click()
+                assert (
+                    page.locator('input[name="department_code"]').input_value() == "MED"
+                )
+                assert (
+                    page.locator('input[name="clinic_code"]').input_value() == "MED-101"
+                )
+                assert (
+                    page.locator('select[name="session"]').input_value() == "afternoon"
+                )
+                assert page.locator('input[name="patient_number"]').input_value() == ""
+                page.locator('input[name="department_code"]').fill("UNSAVED")
+                page.get_by_role("button", name="重新整理").click()
+                assert (
+                    page.locator('input[name="department_code"]').input_value()
+                    == "UNSAVED"
+                )
+                page.get_by_role("button", name="取消修正").click()
+                page.locator('input[name="department_code"]').wait_for()
+                assert page.locator('input[name="department_code"]').input_value() == ""
+                assert "MED" in page.locator("article.visit-card h3").inner_text()
+
+                page.get_by_role("button", name="修正草稿").click()
+                page.locator('input[name="patient_number"]').fill("85")
+                page.locator('select[name="session"]').select_option("evening")
+                page.get_by_role("button", name="儲存草稿").click()
+                page.get_by_text(
+                    "草稿修改已儲存。請在提醒清單重新檢查並開始。", exact=True
+                ).wait_for()
+                assert page.get_by_text("晚診（evening）", exact=True).count() >= 1
+
                 configured = page.request.post(
                     f"{origin}/__niy006_test/observation",
                     data={"current_number": 82, "trustworthy": True},
                 )
                 assert configured.status == 200
-                page.get_by_role("button", name="檢查資料並開始").click()
+                page.get_by_role("button", name="重新檢查並開始提醒").click()
                 page.get_by_text("監控中", exact=True).wait_for()
+                assert (
+                    page.get_by_text(
+                        "停止確認後，系統會停止後續檢查與通知。", exact=False
+                    ).count()
+                    == 1
+                )
 
                 for current, tick_at in (
                     (85, NOW_TEXT),
@@ -380,10 +422,35 @@ def test_local_browser_acceptance_journey() -> None:
                         f"{origin}/__niy006_test/tick", data={"now": tick_at}
                     )
 
+                stop_route = "**/api/organizer/visits/*/stop"
+                page.route(stop_route, lambda route: route.abort())
+                page.get_by_role("button", name="停止提醒").click()
+                page.get_by_text(
+                    "連線失敗，請確認本機服務後重試。", exact=True
+                ).wait_for()
+                assert (
+                    page.locator("article.visit-card .state").inner_text() == "監控中"
+                )
+                assert page.get_by_role("button", name="停止提醒").is_visible()
+                page.unroute(stop_route)
+
                 page.get_by_role("button", name="停止提醒").click()
                 page.locator("article.visit-card .inline-state").filter(
                     has_text="已停止"
                 ).wait_for()
+                visit_id = page.locator('h3[id^="visit-"]').get_attribute("id")
+                page.get_by_role("button", name="修正後重新檢查").click()
+                assert page.locator("#setup-heading").inner_text() == "修正已停止的提醒"
+                assert page.locator(
+                    'input[name="recipient_ids"][value="selected-family"]'
+                ).is_checked()
+                page.locator('input[name="patient_number"]').fill("85")
+                page.get_by_role("button", name="儲存修正並回到草稿").click()
+                page.get_by_text(
+                    "修正已儲存為草稿。請在提醒清單重新檢查並開始。", exact=True
+                ).wait_for()
+                assert page.locator('h3[id^="visit-"]').get_attribute("id") == visit_id
+                assert "草稿" in page.locator("article.visit-card .state").inner_text()
                 page.request.post(
                     f"{origin}/__niy006_test/observation",
                     data={"current_number": 82, "trustworthy": True},

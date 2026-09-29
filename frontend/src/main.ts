@@ -19,6 +19,11 @@ const hospitalNames: Record<Hospital, string> = {
   "ntuh-main": "臺大醫院總院",
   "shin-kong-taipei": "新光醫院（台北）",
 };
+const sessionNames: Record<OrganizerVisit["session"], string> = {
+  morning: "早診",
+  afternoon: "午診",
+  evening: "晚診",
+};
 const sourceReasons: Record<string, string> = {
   none: "來源資料已核對",
   no_observation: "尚無院方觀察",
@@ -39,6 +44,8 @@ let authorized = false;
 let loading = false;
 let message = "";
 let editing: { visit: OrganizerVisit; mode: "update" | "correct" } | null = null;
+let formValues: Record<string, string | string[]> | null = null;
+let discardFormOnNextRender = false;
 const pendingStops = new Set<string>();
 const pendingStarts = new Set<string>();
 
@@ -84,32 +91,80 @@ function recipientChoices(selected: string[]): string {
   return recipients.map((recipient) => `<label class="recipient-choice"><input type="checkbox" name="recipient_ids" value="${escapeHtml(recipient.id)}" ${selected.includes(recipient.id) ? "checked" : ""}><span>${escapeHtml(recipient.display_name)}</span></label>`).join("");
 }
 
+function rememberFormValues(): void {
+  const form = document.querySelector<HTMLFormElement>("#visit-form");
+  if (!form) return;
+  const data = new FormData(form);
+  formValues = {
+    hospital: String(data.get("hospital") ?? "ntuh-main"),
+    date: String(data.get("date") ?? ""),
+    patient_number: String(data.get("patient_number") ?? ""),
+    department_code: String(data.get("department_code") ?? ""),
+    clinic_code: String(data.get("clinic_code") ?? ""),
+    session: String(data.get("session") ?? "morning"),
+    recipient_ids: data.getAll("recipient_ids").map(String),
+  };
+}
+
+function formValue(name: string, fallback: string): string {
+  const value = formValues?.[name];
+  return typeof value === "string" ? value : fallback;
+}
+
+function hasUnsavedFormChanges(): boolean {
+  const form = document.querySelector<HTMLFormElement>("#visit-form");
+  if (!form) return false;
+  const data = new FormData(form);
+  const saved = editing?.visit;
+  const baselineRecipients = saved?.recipients.map((recipient) => recipient.id).sort() ?? [];
+  const currentRecipients = data.getAll("recipient_ids").map(String).sort();
+  return data.get("hospital") !== (saved?.hospital ?? "ntuh-main")
+    || data.get("date") !== (saved?.date ?? "")
+    || data.get("patient_number") !== ""
+    || data.get("department_code") !== (saved?.department_code ?? "")
+    || data.get("clinic_code") !== (saved?.clinic_code ?? "")
+    || data.get("session") !== (saved?.session ?? "morning")
+    || currentRecipients.join("\u0000") !== baselineRecipients.join("\u0000");
+}
+
+function blockNavigationWithUnsavedChanges(): boolean {
+  if (!hasUnsavedFormChanges()) return false;
+  message = "目前設定尚未儲存。請先儲存或取消修正，再開啟其他提醒。";
+  renderDashboard();
+  return true;
+}
+
 function formMarkup(): string {
   const item = editing?.visit;
-  const selectedRecipients = item?.recipients.map((recipient) => recipient.id) ?? [];
-  const defaultHospital = item?.hospital ?? "ntuh-main";
+  const storedRecipients = item?.recipients.map((recipient) => recipient.id) ?? [];
+  const draftRecipients = formValues?.recipient_ids;
+  const selectedRecipients = Array.isArray(draftRecipients) ? draftRecipients : storedRecipients;
+  const defaultHospital = formValue("hospital", item?.hospital ?? "ntuh-main");
   const formTitle = editing?.mode === "correct" ? "修正已停止的提醒" : item ? "修正草稿" : "建立候診提醒";
-  const submitLabel = editing?.mode === "correct" ? "儲存修正" : item ? "儲存草稿" : "建立草稿";
+  const submitLabel = editing?.mode === "correct" ? "儲存修正並回到草稿" : item ? "儲存草稿" : "建立草稿";
   return `<section class="panel" aria-labelledby="setup-heading">
     <div class="panel-heading"><div><p class="eyebrow">提醒設定</p><h2 id="setup-heading">${formTitle}</h2></div><span class="step-count">${item ? formatVisitState(item.state) : "新草稿"}</span></div>
-    <p class="intro">診間與診次不會由畫面自行推測。請只輸入院方資料已提供的診次；目前沒有可用的院方診次目錄，因此提醒會保持草稿，直到來源回報可信且完全相符的觀察。</p>
+    ${item ? `<p class="edit-notice" role="status">你正在修改已儲存的${editing?.mode === "correct" ? "已停止提醒" : "草稿"}。畫面上的變更尚未儲存；取消會捨棄這次編輯，儲存後仍須重新檢查才能開始提醒。</p>` : `<p class="intro">先建立草稿，再由提醒清單檢查並開始。建立或儲存草稿不會啟動監控，也不會傳送通知。</p>`}
     <form id="visit-form" novalidate>
       <fieldset class="hospital-options"><legend>醫院</legend>
         <label class="choice"><input type="radio" name="hospital" value="ntuh-main" ${defaultHospital === "ntuh-main" ? "checked" : ""} required><span>臺大醫院總院</span></label>
         <label class="choice"><input type="radio" name="hospital" value="shin-kong-taipei" ${defaultHospital === "shin-kong-taipei" ? "checked" : ""}><span>新光醫院（台北）</span></label>
       </fieldset>
       <div class="form-grid">
-        <label class="field"><span>看診日期</span><input name="date" type="date" value="${escapeHtml(item?.date ?? "")}" required></label>
-        <label class="field"><span>掛號序號</span><input name="patient_number" type="number" min="1" max="999999" value="" required inputmode="numeric"><small>${item ? "請重新輸入掛號序號以修正草稿。" : "僅供這筆提醒使用，不會顯示在狀態清單。"}</small></label>
-        <label class="field"><span>科別代碼</span><input name="department_code" maxlength="64" value="${escapeHtml(item?.department_code ?? "")}" required autocomplete="off"></label>
-        <label class="field"><span>診間代碼</span><input name="clinic_code" maxlength="64" value="${escapeHtml(item?.clinic_code ?? "")}" required autocomplete="off"></label>
-        <label class="field"><span>診次代碼</span><input name="session" value="${escapeHtml(item?.session ?? "")}" pattern="morning|afternoon|evening" required autocomplete="off"><small>請依院方提供的代碼輸入；目前沒有依醫院、日期及診間核對過的診次目錄，因此不列出通用選項。</small></label>
+        <label class="field"><span>看診日期</span><input name="date" type="date" value="${escapeHtml(formValue("date", item?.date ?? ""))}" required></label>
+        <label class="field"><span>掛號序號</span><input name="patient_number" type="number" min="1" max="999999" value="${escapeHtml(formValue("patient_number", ""))}" required inputmode="numeric"><small>${item ? "目前 API 不會回傳已儲存的掛號序號，請對照院方資料填入。" : "僅供這筆提醒使用，不會顯示在狀態清單。"}</small></label>
+        <label class="field"><span>科別代碼</span><input name="department_code" maxlength="64" value="${escapeHtml(formValue("department_code", item?.department_code ?? ""))}" required autocomplete="off"></label>
+        <label class="field"><span>診間代碼</span><input name="clinic_code" maxlength="64" value="${escapeHtml(formValue("clinic_code", item?.clinic_code ?? ""))}" required autocomplete="off"></label>
+        <label class="field"><span>診次</span><select name="session" required>
+          <option value="morning" ${formValue("session", item?.session ?? "morning") === "morning" ? "selected" : ""}>早診（morning）</option>
+          <option value="afternoon" ${formValue("session", item?.session ?? "morning") === "afternoon" ? "selected" : ""}>午診（afternoon）</option>
+          <option value="evening" ${formValue("session", item?.session ?? "morning") === "evening" ? "selected" : ""}>晚診（evening）</option>
+        </select><small>這是系統目前接受的診次代碼，不代表該院、該科別或日期有開診。請先依院方資訊確認；API 尚未提供診間與日期的可選診次。</small></label>
       </div>
       <fieldset class="recipient-panel"><legend>通知對象</legend><div class="recipient-list">${recipientChoices(selectedRecipients)}</div></fieldset>
       <div class="action-row"><button class="primary-button" type="submit">${submitLabel}</button>${item ? `<button class="secondary-button" id="cancel-edit" type="button">取消修正</button>` : ""}</div>
     </form>
-    ${message ? `<p class="message" role="status">${escapeHtml(message)}</p>` : ""}
-    <p class="gate-note">提醒清單會顯示 API 提供的院方官方來源連結。診次目錄尚未提供，請只輸入院方已提供的診次資料。</p>
+    <p class="gate-note">儲存只會建立或更新草稿。提醒清單會顯示 API 提供的院方官方來源連結；連結不代表已查詢院方資料。</p>
   </section>`;
 }
 
@@ -125,7 +180,7 @@ function visitCard(item: OrganizerVisit): string {
   const sourceStatus = item.source_read?.status ?? "unavailable";
   const sourceReason = sourceReasons[item.source_read?.reason] ?? "來源狀態尚未提供";
   return `<article class="visit-card" aria-labelledby="visit-${escapeHtml(item.id)}">
-    <div class="visit-heading"><div><p class="eyebrow">${escapeHtml(hospitalNames[item.hospital] ?? item.hospital)}</p><h3 id="visit-${escapeHtml(item.id)}">${escapeHtml(item.date)} · ${escapeHtml(item.department_code)} · ${escapeHtml(item.clinic_code)}</h3><p class="visit-session">${escapeHtml(item.session)}</p></div><span class="state state-${stateKey}">${stateKey === "source-unavailable" ? "來源 unavailable · 草稿" : stateKey === "terminal" ? "已結束" : formatVisitState(item.state)}</span></div>
+    <div class="visit-heading"><div><p class="eyebrow">${escapeHtml(hospitalNames[item.hospital] ?? item.hospital)}</p><h3 id="visit-${escapeHtml(item.id)}">${escapeHtml(item.date)} · ${escapeHtml(item.department_code)} · ${escapeHtml(item.clinic_code)}</h3><p class="visit-session">${escapeHtml(sessionNames[item.session])}（${escapeHtml(item.session)}）</p></div><span class="state state-${stateKey}">${stateKey === "source-unavailable" ? "來源 unavailable · 草稿" : stateKey === "terminal" ? "已結束" : formatVisitState(item.state)}</span></div>
     <dl class="details">
       <div><dt>科別・診間・診次</dt><dd>${escapeHtml(item.department_code)}・${escapeHtml(item.clinic_code)}・${escapeHtml(item.session)}</dd></div>
       <div><dt>院方資料來源</dt><dd>${sourceLinkMarkup(item.source_url)}</dd></div>
@@ -135,21 +190,23 @@ function visitCard(item: OrganizerVisit): string {
       <div><dt>來源狀態</dt><dd>${escapeHtml(formatSourceStatus(sourceStatus))} · ${escapeHtml(sourceReason)}</dd></div>
       <div><dt>訊息傳送結果</dt><dd>共 ${notification.count} 則；已接受 ${notification.accepted} 則；需留意 ${notification.issues} 則</dd></div>
     </dl>
-    ${active ? `<div class="stop-row"><p>${pendingStop ? "停止請求處理中…" : "監控中。你可以隨時停止提醒。"}</p><button class="stop-button" type="button" data-stop="${escapeHtml(item.id)}" ${pendingStop ? "disabled" : ""}>${pendingStop ? "停止中" : "停止提醒"}</button></div>` : ""}
+    ${active ? `<div class="stop-row"><div><p>${pendingStop ? "停止請求處理中…" : "監控中。停止確認後，系統會停止後續檢查與通知。"}</p><small>停止完成前，狀態仍以服務回覆為準。</small></div><button class="stop-button" type="button" data-stop="${escapeHtml(item.id)}" ${pendingStop ? "disabled" : ""}>${pendingStop ? "停止中" : "停止提醒"}</button></div>` : ""}
     ${item.state === "stopping" ? `<p class="inline-state" role="status">停止已送出，正在等候關閉確認。</p>` : ""}
     ${item.state === "stopped" ? `<p class="inline-state" role="status">提醒已停止。</p>` : ""}
     ${item.state === "expired" ? `<p class="inline-state" role="status">此提醒已結束，不能再次啟動。</p>` : ""}
     ${pendingStart ? `<p class="inline-state" role="status">正在檢查可信院方觀察…</p>` : ""}
     <div class="visit-actions">
-      ${item.state === "draft" ? `<button class="secondary-button" type="button" data-edit="${escapeHtml(item.id)}">修正草稿</button><button class="primary-button" type="button" data-start="${escapeHtml(item.id)}" ${canRequestStart(item) && !pendingStart ? "" : "disabled"}>${sourceStatus === "usable" ? "開始提醒" : "檢查資料並開始"}</button>` : ""}
+      ${item.state === "draft" ? `<button class="secondary-button" type="button" data-edit="${escapeHtml(item.id)}">修正草稿</button><button class="primary-button" type="button" data-start="${escapeHtml(item.id)}" ${canRequestStart(item) && !pendingStart && editing?.visit.id !== item.id ? "" : "disabled"}>${pendingStart ? "重新檢查中…" : "重新檢查並開始提醒"}</button>` : ""}
       ${item.state === "stopped" ? `<button class="secondary-button" type="button" data-correct="${escapeHtml(item.id)}">修正後重新檢查</button>` : ""}
     </div>
-    ${item.state === "draft" && !canRequestStart(item) ? `<p class="gate-note">開始前請填妥醫院、日期、科別、診間、診次，並選擇至少一位通知對象。</p>` : item.state === "draft" && sourceStatus !== "usable" ? `<p class="gate-note">來源目前尚未核對。開始請求會由本機服務重新檢查；沒有新鮮、可信且完全相符的觀察時，提醒會維持草稿。</p>` : ""}
+    ${item.state === "draft" && editing?.visit.id === item.id ? `<p class="gate-note">清單仍顯示已儲存的草稿。先儲存或取消修正，再重新檢查並開始。</p>` : item.state === "draft" && !canRequestStart(item) ? `<p class="gate-note">開始前請填妥醫院、日期、科別、診間、診次，並選擇至少一位通知對象。</p>` : item.state === "draft" ? `<p class="gate-note">服務會重新檢查來源資料。只有取得新鮮、可信且完全符合診次的觀察後，服務才會回覆啟動成功；失敗時維持草稿。</p>` : ""}
   </article>`;
 }
 
-function renderDashboard(): void {
+function renderDashboard(preserveCurrentForm = true): void {
   if (!app) return;
+  if (preserveCurrentForm && !discardFormOnNextRender) rememberFormValues();
+  discardFormOnNextRender = false;
   if (!authorized) {
     app.innerHTML = renderLogin();
     document.querySelector<HTMLButtonElement>("#synthetic-login")?.addEventListener("click", voidSyntheticLogin);
@@ -158,7 +215,7 @@ function renderDashboard(): void {
   app.innerHTML = `<div class="dashboard-top"><div><p class="eyebrow">安全的提醒管理</p><h1>看診提醒</h1></div><button class="secondary-button refresh-button" id="refresh" type="button" ${loading ? "disabled" : ""}>重新整理</button></div>
     ${message ? `<p class="message" role="status">${escapeHtml(message)}</p>` : ""}
     ${formMarkup()}
-    <section class="visits" aria-labelledby="visits-heading"><div class="section-heading"><div><p class="eyebrow">狀態與控制</p><h2 id="visits-heading">提醒清單</h2></div></div>${visits.length ? visits.map(visitCard).join("") : `<div class="empty-state"><span class="empty-icon" aria-hidden="true">—</span><h3>尚無提醒</h3><p>建立草稿後，這裡會顯示狀態、來源、通知對象、最近檢查、院方觀察與傳送結果。</p></div>`}</section>`;
+    <section class="visits" aria-labelledby="visits-heading"><div class="section-heading"><div><p class="eyebrow">狀態與控制</p><h2 id="visits-heading">提醒清單</h2></div></div>${visits.length ? visits.map(visitCard).join("") : `<div class="empty-state"><span class="empty-icon" aria-hidden="true">-</span><h3>尚無提醒</h3><p>建立草稿後，這裡會顯示狀態、來源、通知對象、最近檢查、院方觀察與傳送結果。</p></div>`}</section>`;
   bindActions();
 }
 
@@ -230,8 +287,9 @@ function bindActions(): void {
   });
   document.querySelector<HTMLButtonElement>("#cancel-edit")?.addEventListener("click", () => {
     editing = null;
+    formValues = null;
     message = "";
-    renderDashboard();
+    renderDashboard(false);
   });
   document.querySelector<HTMLFormElement>("#visit-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -245,11 +303,17 @@ function bindActions(): void {
       return;
     }
     try {
-      if (!editing) await createVisit(input);
-      else if (editing.mode === "correct") await correctVisit(editing.visit.id, input);
-      else await updateVisit(editing.visit.id, input);
+      const previous = editing;
+      if (!previous) await createVisit(input);
+      else if (previous.mode === "correct") await correctVisit(previous.visit.id, input);
+      else await updateVisit(previous.visit.id, input);
       editing = null;
-      message = "草稿已儲存。來源未核對前不會啟動提醒。";
+      formValues = null;
+      discardFormOnNextRender = true;
+      message = previous?.mode === "correct"
+        ? "修正已儲存為草稿。請在提醒清單重新檢查並開始。"
+        : previous ? "草稿修改已儲存。請在提醒清單重新檢查並開始。"
+          : "草稿已建立。建立草稿不會啟動監控或傳送通知。";
       await loadDashboard();
     } catch (error) {
       message = errorText(error);
@@ -260,17 +324,21 @@ function bindActions(): void {
   document.querySelectorAll<HTMLButtonElement>("[data-edit]").forEach((button) => button.addEventListener("click", () => {
     const item = visits.find((visit) => visit.id === button.dataset.edit);
     if (!item) return;
+    if (blockNavigationWithUnsavedChanges()) return;
+    formValues = null;
     editing = { visit: item, mode: "update" };
     message = "";
-    renderDashboard();
+    renderDashboard(false);
     document.querySelector("#setup-heading")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }));
   document.querySelectorAll<HTMLButtonElement>("[data-correct]").forEach((button) => button.addEventListener("click", () => {
     const item = visits.find((visit) => visit.id === button.dataset.correct);
     if (!item) return;
+    if (blockNavigationWithUnsavedChanges()) return;
+    formValues = null;
     editing = { visit: item, mode: "correct" };
     message = "";
-    renderDashboard();
+    renderDashboard(false);
     document.querySelector("#setup-heading")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }));
   document.querySelectorAll<HTMLButtonElement>("[data-start]").forEach((button) => button.addEventListener("click", async () => {
@@ -281,8 +349,8 @@ function bindActions(): void {
     message = "";
     renderDashboard();
     try {
-      await startVisit(id);
-      message = "提醒已啟動。";
+      const result = await startVisit(id);
+      message = result.state === "active" ? "服務已回覆啟動成功。" : "服務尚未確認啟動，請查看清單狀態。";
     } catch (error) {
       message = errorText(error);
     } finally {

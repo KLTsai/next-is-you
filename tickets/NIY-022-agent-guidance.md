@@ -1,6 +1,6 @@
 # NIY-022: Durable agent guidance
 
-Status: Open
+Status: Complete (2026-09-29)
 
 ## Goal
 
@@ -25,3 +25,11 @@ Add concise root guidance that keeps routine development aligned with current ti
 
 - No application behavior, tests, migrations, README, or pre-live checklist changes.
 - No live hospital, LINE, or Cloudflare requests, secrets, patient data, deployment, push, PR, or merge.
+
+## Completion record
+
+Root `AGENTS.md` now sets ticket-first planning, accepted-scope and dependency order, decision and source-gap handling, truthful validation labels, lifecycle outcome expectations, and the synthetic-data/credential boundary. It points to `README.md` for local setup, test modes, and migrations; `docs/PRE-LIVE-CHECKLIST.md` for live gates; and the current ticket for task-specific behavior and acceptance.
+
+Setup commands and migration instructions remain in the README because they are operational procedures. Live integration gates remain in the pre-live checklist because they apply only when considering real providers. Changing product states and acceptance detail remain in their owning tickets. Ticket state remains in the ticket index. This keeps volatile or task-specific detail out of always-loaded root guidance.
+
+Validation: `git diff --check` passed; the NIY-022 index link resolves to this ticket. The root file remains a compact instruction set rather than a repository history or inventory.

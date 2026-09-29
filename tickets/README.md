@@ -23,7 +23,7 @@ This repository does not yet use an external issue tracker. These checked-in tic
 | NIY-019 | Complete | [Ignore local Python module cache](NIY-019-ignore-python-modules.md) | NIY-018 |
 | NIY-020 | Open | [Clarify visit setup and monitoring controls](NIY-020-visit-setup-ux.md) | NIY-007, NIY-008, NIY-010, NIY-016 |
 | NIY-021 | Open | [Verify official progress sources for NTUH and Shin Kong](NIY-021-hospital-source-verification.md) | NIY-004, NIY-016 |
-| NIY-022 | Open | [Durable agent guidance](NIY-022-agent-guidance.md) | None |
+| NIY-022 | Complete (2026-09-29) | [Durable agent guidance](NIY-022-agent-guidance.md) | None |
 
 ## Acceptance guardrails
 

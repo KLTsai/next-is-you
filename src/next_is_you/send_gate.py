@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import json
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from next_is_you.line_messaging import LinePushClient, LinePushHttpResponse
 from next_is_you.persistence import (
@@ -102,6 +102,38 @@ class SystemSendGate(_DurableObjectBase):
             state = await repository.stop(visit_id, timestamp)
             await self._save_ledger()
             return state
+
+    async def update_draft(
+        self,
+        visit_id: str,
+        *,
+        hospital: str,
+        visit_day: date,
+        department_code: str,
+        clinic_code: str,
+        clinic_session: str,
+        patient_number: int,
+        recipient_ids: Sequence[str],
+        now: datetime,
+    ) -> bool:
+        async with self._lock:
+            return await self._repository().update_draft(
+                visit_id=visit_id,
+                hospital=hospital,
+                visit_day=visit_day,
+                department_code=department_code,
+                clinic_code=clinic_code,
+                clinic_session=clinic_session,
+                patient_number=patient_number,
+                recipient_ids=recipient_ids,
+                now=now,
+            )
+
+    async def add_visit_recipient(
+        self, visit_id: str, recipient_id: str, now: datetime
+    ) -> bool:
+        async with self._lock:
+            return await self._repository().add_recipient(visit_id, recipient_id, now)
 
     async def start_visit(
         self, visit_id: str, now: str | None = None

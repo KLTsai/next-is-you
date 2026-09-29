@@ -42,6 +42,17 @@ class SQLiteStore:
 
 
 class Gate:
+    def __init__(self, visits: VisitRepository) -> None:
+        self.visits = visits
+
+    async def update_draft(self, visit_id: str, **values: Any):
+        return await self.visits.update_draft(visit_id=visit_id, **values)
+
+    async def add_visit_recipient(
+        self, visit_id: str, recipient_id: str, now: datetime
+    ):
+        return await self.visits.add_recipient(visit_id, recipient_id, now)
+
     async def start_visit(self, _visit_id: str, _now: str):
         return {"error": "observation_unavailable"}
 
@@ -72,7 +83,7 @@ def make_client():
         },
         identity_repository=IdentityRepository(store),
         visit_repository=visits,
-        send_gate=Gate(),
+        send_gate=Gate(visits),
         clock=lambda: datetime(2026, 9, 28, 10, 0, tzinfo=timezone.utc).timestamp(),
     )
     http = AsyncClient(

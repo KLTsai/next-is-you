@@ -178,17 +178,21 @@ async def test_removal_stops_future_membership_but_keeps_recent_event_audit() ->
 async def test_draft_update_reconciles_recipient_removed_after_membership_read() -> None:
     class ConcurrentRemovalStore(SQLiteStore):
         repository: VisitRepository
+        removal_injected = False
 
         async def fetch_all(self, statement: Statement) -> list[Mapping[str, Any]]:
             rows = await super().fetch_all(statement)
             if statement.sql == (
                 "SELECT recipient_id FROM visit_recipients WHERE visit_id = ?"
-            ):
+            ) and not self.removal_injected:
                 await self.repository.remove_recipient("v1", "r1")
+                self.removal_injected = True
             return rows
 
         async def batch(self, statements: Sequence[Statement]) -> list[int]:
-            await self.repository.remove_recipient("v1", "r1")
+            if not self.removal_injected:
+                await self.repository.remove_recipient("v1", "r1")
+                self.removal_injected = True
             return await super().batch(statements)
 
     store = ConcurrentRemovalStore()

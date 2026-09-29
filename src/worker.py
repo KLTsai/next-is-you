@@ -450,12 +450,12 @@ def create_app(
             return denied
         body = await _organizer_body(request)
         parsed = _visit_input(body) if body is not None else None
-        repository = _visit_repository(request)
         if parsed is None:
             return _api_error("invalid_request", 400)
-        if repository is None:
+        gate = _send_gate(request)
+        if gate is None:
             return _api_error("service_unavailable", 503)
-        if not await repository.update_draft(
+        if not await gate.update_draft(
             visit_id=visit_id, now=_now(request), **parsed
         ):
             return _api_error("invalid_lifecycle_state", 409)
@@ -567,8 +567,8 @@ def create_app(
         if denied:
             return denied
         identity = _identity_repository(request)
-        visits = _visit_repository(request)
-        if identity is None or visits is None:
+        gate = _send_gate(request)
+        if identity is None or gate is None:
             return JSONResponse(
                 {"detail": "Recipient eligibility checks are unavailable"},
                 status_code=503,
@@ -579,7 +579,7 @@ def create_app(
                 {"detail": "Recipient is not opted in"}, status_code=409
             )
         now = _now(request)
-        if not await visits.add_recipient(visit_id, recipient_id, now):
+        if not await gate.add_visit_recipient(visit_id, recipient_id, now):
             return JSONResponse(
                 {"detail": "Recipient could not be selected for this visit"},
                 status_code=409,

@@ -24,6 +24,9 @@ This repository does not yet use an external issue tracker. These checked-in tic
 | NIY-020 | Complete (2026-09-29) | [Clarify visit setup and monitoring controls](NIY-020-visit-setup-ux.md) | NIY-007, NIY-008, NIY-010, NIY-016 |
 | NIY-021 | Open | [Verify official progress sources for NTUH and Shin Kong](NIY-021-hospital-source-verification.md) | NIY-004, NIY-016 |
 | NIY-022 | Complete (2026-09-29) | [Durable agent guidance](NIY-022-agent-guidance.md) | None |
+| NIY-023 | Open | [Prefill saved patient number in draft correction](NIY-023-draft-correction-patient-number.md) | NIY-010, NIY-020 |
+| NIY-024 | Open | [Fix draft-save HTTP 500 across Worker and Durable Object RPC](NIY-024-draft-save-rpc-500.md) | NIY-008, NIY-010 |
+| NIY-025 | Open | [Collapse and expand the saved-drafts section](NIY-025-collapsible-saved-drafts.md) | NIY-007, NIY-020 |
 
 ## Acceptance guardrails
 

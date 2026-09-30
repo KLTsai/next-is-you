@@ -10,9 +10,9 @@ Make visit setup, correction, start, and stop understandable during the next loc
 
 “A：先限縮 NIY-020（建議）- 先完成現有 API 支援的按鈕、草稿與停止 UX；動態診次選項和修正時回填已存診號先列後續 API 工作，等 NIY-021 查證後再定。這會暫時保留部分設定摩擦。”
 
-Accordingly, NIY-020 uses the existing API only. Dynamic clinic/date-specific session options and prefilling the saved patient number during correction are deferred to follow-up API work pending NIY-021 findings. The UI may present the three session codes accepted by the current API, but must say these do not confirm clinic/date availability.
+Accordingly, NIY-020 used the existing API only. Dynamic clinic/date-specific session options and prefilling the saved patient number during correction were deferred to follow-up API work pending NIY-021 findings. The UI may present the three session codes accepted by the current API, but must say these do not confirm clinic/date availability.
 
-The completed NIY-021 findings supplied for this task are summarized in [NIY-021 hospital session and freshness findings](../research/NIY-021-findings-summary.md). Dynamic sessions and patient-number prefill remain deferred. Any API/source follow-up is gated on manual observations during active clinic sessions: at least two observations per hospital, including a displayed source timestamp where available.
+The completed NIY-021 findings supplied for this task are summarized in [NIY-021 hospital session and freshness findings](../research/NIY-021-findings-summary.md). Dynamic sessions remain deferred. The earlier patient-number-prefill deferral is superseded by [NIY-023](NIY-023-draft-correction-patient-number.md), which narrows exposure to the authorized correction flow. Any API/source follow-up is gated on manual observations during active clinic sessions: at least two observations per hospital, including a displayed source timestamp where available.
 
 ## Captain-confirmed needs
 

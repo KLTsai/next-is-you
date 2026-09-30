@@ -1,6 +1,6 @@
 # NIY-025: Collapse and expand the saved-drafts section
 
-Status: Open
+Status: Implemented (local acceptance passed; pipeline pending)
 
 ## Goal
 

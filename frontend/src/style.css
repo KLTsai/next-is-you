@@ -71,6 +71,11 @@ h3 { margin-bottom: 0; font-size: 1.05rem; }
 .gate-note { margin: 14px 0 0; color: #6a786f; font-size: .84rem; line-height: 1.55; }
 .visits { display: grid; gap: 15px; }
 .section-heading { padding: 0 3px; }
+.saved-drafts .section-heading { min-height: 48px; }
+.draft-count { display: inline-grid; min-width: 1.65em; height: 1.65em; place-items: center; margin-left: 4px; border-radius: 999px; color: #52675c; background: #edf2ee; font-size: .68em; vertical-align: .12em; }
+.drafts-toggle { flex: 0 0 auto; min-height: 44px; }
+.draft-list { display: grid; gap: 15px; }
+.draft-list[hidden] { display: none; }
 .empty-state { display: grid; justify-items: center; border: 1px dashed #cbd8cf; border-radius: 16px; padding: 30px 20px; color: var(--muted); background: #f9fbf9; text-align: center; }
 .empty-icon { display: grid; width: 43px; height: 43px; place-items: center; margin-bottom: 12px; border-radius: 50%; color: var(--green); background: #e6f0e9; font-size: 1.4rem; }
 .empty-state h3 { margin-bottom: 7px; }

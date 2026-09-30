@@ -17,7 +17,7 @@ The completed NIY-021 findings supplied for this task are summarized in [NIY-021
 ## Captain-confirmed needs
 
 - The first manual walkthrough left the draft, correction, revalidation, save, cancel, and stop actions unclear.
-- Setup should avoid asking the user to re-enter codes or full values when the current flow already knows them. Existing projected settings should be prefilled; the current API does not return the saved patient number.
+- Setup should avoid asking the user to re-enter codes or full values when the current flow already knows them. Existing projected settings should be prefilled. The current API still does not return the saved patient number; the authorized correction-flow follow-up is tracked in [NIY-023](NIY-023-draft-correction-patient-number.md).
 - A clinic may offer morning, afternoon, and evening sessions. Dynamic clinic/date-specific session options are deferred by the captain decision above; do not imply the API's accepted session codes confirm availability.
 - The revised local flow must be understandable before real LINE-account testing. This ticket does not authorize real LINE calls, secrets, or deployment.
 

@@ -22,7 +22,7 @@ This repository does not yet use an external issue tracker. These checked-in tic
 | NIY-018 | Complete (2026-09-29) | [Local rebuildable artifact cleanup](NIY-018-local-artifact-cleanup.md) | NIY-015 |
 | NIY-019 | Complete | [Ignore local Python module cache](NIY-019-ignore-python-modules.md) | NIY-018 |
 | NIY-020 | Complete (2026-09-29) | [Clarify visit setup and monitoring controls](NIY-020-visit-setup-ux.md) | NIY-007, NIY-008, NIY-010, NIY-016 |
-| NIY-021 | Open | [Verify official progress sources for NTUH and Shin Kong](NIY-021-hospital-source-verification.md) | NIY-004, NIY-016 |
+| NIY-021 | Complete (research documented 2026-09-30) | [Verify official progress sources for NTUH and Shin Kong](NIY-021-hospital-source-verification.md) | NIY-004, NIY-016 |
 | NIY-022 | Complete (2026-09-29) | [Durable agent guidance](NIY-022-agent-guidance.md) | None |
 | NIY-023 | Open | [Prefill saved patient number in draft correction](NIY-023-draft-correction-patient-number.md) | NIY-010, NIY-020 |
 | NIY-024 | Open | [Fix draft-save HTTP 500 across Worker and Durable Object RPC](NIY-024-draft-save-rpc-500.md) | NIY-008, NIY-010 |

@@ -13,6 +13,7 @@ The active implementation tickets are the source of truth for requirements, scop
 - [NIY-006: Scheduler, outbox, and send coordination](../tickets/NIY-006-scheduler-outbox.md)
 - [NIY-007: Settings, status, and stop UI](../tickets/NIY-007-user-interface.md)
 - [NIY-008: CI and local acceptance journey](../tickets/NIY-008-ci-acceptance.md)
+- [NIY-021: NTUH and Shin Kong public progress source findings](NIY-021-findings-summary.md)
 
 ## Local-only supporting material
 

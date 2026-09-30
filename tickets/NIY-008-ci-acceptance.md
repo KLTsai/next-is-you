@@ -2,6 +2,32 @@
 
 Status: Open (GitHub Action reference follow-up, 2026-09-29)
 
+## Follow-up: Wrangler Python Worker startup compatibility
+
+The local synthetic Wrangler run now passes its assets check but fails while
+importing `FastAPI` from `src/worker.py`. FastAPI telemetry initializes an
+OpenTelemetry key through `uuid4()`, which reaches `os.urandom()` and is
+rejected by the Workers runtime during startup. This conflicts with the
+earlier NIY-006 local Python Worker + FastAPI + D1 + Durable Object + Cron
+smoke, so the repair must identify the dependency or runtime divergence before
+changing compatibility behavior.
+
+### Follow-up acceptance criteria
+
+- The failure is reproduced with the tracked synthetic Wrangler configuration
+  and the dependency/runtime and relevant commit history are compared with the
+  historically successful NIY-006 smoke.
+- A behavioral regression test fails before the repair and passes after it,
+  covering FastAPI import/startup under the local Workers runtime constraints.
+- The synthetic Wrangler Worker completes startup, serves its local HTTP
+  journey, and reaches the configured D1, Durable Object, and Cron paths
+  without the startup entropy exception.
+- The repair preserves secure runtime entropy for application code and does not
+  monkey-patch `os.urandom`, use predictable random identifiers, or disable
+  Workers startup-entropy protection.
+- All verification remains local and synthetic; no live hospital or LINE
+  requests, secrets, deployment, tunnels, or publication are used.
+
 ## Follow-up: GitHub Action reference
 
 The first GitHub Actions run after publishing the initial repository state failed before any test job ran because `astral-sh/setup-uv@v10` could not be resolved. Restore a resolvable published action reference and confirm the workflow reaches and passes its deterministic gates.
@@ -49,5 +75,5 @@ NIY-001 through NIY-007, NIY-010.
   git diff --check
   ```
 
-- Expected results: Ruff, TypeScript, build, migration, and diff checks exit 0; all 8 frontend tests pass; the migration checker prints `Applied 3 migrations; SQLite schema checks passed.`; all 113 Python tests pass, including both local acceptance journeys. Tests do not contact live hospitals, LINE, Cloudflare, or deployment targets.
-- Wrangler-backed manual acceptance could not be run on the task runner: its `uv 0.11.32` is below the `pywrangler` minimum `0.12.3`. The actual-browser automated acceptance uses Uvicorn with local SQLite and fake transports. Source access/freshness, real LINE behavior, deployed Cloudflare limits and restore behavior, and production data-retention operations remain unproven in [the pre-live checklist](../docs/PRE-LIVE-CHECKLIST.md).
+- Expected results: Ruff, TypeScript, build, migration, and diff checks exit 0; all 8 frontend tests pass; the migration checker prints `Applied 3 migrations; SQLite schema checks passed.`; all 115 Python tests pass, including the Wrangler startup check and both local acceptance journeys. Tests do not contact live hospitals, LINE, Cloudflare, or deployment targets.
+- `tests/test_worker_startup.py` runs `pywrangler dev --local` with the tracked NIY-006 configuration, applies only the local synthetic D1 migrations, and checks Worker health, D1/SQLite Durable Object access, and the local Cron trigger. The actual-browser automated acceptance still uses Uvicorn with local SQLite and fake transports. Source access/freshness, real LINE behavior, deployed Cloudflare limits and restore behavior, and production data-retention operations remain unproven in [the pre-live checklist](../docs/PRE-LIVE-CHECKLIST.md).

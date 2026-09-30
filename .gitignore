@@ -1,6 +1,7 @@
 .DS_Store
 node_modules/
 python_modules/
+pylock.toml
 dist/
 build/
 .venv/

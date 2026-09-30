@@ -3,7 +3,9 @@ name = "next-is-you"
 version = "0.1.0"
 description = "Private family outpatient queue reminders"
 requires-python = ">=3.13"
-dependencies = ["fastapi", "tzdata"]
+# FastAPI 0.142.0 adds an import-time telemetry key that violates Workers'
+# startup entropy guard. Keep the Worker on the last compatible minor line.
+dependencies = ["fastapi<0.142.0", "tzdata"]
 
 [dependency-groups]
 dev = [

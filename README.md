@@ -56,7 +56,7 @@ The visit list shows the server-owned official source link for NTUH Main or Taip
 
 Follow the [NIY-020 local manual acceptance checklist](docs/NIY-020-LOCAL-MANUAL-CHECKLIST.md) for the draft, correction, recheck, save, cancel, and Stop screens and expected results.
 
-The current runner has `uv 0.11.32`, below the `uv 0.12.3` minimum for `pywrangler`, so the Wrangler-backed manual journey above is unavailable here. The automated acceptance journey below instead runs the built UI in local headless Chromium against loopback Uvicorn, SQLite, synthetic fixtures, and fake transports.
+The Wrangler-backed journey and its startup regression test require `uv 0.12.3` or newer. They use only local bindings and synthetic data. The automated acceptance journey below also runs the built UI in local headless Chromium against loopback Uvicorn, SQLite, synthetic fixtures, and fake transports.
 
 Run `npm run test:ui` for the focused lifecycle gate checks, `uv run pytest -q` for the full local Python suite, and `npm run build` for the frontend build. These commands do not contact hospitals or LINE and do not deploy.
 
@@ -82,4 +82,4 @@ Expected outcomes: Ruff reports no formatting or lint issues, TypeScript exits s
 
 The workflow fetches full Git history so it can check the actual event range. Pull requests check `base...head`; pushes check `before..after`, and new-branch pushes compare against the fetched default branch. `scripts/check_ci_diff.sh` fails when event metadata, commit objects, or a merge base is unavailable. The local `git diff --check` command checks your working tree changes.
 
-The browser test requires the Playwright Chromium browser installed by the command above. The HTTP test uses ASGI transport; the browser test binds a temporary loopback server and blocks browser requests to every other origin. To repeat the separate Wrangler visual journey, follow **Local UI acceptance (NIY-007)** above when `pywrangler` is available. The current runner's `uv` is below its minimum version. See [the pre-live checklist](docs/PRE-LIVE-CHECKLIST.md) for gates local tests do not prove.
+The browser test requires the Playwright Chromium browser installed by the command above. The HTTP test uses ASGI transport; the browser test binds a temporary loopback server and blocks browser requests to every other origin. To repeat the separate Wrangler visual journey, follow **Local UI acceptance (NIY-007)** above. See [the pre-live checklist](docs/PRE-LIVE-CHECKLIST.md) for gates local tests do not prove.

@@ -12,7 +12,7 @@ Make visit setup, correction, start, and stop understandable during the next loc
 
 Accordingly, NIY-020 used the existing API only. Dynamic clinic/date-specific session options and prefilling the saved patient number during correction were deferred to follow-up API work pending NIY-021 findings. The UI may present the three session codes accepted by the current API, but must say these do not confirm clinic/date availability.
 
-The completed NIY-021 findings supplied for this task are summarized in [NIY-021 hospital session and freshness findings](../research/NIY-021-findings-summary.md). Dynamic sessions remain deferred. The earlier patient-number-prefill deferral is superseded by [NIY-023](NIY-023-draft-correction-patient-number.md), which narrows exposure to the authorized correction flow. Any API/source follow-up is gated on manual observations during active clinic sessions: at least two observations per hospital, including a displayed source timestamp where available.
+Dynamic sessions remain deferred pending evidence in the [NIY-021 findings summary](../research/NIY-021-findings-summary.md). The earlier patient-number-prefill deferral is superseded by [NIY-023](NIY-023-draft-correction-patient-number.md), which narrows exposure to the authorized correction flow.
 
 ## Captain-confirmed needs
 

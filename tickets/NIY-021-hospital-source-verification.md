@@ -1,6 +1,6 @@
 # NIY-021: Verify official progress sources for NTUH and Shin Kong
 
-Status: Open
+Status: Complete (research documented 2026-09-30; live source readiness remains unverified)
 
 ## Goal
 
@@ -46,3 +46,7 @@ NIY-004 and NIY-016.
 
 - Implementing a live hospital connector or selecting a production polling interval. Those require a separate implementation decision based on this ticket's evidence.
 - Real patient data, authenticated patient portals, LINE testing, secrets management, and Cloudflare deployment.
+
+## Outcome
+
+The research is documented in [NIY-021 findings summary](../research/NIY-021-findings-summary.md). The official NTUH and Shin Kong progress entry points were manually rechecked for reachability on 2026-09-30. NTUH's page-level update indicator did not verify current clinic-number freshness; Shin Kong's observed department had no clinic-progress row and no documented clinic-progress refresh interval. Both sources therefore remain unverified for a live adapter. This closes the research ticket only; any adapter work remains subject to the follow-up evidence gate in the findings summary.

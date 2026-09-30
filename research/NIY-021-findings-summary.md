@@ -1,6 +1,6 @@
 # NIY-021: NTUH and Shin Kong public progress source findings
 
-Research completed 2026-09-29; official progress entry points rechecked for reachability on 2026-09-30. This tracked summary condenses the detailed manual browser report maintained by Firstmate at `/Users/kun/projects/firstmate/data/next-is-you-niy-021-public-source-check-20260929/report.md`. The detailed report is supporting evidence and is not part of this repository.
+Research completed 2026-09-29; official progress entry points rechecked for reachability on 2026-09-30. This tracked summary condenses the detailed manual browser report maintained locally by Firstmate; see the [Firstmate investigation reports index](README.md#firstmate-investigation-reports).
 
 ## Findings
 
@@ -25,4 +25,4 @@ Do not add a poller, scraper, or production adapter based on these findings. Any
 
 ## Detailed report
 
-The detailed report includes the source-by-source browser observations, secondary app documentation, timestamps, access path notes, and remaining questions: `/Users/kun/projects/firstmate/data/next-is-you-niy-021-public-source-check-20260929/report.md` (Firstmate local data, not tracked here).
+The detailed report includes source-by-source browser observations, secondary app documentation, timestamps, access path notes, and remaining questions. It is supporting evidence and is not part of this repository.

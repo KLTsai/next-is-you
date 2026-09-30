@@ -26,6 +26,7 @@ These reports are maintained locally by Firstmate under `/Users/kun/projects/fir
 - Spec provenance: `/Users/kun/projects/firstmate/data/next-is-you-spec-v2-ticket-provenance-2026-09-27/report.md`
 - Ticket audit: `/Users/kun/projects/firstmate/data/next-is-you-preflight-tickets-2026-09-27/report.md`
 - Runtime: `/Users/kun/projects/firstmate/data/next-is-you-preflight-runtime-2026-09-27/report.md`
+- NIY-021 public source check: `/Users/kun/projects/firstmate/data/next-is-you-niy-021-public-source-check-20260929/report.md`
 
 Treat these reports as supporting evidence. Any requirements adopted from a report must be captured in an implementation ticket before they guide implementation.
 

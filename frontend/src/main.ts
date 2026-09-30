@@ -142,6 +142,8 @@ function formMarkup(): string {
   const defaultHospital = formValue("hospital", item?.hospital ?? "ntuh-main");
   const formTitle = editing?.mode === "correct" ? "修正已停止的提醒" : item ? "修正草稿" : "建立候診提醒";
   const submitLabel = editing?.mode === "correct" ? "儲存修正並回到草稿" : item ? "儲存草稿" : "建立草稿";
+  const showCancel = Boolean(item) || (!item && formValues !== null && hasUnsavedFormChanges());
+  const cancelLabel = item ? "取消修正" : "清除未儲存草稿";
   return `<section class="panel" aria-labelledby="setup-heading">
     <div class="panel-heading"><div><p class="eyebrow">提醒設定</p><h2 id="setup-heading">${formTitle}</h2></div><span class="step-count">${item ? formatVisitState(item.state) : "新草稿"}</span></div>
     ${item ? `<p class="edit-notice" role="status">你正在修改已儲存的${editing?.mode === "correct" ? "已停止提醒" : "草稿"}。畫面上的變更尚未儲存；取消會捨棄這次編輯，儲存後仍須重新檢查才能開始提醒。</p>` : `<p class="intro">先建立草稿，再由提醒清單檢查並開始。建立或儲存草稿不會啟動監控，也不會傳送通知。</p>`}
@@ -162,7 +164,7 @@ function formMarkup(): string {
         </select><small>這是系統目前接受的診次代碼，不代表該院、該科別或日期有開診。請先依院方資訊確認；API 尚未提供診間與日期的可選診次。</small></label>
       </div>
       <fieldset class="recipient-panel"><legend>通知對象</legend><div class="recipient-list">${recipientChoices(selectedRecipients)}</div></fieldset>
-      <div class="action-row"><button class="primary-button" type="submit">${submitLabel}</button>${item ? `<button class="secondary-button" id="cancel-edit" type="button">取消修正</button>` : ""}</div>
+      <div class="action-row"><button class="primary-button" type="submit">${submitLabel}</button>${showCancel ? `<button class="secondary-button" id="cancel-edit" type="button">${cancelLabel}</button>` : ""}</div>
     </form>
     <p class="gate-note">儲存只會建立或更新草稿。提醒清單會顯示 API 提供的院方官方來源連結；連結不代表已查詢院方資料。</p>
   </section>`;

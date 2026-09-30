@@ -355,6 +355,14 @@ def test_local_browser_acceptance_journey() -> None:
                 )
                 assert page.get_by_text("unavailable", exact=False).count() >= 1
 
+                page.locator('input[name="department_code"]').fill("UNSAVED-NEW")
+                page.get_by_role("button", name="修正草稿").click()
+                page.get_by_text(
+                    "目前設定尚未儲存。請先儲存或取消修正，再開啟其他提醒。", exact=True
+                ).wait_for()
+                page.get_by_role("button", name="清除未儲存草稿").click()
+                assert page.locator('input[name="department_code"]').input_value() == ""
+
                 page.get_by_role("button", name="重新檢查並開始提醒").click()
                 page.get_by_text(
                     "目前沒有可用的可信院方觀察，提醒維持草稿。"

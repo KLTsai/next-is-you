@@ -344,6 +344,10 @@ def test_local_browser_acceptance_journey() -> None:
                     'input[name=recipient_ids][value="selected-family"]'
                 ).check()
                 page.get_by_role("button", name="建立草稿").click()
+                drafts_toggle = page.get_by_role("button", name="展開草稿")
+                assert drafts_toggle.get_attribute("aria-expanded") == "false"
+                assert page.locator("#saved-drafts-list").is_hidden()
+                drafts_toggle.click()
                 visit_heading = page.locator('h3[id^="visit-"]')
                 visit_heading.wait_for()
                 assert "2026-09-29 · MED · MED-101" in visit_heading.inner_text()
@@ -355,24 +359,84 @@ def test_local_browser_acceptance_journey() -> None:
                 )
                 assert page.get_by_text("unavailable", exact=False).count() >= 1
 
+                csrf_token = page.evaluate(
+                    "document.cookie.split('; ').find((cookie) => cookie.startsWith('__Host-ny_csrf='))?.split('=')[1]"
+                )
+                assert csrf_token
+                second_draft = page.evaluate(
+                    """async (csrf) => (await fetch('/api/organizer/visits', {
+                        method: 'POST',
+                        headers: {'content-type': 'application/json', 'x-csrf-token': csrf},
+                        body: JSON.stringify({
+                            hospital: 'ntuh-main', date: '2026-09-30',
+                            department_code: 'SYN2', clinic_code: 'SYN-2',
+                            session: 'morning', patient_number: 91,
+                            recipient_ids: ['unselected-family'],
+                        }),
+                    })).status""",
+                    csrf_token,
+                )
+                assert second_draft == 201
+                page.get_by_role("button", name="重新整理").click()
+                drafts = page.locator("#saved-drafts-list article.visit-card")
+                drafts.nth(1).wait_for()
+                assert drafts.count() == 2
+                assert sorted(drafts.locator("h3").all_text_contents()) == [
+                    "2026-09-29 · MED · MED-101",
+                    "2026-09-30 · SYN2 · SYN-2",
+                ]
+                toggle = page.get_by_role("button", name="收合草稿")
+                assert toggle.get_attribute("aria-expanded") == "true"
+                assert toggle.get_attribute("aria-controls") == "saved-drafts-list"
+                draft_ids = drafts.locator("h3").all_text_contents()
+                toggle.focus()
+                page.keyboard.press("Enter")
+                toggle = page.get_by_role("button", name="展開草稿")
+                assert toggle.get_attribute("aria-expanded") == "false"
+                assert page.locator("#saved-drafts-list").is_hidden()
+                assert page.get_by_role("heading", name="已儲存草稿 2").is_visible()
+                assert toggle.evaluate(
+                    "(element) => element === document.activeElement"
+                )
+                toggle.click()
+                assert (
+                    page.get_by_role("button", name="收合草稿").get_attribute(
+                        "aria-expanded"
+                    )
+                    == "true"
+                )
+                assert (
+                    page.locator(
+                        "#saved-drafts-list article.visit-card h3"
+                    ).all_text_contents()
+                    == draft_ids
+                )
+
+                first_draft = page.locator(
+                    "#saved-drafts-list article.visit-card"
+                ).filter(has_text="2026-09-29 · MED · MED-101")
+                first_visit = page.locator("article.visit-card").filter(
+                    has_text="2026-09-29 · MED · MED-101"
+                )
+
                 page.locator('input[name="department_code"]').fill("UNSAVED-NEW")
-                page.get_by_role("button", name="修正草稿").click()
+                first_draft.get_by_role("button", name="修正草稿").click()
                 page.get_by_text(
                     "目前設定尚未儲存。請先儲存或取消修正，再開啟其他提醒。", exact=True
                 ).wait_for()
                 page.get_by_role("button", name="清除未儲存草稿").click()
                 assert page.locator('input[name="department_code"]').input_value() == ""
 
-                page.get_by_role("button", name="重新檢查並開始提醒").click()
+                first_draft.get_by_role("button", name="重新檢查並開始提醒").click()
                 page.get_by_text(
                     "目前沒有可用的可信院方觀察，提醒維持草稿。"
                 ).first.wait_for()
-                assert "草稿" in page.locator("article.visit-card .state").inner_text()
+                assert "草稿" in first_draft.locator(".state").inner_text()
 
                 # The API projection supplies these settings but not patient_number.
                 # Re-rendering during an edit must retain unsaved values; Cancel then
                 # returns to the saved draft without changing it.
-                page.get_by_role("button", name="修正草稿").click()
+                first_draft.get_by_role("button", name="修正草稿").click()
                 assert (
                     page.locator('input[name="department_code"]').input_value() == "MED"
                 )
@@ -392,9 +456,9 @@ def test_local_browser_acceptance_journey() -> None:
                 page.get_by_role("button", name="取消修正").click()
                 page.locator('input[name="department_code"]').wait_for()
                 assert page.locator('input[name="department_code"]').input_value() == ""
-                assert "MED" in page.locator("article.visit-card h3").inner_text()
+                assert "MED" in first_draft.locator("h3").inner_text()
 
-                page.get_by_role("button", name="修正草稿").click()
+                first_draft.get_by_role("button", name="修正草稿").click()
                 page.locator('input[name="patient_number"]').fill("85")
                 page.locator('select[name="session"]').select_option("evening")
                 page.get_by_role("button", name="儲存草稿").click()
@@ -408,7 +472,7 @@ def test_local_browser_acceptance_journey() -> None:
                     data={"current_number": 82, "trustworthy": True},
                 )
                 assert configured.status == 200
-                page.get_by_role("button", name="重新檢查並開始提醒").click()
+                first_draft.get_by_role("button", name="重新檢查並開始提醒").click()
                 page.get_by_text("監控中", exact=True).wait_for()
                 assert (
                     page.get_by_text(
@@ -432,33 +496,43 @@ def test_local_browser_acceptance_journey() -> None:
 
                 stop_route = "**/api/organizer/visits/*/stop"
                 page.route(stop_route, lambda route: route.abort())
-                page.get_by_role("button", name="停止提醒").click()
+                first_visit.get_by_role("button", name="停止提醒").click()
                 page.get_by_text(
                     "連線失敗，請確認本機服務後重試。", exact=True
                 ).wait_for()
-                assert (
-                    page.locator("article.visit-card .state").inner_text() == "監控中"
-                )
-                assert page.get_by_role("button", name="停止提醒").is_visible()
+                assert first_visit.locator(".state").inner_text() == "監控中"
+                assert first_visit.get_by_role("button", name="停止提醒").is_visible()
                 page.unroute(stop_route)
 
-                page.get_by_role("button", name="停止提醒").click()
-                page.locator("article.visit-card .inline-state").filter(
+                first_visit.get_by_role("button", name="停止提醒").click()
+                first_visit.locator(".inline-state").filter(
                     has_text="已停止"
                 ).wait_for()
-                visit_id = page.locator('h3[id^="visit-"]').get_attribute("id")
-                page.get_by_role("button", name="修正後重新檢查").click()
+                visit_id = first_visit.locator('h3[id^="visit-"]').get_attribute("id")
+                first_visit.get_by_role("button", name="修正後重新檢查").click()
                 assert page.locator("#setup-heading").inner_text() == "修正已停止的提醒"
                 assert page.locator(
                     'input[name="recipient_ids"][value="selected-family"]'
                 ).is_checked()
                 page.locator('input[name="patient_number"]').fill("85")
+                page.get_by_role("button", name="收合草稿").click()
+                assert page.locator("#saved-drafts-list").is_hidden()
+                page.get_by_role("button", name="展開草稿").click()
+                assert (
+                    page.locator('input[name="patient_number"]').input_value() == "85"
+                )
+                assert (
+                    page.locator('input[name="department_code"]').input_value() == "MED"
+                )
                 page.get_by_role("button", name="儲存修正並回到草稿").click()
                 page.get_by_text(
                     "修正已儲存為草稿。請在提醒清單重新檢查並開始。", exact=True
                 ).wait_for()
-                assert page.locator('h3[id^="visit-"]').get_attribute("id") == visit_id
-                assert "草稿" in page.locator("article.visit-card .state").inner_text()
+                assert (
+                    first_draft.locator('h3[id^="visit-"]').get_attribute("id")
+                    == visit_id
+                )
+                assert "草稿" in first_draft.locator(".state").inner_text()
                 page.request.post(
                     f"{origin}/__niy006_test/observation",
                     data={"current_number": 82, "trustworthy": True},

@@ -48,6 +48,7 @@ let formValues: Record<string, string | string[]> | null = null;
 let discardFormOnNextRender = false;
 const pendingStops = new Set<string>();
 const pendingStarts = new Set<string>();
+let draftsCollapsed = true;
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] || char);
@@ -214,10 +215,13 @@ function renderDashboard(preserveCurrentForm = true): void {
     document.querySelector<HTMLButtonElement>("#synthetic-login")?.addEventListener("click", voidSyntheticLogin);
     return;
   }
+  const drafts = visits.filter((visit) => visit.state === "draft");
+  const otherVisits = visits.filter((visit) => visit.state !== "draft");
   app.innerHTML = `<div class="dashboard-top"><div><p class="eyebrow">安全的提醒管理</p><h1>看診提醒</h1></div><button class="secondary-button refresh-button" id="refresh" type="button" ${loading ? "disabled" : ""}>重新整理</button></div>
     ${message ? `<p class="message" role="status">${escapeHtml(message)}</p>` : ""}
     ${formMarkup()}
-    <section class="visits" aria-labelledby="visits-heading"><div class="section-heading"><div><p class="eyebrow">狀態與控制</p><h2 id="visits-heading">提醒清單</h2></div></div>${visits.length ? visits.map(visitCard).join("") : `<div class="empty-state"><span class="empty-icon" aria-hidden="true">-</span><h3>尚無提醒</h3><p>建立草稿後，這裡會顯示狀態、來源、通知對象、最近檢查、院方觀察與傳送結果。</p></div>`}</section>`;
+    <section class="visits saved-drafts" aria-labelledby="drafts-heading"><div class="section-heading"><div><p class="eyebrow">提醒設定</p><h2 id="drafts-heading">已儲存草稿 <span class="draft-count">${drafts.length}</span></h2></div><button class="secondary-button drafts-toggle" type="button" data-drafts-toggle aria-expanded="${!draftsCollapsed}" aria-controls="saved-drafts-list">${draftsCollapsed ? "展開草稿" : "收合草稿"}</button></div><div id="saved-drafts-list" class="draft-list" ${draftsCollapsed ? "hidden" : ""}>${drafts.length ? drafts.map(visitCard).join("") : `<div class="empty-state"><h3>尚無已儲存草稿</h3><p>建立草稿後，會顯示在這裡。</p></div>`}</div></section>
+    ${otherVisits.length ? `<section class="visits" aria-labelledby="visits-heading"><div class="section-heading"><div><p class="eyebrow">狀態與控制</p><h2 id="visits-heading">提醒清單</h2></div></div>${otherVisits.map(visitCard).join("")}</section>` : ""}`;
   bindActions();
 }
 
@@ -283,6 +287,11 @@ function readForm(form: HTMLFormElement): VisitInput | null {
 }
 
 function bindActions(): void {
+  document.querySelector<HTMLButtonElement>("[data-drafts-toggle]")?.addEventListener("click", () => {
+    draftsCollapsed = !draftsCollapsed;
+    renderDashboard();
+    document.querySelector<HTMLButtonElement>("[data-drafts-toggle]")?.focus();
+  });
   document.querySelector<HTMLButtonElement>("#refresh")?.addEventListener("click", () => {
     message = "";
     void loadDashboard();

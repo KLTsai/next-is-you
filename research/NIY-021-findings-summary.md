@@ -10,4 +10,4 @@ This note records the NIY-021 conclusion supplied to the NIY-020 worker on 2026-
 
 ## Follow-up gate
 
-Keep dynamic session options and saved patient-number prefill deferred. Do not expand NIY-020's API scope. Any API or source follow-up must wait for manual observations during active clinic sessions: at least two observations per hospital, including a displayed source timestamp where available.
+Keep dynamic session options deferred and do not expand NIY-020's API scope. The patient-number-prefill decision is now tracked separately in [NIY-023](../tickets/NIY-023-draft-correction-patient-number.md), which limits any future exposure to the authorized correction flow. Any API or source follow-up must wait for manual observations during active clinic sessions: at least two observations per hospital, including a displayed source timestamp where available.

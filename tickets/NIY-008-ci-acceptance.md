@@ -32,6 +32,11 @@ changing compatibility behavior.
 
 The first GitHub Actions run after publishing the initial repository state failed before any test job ran because `astral-sh/setup-uv@v10` could not be resolved. Restore a resolvable published action reference and confirm the workflow reaches and passes its deterministic gates.
 
+The failed `v10` reference was not a published setup-uv release tag; the publisher's
+release history lists `v10.1.0`. Workflow actions are now pinned to the full commit
+SHAs behind their published release tags, and `scripts/check_workflow_action_pins.py`
+keeps future references immutable and version-labelled as a deterministic CI gate.
+
 ### Follow-up acceptance criteria
 
 - Every action reference used by the workflow resolves to a published version.

@@ -385,7 +385,9 @@ def test_local_browser_acceptance_journey() -> None:
                 assert (
                     page.locator('select[name="session"]').input_value() == "afternoon"
                 )
-                assert page.locator('input[name="patient_number"]').input_value() == "85"
+                assert (
+                    page.locator('input[name="patient_number"]').input_value() == "85"
+                )
                 page.locator('input[name="department_code"]').fill("UNSAVED")
                 page.get_by_role("button", name="重新整理").click()
                 assert (

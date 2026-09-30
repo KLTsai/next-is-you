@@ -206,7 +206,9 @@ def test_correction_patient_number_is_single_visit_authorized_csrf_protected_dat
                 "patient_number": 85,
                 "recipient_ids": ["eligible"],
             }
-            first = await http.post("/api/organizer/visits", json=body, headers=organizer_headers)
+            first = await http.post(
+                "/api/organizer/visits", json=body, headers=organizer_headers
+            )
             second = await http.post(
                 "/api/organizer/visits",
                 json={**body, "patient_number": 42},

@@ -8,10 +8,10 @@ Start the local test app using the **Local UI acceptance (NIY-007)** setup in [R
 
 1. Sign in with **本機合成測試登入**. Expected: the reminder form and synthetic recipient list appear. The login is provided only by the local test binding.
 2. Create a draft using a future date, **臺大醫院總院**, department `SYN`, clinic `SYN-1`, session `afternoon`, patient number `85`, and **Synthetic recipient**. Expected: the form says that creating a draft does not start monitoring or send notifications. After saving, the list shows **草稿** and the API supplied source link; no hospital request occurs.
-3. Choose **修正草稿**. Expected: date, hospital, department, clinic, session, and selected recipient are prefilled from the visit projection. The patient number is blank because the current API does not return it; use only the synthetic number for this check.
+3. Choose **修正草稿**. Expected: date, hospital, department, clinic, session, and selected recipient are prefilled from the visit projection, and the selected draft's saved patient number `85` is fetched through the authorized correction flow and prefilled. The general visit list does not expose the patient number.
 4. Change the department to `UNSAVED`, then select **重新整理**. Expected: the unsaved value remains in the form and the list still shows the saved department `SYN`.
 5. Choose **取消修正**. Expected: the form returns to new-draft mode, the unsaved value is gone, and the saved visit remains unchanged.
-6. Edit again, select `evening`, enter synthetic patient number `85`, then select **儲存草稿**. Expected: the list shows **晚診（evening）** and the saved-change message says to recheck and start. Saving updates a draft only; it does not start monitoring.
+6. Edit again, select `evening`, keep the prefilled synthetic patient number `85`, then select **儲存草稿**. Expected: the list shows **晚診（evening）** and the saved-change message says to recheck and start. Saving updates a draft only; it does not start monitoring.
 7. Observe the session field's note. The three codes are accepted by the current API, not a clinic/date availability list. Do not infer that morning, afternoon, or evening is actually offered. The [NIY-021 findings summary](../research/NIY-021-findings-summary.md) records the evidence and follow-up gate.
 
 ## Recheck, start, and stop

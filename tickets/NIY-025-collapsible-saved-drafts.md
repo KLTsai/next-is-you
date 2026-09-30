@@ -1,6 +1,6 @@
 # NIY-025: Collapse and expand the saved-drafts section
 
-Status: Open
+Status: Complete (2026-09-30)
 
 ## Goal
 

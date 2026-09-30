@@ -369,10 +369,13 @@ def test_local_browser_acceptance_journey() -> None:
                 ).first.wait_for()
                 assert "草稿" in page.locator("article.visit-card .state").inner_text()
 
-                # The API projection supplies these settings but not patient_number.
-                # Re-rendering during an edit must retain unsaved values; Cancel then
-                # returns to the saved draft without changing it.
+                # The general projection omits patient_number. The selected-draft
+                # correction request supplies it, and Cancel then reopening must
+                # restore that saved value.
                 page.get_by_role("button", name="修正草稿").click()
+                page.wait_for_function(
+                    "document.querySelector('input[name=patient_number]')?.value === '85'"
+                )
                 assert (
                     page.locator('input[name="department_code"]').input_value() == "MED"
                 )
@@ -382,7 +385,7 @@ def test_local_browser_acceptance_journey() -> None:
                 assert (
                     page.locator('select[name="session"]').input_value() == "afternoon"
                 )
-                assert page.locator('input[name="patient_number"]').input_value() == ""
+                assert page.locator('input[name="patient_number"]').input_value() == "85"
                 page.locator('input[name="department_code"]').fill("UNSAVED")
                 page.get_by_role("button", name="重新整理").click()
                 assert (
@@ -395,6 +398,9 @@ def test_local_browser_acceptance_journey() -> None:
                 assert "MED" in page.locator("article.visit-card h3").inner_text()
 
                 page.get_by_role("button", name="修正草稿").click()
+                page.wait_for_function(
+                    "document.querySelector('input[name=patient_number]')?.value === '85'"
+                )
                 page.locator('input[name="patient_number"]').fill("85")
                 page.locator('select[name="session"]').select_option("evening")
                 page.get_by_role("button", name="儲存草稿").click()
@@ -448,11 +454,13 @@ def test_local_browser_acceptance_journey() -> None:
                 ).wait_for()
                 visit_id = page.locator('h3[id^="visit-"]').get_attribute("id")
                 page.get_by_role("button", name="修正後重新檢查").click()
+                page.wait_for_function(
+                    "document.querySelector('input[name=patient_number]')?.value === '85'"
+                )
                 assert page.locator("#setup-heading").inner_text() == "修正已停止的提醒"
                 assert page.locator(
                     'input[name="recipient_ids"][value="selected-family"]'
                 ).is_checked()
-                page.locator('input[name="patient_number"]').fill("85")
                 page.get_by_role("button", name="儲存修正並回到草稿").click()
                 page.get_by_text(
                     "修正已儲存為草稿。請在提醒清單重新檢查並開始。", exact=True

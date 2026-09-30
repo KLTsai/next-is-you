@@ -14,10 +14,10 @@ function csrfFromCookie() {
   return item ? decodeURIComponent(item.slice("__Host-ny_csrf=".length)) : "";
 }
 
-async function request(path, { method = "GET", body, fetcher = fetch, csrfToken = csrfFromCookie() } = {}) {
+async function request(path, { method = "GET", body, fetcher = fetch, csrfToken = csrfFromCookie(), csrf = method !== "GET" } = {}) {
   const headers = { accept: "application/json" };
   if (body !== undefined) headers["content-type"] = "application/json";
-  if (method !== "GET" && csrfToken) headers["x-csrf-token"] = csrfToken;
+  if (csrf && csrfToken) headers["x-csrf-token"] = csrfToken;
   const response = await fetcher(path, {
     method,
     headers,
@@ -39,6 +39,10 @@ export function listRecipients(options) {
 
 export function listVisits(options) {
   return request("/api/organizer/visits", options);
+}
+
+export function getVisitCorrection(id, options = {}) {
+  return request(`/api/organizer/visits/${encodeURIComponent(id)}/correction`, { ...options, csrf: true });
 }
 
 export function createVisit(input, options = {}) {

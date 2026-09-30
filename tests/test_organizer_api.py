@@ -190,6 +190,61 @@ def test_progress_link_catalog_is_limited_to_fixed_https_hospitals():
     assert progress_link("https://attacker.invalid") is None
 
 
+def test_correction_patient_number_is_single_visit_authorized_csrf_protected_data():
+    async def scenario():
+        _, http = make_client()
+        try:
+            denied = await http.get("/api/organizer/visits/selected/correction")
+            assert denied.status_code == 401
+            organizer_headers = authorize(http)
+            body = {
+                "hospital": "ntuh-main",
+                "date": "2026-09-29",
+                "department_code": "MED",
+                "clinic_code": "MED-A",
+                "session": "morning",
+                "patient_number": 85,
+                "recipient_ids": ["eligible"],
+            }
+            first = await http.post("/api/organizer/visits", json=body, headers=organizer_headers)
+            second = await http.post(
+                "/api/organizer/visits",
+                json={**body, "patient_number": 42},
+                headers=organizer_headers,
+            )
+            assert first.status_code == second.status_code == 201
+            selected_url = f"/api/organizer/visits/{first.json()['id']}/correction"
+
+            missing_csrf = await http.get(selected_url)
+            assert missing_csrf.status_code == 403
+            non_organizer = authorize(http, subject="family", role="recipient")
+            denied_role = await http.get(selected_url, headers=non_organizer)
+            assert denied_role.status_code == 403
+            invalid_csrf = await http.get(
+                selected_url, headers={"x-csrf-token": "invalid"}
+            )
+            assert invalid_csrf.status_code == 403
+
+            organizer_headers = authorize(http)
+            authorized = await http.get(selected_url, headers=organizer_headers)
+            assert authorized.status_code == 200
+            assert authorized.json() == {"patient_number": 85}
+            reopened = await http.get(selected_url, headers=organizer_headers)
+            assert reopened.json() == {"patient_number": 85}
+            other = await http.get(
+                f"/api/organizer/visits/{second.json()['id']}/correction",
+                headers=organizer_headers,
+            )
+            assert other.json() == {"patient_number": 42}
+            listing = await http.get("/api/organizer/visits")
+            assert listing.status_code == 200
+            assert "patient_number" not in repr(listing.json())
+        finally:
+            await http.aclose()
+
+    asyncio.run(scenario())
+
+
 def test_mutations_recheck_allowlist_and_start_returns_typed_safe_error():
     async def scenario():
         _, http = make_client()

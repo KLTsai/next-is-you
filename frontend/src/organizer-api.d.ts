@@ -40,6 +40,7 @@ export class OrganizerApiError extends Error {
 
 export function listRecipients(options?: object): Promise<{ recipients: Recipient[] }>;
 export function listVisits(options?: object): Promise<{ visits: OrganizerVisit[] }>;
+export function getVisitCorrection(id: string, options?: object): Promise<{ patient_number: number }>;
 export function createVisit(input: VisitInput, options?: object): Promise<{ id: string; state: "draft" }>;
 export function updateVisit(id: string, input: VisitInput, options?: object): Promise<{ id: string; state: "draft" }>;
 export function startVisit(id: string, options?: object): Promise<{ state: "active" }>;

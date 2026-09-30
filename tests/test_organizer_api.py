@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -47,6 +48,20 @@ class Gate:
 
     async def update_draft(self, visit_id: str, **values: Any):
         return await self.visits.update_draft(visit_id=visit_id, **values)
+
+    async def update_draft_rpc(self, request_json: str):
+        request = json.loads(request_json)
+        return await self.update_draft(
+            str(request["visit_id"]),
+            hospital=str(request["hospital"]),
+            visit_day=date.fromisoformat(str(request["visit_day"])),
+            department_code=str(request["department_code"]),
+            clinic_code=str(request["clinic_code"]),
+            clinic_session=str(request["clinic_session"]),
+            patient_number=int(request["patient_number"]),
+            recipient_ids=tuple(request["recipient_ids"]),
+            now=datetime.fromisoformat(str(request["now"]).replace("Z", "+00:00")),
+        )
 
     async def add_visit_recipient(
         self, visit_id: str, recipient_id: str, now: datetime

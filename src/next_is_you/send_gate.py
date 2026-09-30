@@ -129,6 +129,21 @@ class SystemSendGate(_DurableObjectBase):
                 now=now,
             )
 
+    async def update_draft_rpc(self, request_json: str) -> bool:
+        """Decode the primitive Worker RPC envelope before updating a draft."""
+        request = json.loads(request_json)
+        return await self.update_draft(
+            visit_id=str(request["visit_id"]),
+            hospital=str(request["hospital"]),
+            visit_day=date.fromisoformat(str(request["visit_day"])),
+            department_code=str(request["department_code"]),
+            clinic_code=str(request["clinic_code"]),
+            clinic_session=str(request["clinic_session"]),
+            patient_number=int(request["patient_number"]),
+            recipient_ids=tuple(str(value) for value in request["recipient_ids"]),
+            now=_datetime(str(request["now"])),
+        )
+
     async def add_visit_recipient(
         self, visit_id: str, recipient_id: str, now: datetime
     ) -> bool:

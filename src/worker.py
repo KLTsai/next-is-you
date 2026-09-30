@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from dataclasses import dataclass
@@ -455,7 +456,21 @@ def create_app(
         gate = _send_gate(request)
         if gate is None:
             return _api_error("service_unavailable", 503)
-        if not await gate.update_draft(visit_id=visit_id, now=_now(request), **parsed):
+        rpc_request = json.dumps(
+            {
+                "visit_id": visit_id,
+                "hospital": parsed["hospital"],
+                "visit_day": parsed["visit_day"].isoformat(),
+                "department_code": parsed["department_code"],
+                "clinic_code": parsed["clinic_code"],
+                "clinic_session": parsed["clinic_session"],
+                "patient_number": parsed["patient_number"],
+                "recipient_ids": list(parsed["recipient_ids"]),
+                "now": iso_utc(_now(request)),
+            },
+            separators=(",", ":"),
+        )
+        if not await gate.update_draft_rpc(rpc_request):
             return _api_error("invalid_lifecycle_state", 409)
         return JSONResponse({"id": visit_id, "state": "draft"})
 

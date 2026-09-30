@@ -21,7 +21,7 @@ This repository does not yet use an external issue tracker. These checked-in tic
 | NIY-017 | Complete (2026-09-28) | [Research ticket removal](NIY-017-remove-niy-014.md) | None |
 | NIY-018 | Complete (2026-09-29) | [Local rebuildable artifact cleanup](NIY-018-local-artifact-cleanup.md) | NIY-015 |
 | NIY-019 | Complete | [Ignore local Python module cache](NIY-019-ignore-python-modules.md) | NIY-018 |
-| NIY-020 | Open | [Clarify visit setup and monitoring controls](NIY-020-visit-setup-ux.md) | NIY-007, NIY-008, NIY-010, NIY-016 |
+| NIY-020 | Complete (2026-09-29) | [Clarify visit setup and monitoring controls](NIY-020-visit-setup-ux.md) | NIY-007, NIY-008, NIY-010, NIY-016 |
 | NIY-021 | Open | [Verify official progress sources for NTUH and Shin Kong](NIY-021-hospital-source-verification.md) | NIY-004, NIY-016 |
 | NIY-022 | Complete (2026-09-29) | [Durable agent guidance](NIY-022-agent-guidance.md) | None |
 

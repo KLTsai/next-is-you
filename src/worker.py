@@ -474,6 +474,21 @@ def create_app(
             return _api_error("invalid_lifecycle_state", 409)
         return JSONResponse({"id": visit_id, "state": "draft"})
 
+    @app.get("/api/organizer/visits/{visit_id}/correction")
+    async def organizer_visit_correction(visit_id: str, request: Request) -> Response:
+        _, denied = await _authorized(request, "organizer", csrf=True)
+        if denied:
+            return denied
+        repository = _visit_repository(request)
+        if repository is None:
+            return _api_error("service_unavailable", 503)
+        visit = await repository.get_visit(visit_id)
+        if visit is None:
+            return _api_error("visit_not_found", 404)
+        if visit["state"] not in {"draft", "stopped"}:
+            return _api_error("invalid_lifecycle_state", 409)
+        return JSONResponse({"patient_number": int(visit["patient_number"])})
+
     @app.post("/api/organizer/visits/{visit_id}/start")
     async def start_organizer_visit(visit_id: str, request: Request) -> Response:
         _, denied = await _authorized(request, "organizer", csrf=True)

@@ -4,6 +4,7 @@ import {
   OrganizerApiError,
   correctVisit,
   createVisit,
+  getVisitCorrection,
   listRecipients,
   listVisits,
   startVisit,
@@ -54,6 +55,21 @@ test("visit projection preserves trusted source links for both supported hospita
     ["ntuh-main", sourceUrls[0]],
     ["shin-kong-taipei", sourceUrls[1]],
   ]);
+});
+
+test("correction initialization uses a single-visit route with CSRF", async () => {
+  let call;
+  const result = await getVisitCorrection("draft/one", {
+    fetcher: async (path, options) => {
+      call = [path, options];
+      return response({ patient_number: 85 });
+    },
+    csrfToken: "csrf-local",
+  });
+  assert.deepEqual(result, { patient_number: 85 });
+  assert.equal(call[0], "/api/organizer/visits/draft%2Fone/correction");
+  assert.equal(call[1].method, "GET");
+  assert.equal(call[1].headers["x-csrf-token"], "csrf-local");
 });
 
 test("draft create, edit, correct, Start, and Stop use approved routes and CSRF", async () => {

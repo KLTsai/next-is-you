@@ -3,6 +3,7 @@ import {
   OrganizerApiError,
   correctVisit,
   createVisit,
+  getVisitCorrection,
   listRecipients,
   listVisits,
   startVisit,
@@ -45,6 +46,7 @@ let loading = false;
 let message = "";
 let editing: { visit: OrganizerVisit; mode: "update" | "correct" } | null = null;
 let formValues: Record<string, string | string[]> | null = null;
+let initialPatientNumber: string | null = null;
 let discardFormOnNextRender = false;
 const pendingStops = new Set<string>();
 const pendingStarts = new Set<string>();
@@ -120,7 +122,7 @@ function hasUnsavedFormChanges(): boolean {
   const currentRecipients = data.getAll("recipient_ids").map(String).sort();
   return data.get("hospital") !== (saved?.hospital ?? "ntuh-main")
     || data.get("date") !== (saved?.date ?? "")
-    || data.get("patient_number") !== ""
+    || data.get("patient_number") !== (initialPatientNumber ?? "")
     || data.get("department_code") !== (saved?.department_code ?? "")
     || data.get("clinic_code") !== (saved?.clinic_code ?? "")
     || data.get("session") !== (saved?.session ?? "morning")
@@ -154,7 +156,7 @@ function formMarkup(): string {
       </fieldset>
       <div class="form-grid">
         <label class="field"><span>看診日期</span><input name="date" type="date" value="${escapeHtml(formValue("date", item?.date ?? ""))}" required></label>
-        <label class="field"><span>掛號序號</span><input name="patient_number" type="number" min="1" max="999999" value="${escapeHtml(formValue("patient_number", ""))}" required inputmode="numeric"><small>${item ? "目前 API 不會回傳已儲存的掛號序號，請對照院方資料填入。" : "僅供這筆提醒使用，不會顯示在狀態清單。"}</small></label>
+        <label class="field"><span>掛號序號</span><input name="patient_number" type="number" min="1" max="999999" value="${escapeHtml(formValue("patient_number", initialPatientNumber ?? ""))}" required inputmode="numeric"><small>${item ? "僅供這筆提醒修正使用，不會顯示在狀態清單。" : "僅供這筆提醒使用，不會顯示在狀態清單。"}</small></label>
         <label class="field"><span>科別代碼</span><input name="department_code" maxlength="64" value="${escapeHtml(formValue("department_code", item?.department_code ?? ""))}" required autocomplete="off"></label>
         <label class="field"><span>診間代碼</span><input name="clinic_code" maxlength="64" value="${escapeHtml(formValue("clinic_code", item?.clinic_code ?? ""))}" required autocomplete="off"></label>
         <label class="field"><span>診次</span><select name="session" required>
@@ -290,6 +292,7 @@ function bindActions(): void {
   document.querySelector<HTMLButtonElement>("#cancel-edit")?.addEventListener("click", () => {
     editing = null;
     formValues = null;
+    initialPatientNumber = null;
     message = "";
     renderDashboard(false);
   });
@@ -311,6 +314,7 @@ function bindActions(): void {
       else await updateVisit(previous.visit.id, input);
       editing = null;
       formValues = null;
+      initialPatientNumber = null;
       discardFormOnNextRender = true;
       message = previous?.mode === "correct"
         ? "修正已儲存為草稿。請在提醒清單重新檢查並開始。"
@@ -323,25 +327,41 @@ function bindActions(): void {
     }
   });
 
-  document.querySelectorAll<HTMLButtonElement>("[data-edit]").forEach((button) => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLButtonElement>("[data-edit]").forEach((button) => button.addEventListener("click", async () => {
     const item = visits.find((visit) => visit.id === button.dataset.edit);
     if (!item) return;
     if (blockNavigationWithUnsavedChanges()) return;
-    formValues = null;
-    editing = { visit: item, mode: "update" };
     message = "";
-    renderDashboard(false);
-    document.querySelector("#setup-heading")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    button.disabled = true;
+    try {
+      const correction = await getVisitCorrection(item.id);
+      initialPatientNumber = String(correction.patient_number);
+      formValues = null;
+      editing = { visit: item, mode: "update" };
+      renderDashboard(false);
+      document.querySelector("#setup-heading")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (error) {
+      message = errorText(error);
+      renderDashboard();
+    }
   }));
-  document.querySelectorAll<HTMLButtonElement>("[data-correct]").forEach((button) => button.addEventListener("click", () => {
+  document.querySelectorAll<HTMLButtonElement>("[data-correct]").forEach((button) => button.addEventListener("click", async () => {
     const item = visits.find((visit) => visit.id === button.dataset.correct);
     if (!item) return;
     if (blockNavigationWithUnsavedChanges()) return;
-    formValues = null;
-    editing = { visit: item, mode: "correct" };
     message = "";
-    renderDashboard(false);
-    document.querySelector("#setup-heading")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    button.disabled = true;
+    try {
+      const correction = await getVisitCorrection(item.id);
+      initialPatientNumber = String(correction.patient_number);
+      formValues = null;
+      editing = { visit: item, mode: "correct" };
+      renderDashboard(false);
+      document.querySelector("#setup-heading")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (error) {
+      message = errorText(error);
+      renderDashboard();
+    }
   }));
   document.querySelectorAll<HTMLButtonElement>("[data-start]").forEach((button) => button.addEventListener("click", async () => {
     const id = button.dataset.start;

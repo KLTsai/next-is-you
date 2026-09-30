@@ -42,6 +42,17 @@ class SQLiteStore:
 
 
 class Gate:
+    def __init__(self, visits: VisitRepository) -> None:
+        self.visits = visits
+
+    async def update_draft(self, visit_id: str, **values: Any):
+        return await self.visits.update_draft(visit_id=visit_id, **values)
+
+    async def add_visit_recipient(
+        self, visit_id: str, recipient_id: str, now: datetime
+    ):
+        return await self.visits.add_recipient(visit_id, recipient_id, now)
+
     async def start_visit(self, _visit_id: str, _now: str):
         return {"error": "observation_unavailable"}
 
@@ -72,7 +83,7 @@ def make_client():
         },
         identity_repository=IdentityRepository(store),
         visit_repository=visits,
-        send_gate=Gate(),
+        send_gate=Gate(visits),
         clock=lambda: datetime(2026, 9, 28, 10, 0, tzinfo=timezone.utc).timestamp(),
     )
     http = AsyncClient(
@@ -128,6 +139,14 @@ def test_organizer_reads_eligible_roster_and_creates_draft_with_auth_and_csrf():
             )
             assert created.status_code == 201
             assert created.json()["state"] == "draft"
+            updated_body = {**body, "session": "evening", "patient_number": 86}
+            updated = await http.patch(
+                f"/api/organizer/visits/{created.json()['id']}",
+                json=updated_body,
+                headers=headers,
+            )
+            assert updated.status_code == 200
+            assert updated.json() == {"id": created.json()["id"], "state": "draft"}
             shin_kong = {**body, "hospital": "shin-kong-taipei", "clinic_code": "MED-B"}
             assert (
                 await http.post(
@@ -137,6 +156,7 @@ def test_organizer_reads_eligible_roster_and_creates_draft_with_auth_and_csrf():
             listing = await http.get("/api/organizer/visits")
             assert listing.status_code == 200
             visits = {visit["hospital"]: visit for visit in listing.json()["visits"]}
+            assert visits["ntuh-main"]["session"] == "evening"
             assert (
                 visits["ntuh-main"]["source_url"]
                 == "https://registration.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0"
@@ -206,7 +226,8 @@ def test_synthetic_session_fixture_is_missing_without_explicit_test_binding():
 def test_synthetic_organizer_session_requires_explicit_niy006_test_binding():
     async def scenario():
         clock_now = int(datetime(2026, 9, 28, 10, 0, tzinfo=timezone.utc).timestamp())
-        app = create_app(clock=lambda: clock_now, send_gate=Gate())
+        visits = VisitRepository(SQLiteStore())
+        app = create_app(clock=lambda: clock_now, send_gate=Gate(visits))
 
         class TestConfigApp:
             async def __call__(self, scope, receive, send):

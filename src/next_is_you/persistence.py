@@ -17,6 +17,7 @@ UTC = timezone.utc
 class Statement:
     sql: str
     values: tuple[Any, ...] = ()
+    operation: str | None = None
 
 
 class SqlStore(Protocol):
@@ -225,6 +226,7 @@ class VisitRepository:
                 f"""SELECT id FROM recipients WHERE id IN ({placeholders}) AND active = 1
                 AND consented_at IS NOT NULL AND friendship_checked_at IS NOT NULL""",
                 tuple(wanted),
+                "validate_draft_recipients",
             )
         )
         if {str(row["id"]) for row in eligible} != set(wanted):
@@ -241,26 +243,14 @@ class VisitRepository:
             room_code=None,
         ):
             return False
-        current = await self._store.fetch_all(
-            Statement(
-                "SELECT recipient_id FROM visit_recipients WHERE visit_id = ?",
-                (visit_id,),
-            )
-        )
-        for row in current:
-            rid = str(row["recipient_id"])
-            if rid not in wanted:
-                await self.remove_recipient(visit_id, rid)
+        current_ids = await self.selected_recipient_ids(visit_id)
+        for rid in current_ids - set(wanted):
+            await self.remove_recipient(visit_id, rid)
         for rid in wanted:
-            if not await self.add_recipient(visit_id, rid, now):
-                existing = await self._store.fetch_all(
-                    Statement(
-                        "SELECT 1 FROM visit_recipients WHERE visit_id = ? AND recipient_id = ?",
-                        (visit_id, rid),
-                    )
-                )
-                if not existing:
-                    return False
+            if rid not in current_ids and not await self.add_recipient(
+                visit_id, rid, now
+            ):
+                return False
         return True
 
     async def scheduler_ledger_digest(

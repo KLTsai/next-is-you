@@ -356,6 +356,70 @@ async def test_visit_recipient_removal_wins_ordering_and_blocks_future_sends() -
 
 
 @pytest.mark.asyncio
+async def test_removal_waits_for_draft_update_and_wins_roster_ordering() -> None:
+    database = LocalD1()
+    gate = make_gate(database)
+    repository = gate._repository()
+    timestamp = datetime.fromisoformat("2026-09-27T13:00:00+00:00")
+    await repository.create_draft(
+        visit_id="draft-v1",
+        hospital="ntuh-main",
+        visit_day=datetime.fromisoformat("2026-09-27").date(),
+        department_code="MED",
+        clinic_code="MED-A",
+        clinic_session="morning",
+        patient_number=85,
+        now=timestamp,
+    )
+    await repository._store.execute(
+        Statement(
+            """INSERT INTO recipients (id, line_subject, display_name, consented_at,
+            friendship_checked_at, active, created_at) VALUES
+            ('r1', 'line-r1', 'Family A', ?, ?, 1, ?)""",
+            (timestamp.isoformat(), timestamp.isoformat(), timestamp.isoformat()),
+        )
+    )
+    assert await repository.add_recipient("draft-v1", "r1", timestamp)
+    gate._repository = lambda: repository
+    eligible_read = asyncio.Event()
+    continue_update = asyncio.Event()
+    original_fetch = repository._store.fetch_all
+
+    async def pause_after_eligibility(statement: Statement):
+        rows = await original_fetch(statement)
+        if statement.operation == "validate_draft_recipients":
+            eligible_read.set()
+            await continue_update.wait()
+        return rows
+
+    repository._store.fetch_all = pause_after_eligibility
+    updating = asyncio.create_task(
+        gate.update_draft(
+            "draft-v1",
+            hospital="ntuh-main",
+            visit_day=datetime.fromisoformat("2026-09-27").date(),
+            department_code="MED",
+            clinic_code="MED-A",
+            clinic_session="morning",
+            patient_number=86,
+            recipient_ids=("r1",),
+            now=timestamp,
+        )
+    )
+    await eligible_read.wait()
+    removing = asyncio.create_task(
+        gate.remove_visit_recipient("draft-v1", "r1", timestamp.isoformat())
+    )
+    await asyncio.sleep(0)
+    assert not removing.done()
+    continue_update.set()
+
+    assert await updating
+    assert await removing
+    assert await repository.selected_recipient_ids("draft-v1") == set()
+
+
+@pytest.mark.asyncio
 async def test_close_wins_ordering_and_no_request_begins_after_close() -> None:
     database = LocalD1()
     gate = make_gate(database)

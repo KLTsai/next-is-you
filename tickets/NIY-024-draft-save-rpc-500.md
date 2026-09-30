@@ -1,6 +1,6 @@
 # NIY-024: Fix draft-save HTTP 500 across Worker and Durable Object RPC
 
-Status: Open
+Status: Implemented (local Wrangler acceptance pending)
 
 ## Goal
 

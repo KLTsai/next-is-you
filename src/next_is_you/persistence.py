@@ -17,6 +17,7 @@ UTC = timezone.utc
 class Statement:
     sql: str
     values: tuple[Any, ...] = ()
+    operation: str | None = None
 
 
 class SqlStore(Protocol):
@@ -225,6 +226,7 @@ class VisitRepository:
                 f"""SELECT id FROM recipients WHERE id IN ({placeholders}) AND active = 1
                 AND consented_at IS NOT NULL AND friendship_checked_at IS NOT NULL""",
                 tuple(wanted),
+                "validate_draft_recipients",
             )
         )
         if {str(row["id"]) for row in eligible} != set(wanted):

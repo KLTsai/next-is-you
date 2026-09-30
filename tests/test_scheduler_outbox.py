@@ -387,7 +387,7 @@ async def test_removal_waits_for_draft_update_and_wins_roster_ordering() -> None
 
     async def pause_after_eligibility(statement: Statement):
         rows = await original_fetch(statement)
-        if statement.sql.startswith("SELECT id FROM recipients WHERE id IN"):
+        if statement.operation == "validate_draft_recipients":
             eligible_read.set()
             await continue_update.wait()
         return rows

@@ -8,6 +8,7 @@ Conversation with the captain may mix Traditional Chinese and English when it ha
 ## Work order and scope
 
 - Before planning or coding, reconcile `tickets/README.md`, the current ticket, and linked decisions. Reuse or update an existing ticket. Define new work in a ticket with scope, observable checks, dependencies, and non-goals before coding.
+- Ticket, backlog, and repository-guidance-only changes use an ordinary branch and PR with lightweight Markdown/link checks; they do not need a separate worktree or the full no-mistakes pipeline. Keep `main` unchanged. Product implementation, tests, and migrations use an isolated worktree and the configured validation path; if a change mixes both kinds of work, use the implementation path.
 - Follow dependency order and accepted scope. Separate requirements from suggestions or unresolved choices. For API or source gaps, record the gap and narrow scope or create a dependent ticket before expanding behavior.
 - Keep unrelated repository maintenance or contribution work outside product scope unless an accepted ticket names the dependency.
 

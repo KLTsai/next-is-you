@@ -7,7 +7,7 @@ Conversation with the captain may mix Traditional Chinese and English when it ha
 
 ## Work order and scope
 
-- Before planning or coding, reconcile `tickets/README.md`, the current ticket, and linked decisions. Reuse or update an existing ticket. Define new work in a ticket with scope, observable checks, dependencies, and non-goals before coding.
+- Before planning or coding, reconcile the relevant GitHub issue, linked decisions, and `docs/agents/issue-tracker.md`. Define new work with scope, observable checks, dependencies, and non-goals before coding. Preserve accepted historical decisions under `docs/archive/tickets/`.
 - Follow dependency order and accepted scope. Separate requirements from suggestions or unresolved choices. For API or source gaps, record the gap and narrow scope or create a dependent ticket before expanding behavior.
 - Keep unrelated repository maintenance or contribution work outside product scope unless an accepted ticket names the dependency.
 
@@ -17,4 +17,14 @@ Conversation with the captain may mix Traditional Chinese and English when it ha
 - Lifecycle UI changes define clear success, pending, failure, cancellation/stop, and recovery outcomes.
 - Use synthetic local data. Follow `README.md` for secrets; never put credentials or patient data in repository artifacts.
 
-Keep this file to durable, repository-wide guidance. Put ticket status in `tickets/` and task-specific procedures in their owning docs.
+Keep this file to durable, repository-wide guidance. Put active scope and status in the configured issue tracker and task-specific procedures in their owning docs.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs are tracked in GitHub Issues for `KLTsai/next-is-you`. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Use a single-context layout: root `CONTEXT.md` and `docs/adr/`, created lazily when needed. See `docs/agents/domain.md`.

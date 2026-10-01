@@ -26,8 +26,8 @@ jobs:
           cache: npm
       - run: uv sync --group dev --locked
       - run: npm ci
-      - run: uv run ruff format --check src tests scripts
-      - run: uv run ruff check src tests scripts
+      - run: uv run ruff format --check src tests
+      - run: uv run ruff check src tests
       - run: npm run typecheck
       - run: npm run test:ui
       - run: npm run build

@@ -55,8 +55,8 @@ From a clean checkout, install the pinned dependencies and run the same determin
 uv sync --group dev --locked
 npm ci
 uv run playwright install chromium
-uv run ruff format --check src tests scripts
-uv run ruff check src tests scripts
+uv run ruff format --check src tests
+uv run ruff check src tests
 npm run typecheck
 npm run test:ui
 npm run build

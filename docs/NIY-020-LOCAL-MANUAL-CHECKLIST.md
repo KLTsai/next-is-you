@@ -2,7 +2,7 @@
 
 Use only the local NIY-006 test binding, its synthetic recipient, fake hospital observation source, and fake LINE transport. Do not use patient data, real LINE accounts, live hospital access, credentials, or deployment.
 
-Start the local test app using the **Local UI acceptance (NIY-007)** setup in [README.md](../README.md). This journey uses `wrangler.niy006.test.jsonc` and stays on loopback.
+Start the local test app using the **Complete local service rehearsal** setup in [README.md](../README.md). This journey uses `wrangler.niy006.test.jsonc` and stays on loopback.
 
 ## Draft and correction
 

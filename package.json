@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:ui": "node --test frontend/test/*.test.js",
     "dev:local": "npm run build && uv run python src/local_runtime.py",
-    "dev:ui": "vite --host 127.0.0.1"
+    "dev:ui": "vite --host 127.0.0.1",
+    "dev:rehearsal": "sh scripts/manual-rehearsal.sh"
   },
   "devDependencies": {
     "typescript": "^5.9.2",

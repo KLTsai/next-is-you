@@ -123,6 +123,7 @@ a blank/reset request counter is not deduplication evidence. UI refresh shows
 the saved lifecycle and notification summary.
 
 Select **停止提醒**. Expected: pending stop, then **已停止** only after confirmation.
+The stopped reminder card keeps the same `掛號序號` row as the saved draft.
 Further ticks cannot begin a new request for that visit. A request that began
 before Stop may settle before confirmation; Stop is not a retraction of it.
 

@@ -408,8 +408,7 @@ def create_app(
                     "recipients": [],
                 },
             )
-            if state == "draft":
-                item["patient_number"] = int(row["patient_number"])
+            item["patient_number"] = int(row["patient_number"])
             source_url = progress_link(str(row["hospital"]))
             if source_url is not None:
                 item["source_url"] = source_url

@@ -196,6 +196,9 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
                 )
                 page.locator(f'[data-start="{visit_id}"]').click()
                 expect(page.locator(f'[data-stop="{visit_id}"]')).to_be_visible()
+                active_card = page.locator(f'article:has([data-stop="{visit_id}"])')
+                expect(active_card).to_contain_text("掛號序號")
+                expect(active_card).to_contain_text("86")
                 control(
                     page,
                     origin,
@@ -226,6 +229,9 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
                 assert control(page, origin, "snapshot") == first
                 page.locator(f'[data-stop="{visit_id}"]').click()
                 expect(page.locator(f'[data-correct="{visit_id}"]')).to_be_visible()
+                stopped_card = page.locator(f'article:has([data-correct="{visit_id}"])')
+                expect(stopped_card).to_contain_text("掛號序號")
+                expect(stopped_card).to_contain_text("86")
                 assert page.request.get(origin + "/cdn-cgi/local/scheduled").ok
                 assert control(page, origin, "snapshot") == first
                 visits = page.evaluate(
@@ -233,6 +239,7 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
                 )["visits"]
                 saved = next(v for v in visits if v["id"] == visit_id)
                 assert saved["state"] == "stopped"
+                assert saved["patient_number"] == 86
                 assert saved["date"] == day
         finally:
             context.close()

@@ -1,8 +1,21 @@
-# Implementation tickets
+# Historical implementation tickets
 
-This repository does not yet use an external issue tracker. These checked-in tickets provide a small, reviewable local backlog derived from the private MVP review spec. Keep implementation artifacts here or in their normal source, test, and migration paths. Keep personal research, credentials, and patient-specific data out of tracked files.
+Archived on 2026-10-01. This directory preserves the former local backlog derived from the private MVP review spec. It is inactive: IDs, statuses, dates, decisions, and evidence limitations are historical records, not current work assignments or live-provider acceptance.
 
-## Tickets
+Active scope, status, and acceptance belong in [GitHub Issues](https://github.com/KLTsai/next-is-you/issues), following the [issue-tracker conventions](../../agents/issue-tracker.md). Preserve adopted decisions from these records when defining follow-up work; do not recreate every retired ticket as an issue. Keep personal research, credentials, and patient-specific data out of tracked files.
+
+## Consequential unfinished work
+
+Retirement does not close these gates. The owning documentation records their procedures and evidence limits; authorize new implementation scope in GitHub Issues before proceeding.
+
+| Gate | Historical evidence | Current owning documentation |
+| --- | --- | --- |
+| Current runtime and UI acceptance | NIY-008, NIY-023, NIY-024, NIY-025 retain their recorded pending statuses. Prefill, draft-save RPC, and collapse implementations already exist; confirm current behavior rather than implementing them again. | [Local setup and validation](../../../README.md), [local manual checklist](../../NIY-020-LOCAL-MANUAL-CHECKLIST.md) |
+| Real LINE identity, invitation, consent, callback, and handset receipt | NIY-005 and NIY-006 establish local behavior, not a complete personal live enrollment or delivery path. API acceptance is not handset delivery. | [Pre-live LINE gates](../../PRE-LIVE-CHECKLIST.md) |
+| Trusted hospital reader, identity, freshness, and unavailable behavior | NIY-004 and NIY-016 provide fixtures and links; NIY-021 completed research only. Both live sources remain unverified. | [Source findings](../../../research/NIY-021-findings-summary.md), [pre-live source gates](../../PRE-LIVE-CHECKLIST.md) |
+| Deployed persistence, migrations, send/Stop ordering, quota, retention, and recovery | NIY-003, NIY-006, and NIY-009 preserve the local design and protections. Deployed behavior and recoverable backups still require evidence. | [Configuration and migrations](../../../README.md), [pre-live platform gates](../../PRE-LIVE-CHECKLIST.md) |
+
+## Frozen ticket statuses
 
 | ID | Status | Ticket | Depends on |
 | --- | --- | --- | --- |
@@ -28,7 +41,9 @@ This repository does not yet use an external issue tracker. These checked-in tic
 | NIY-024 | Implemented (local Wrangler acceptance pending) | [Fix draft-save HTTP 500 across Worker and Durable Object RPC](NIY-024-draft-save-rpc-500.md) | NIY-008, NIY-010 |
 | NIY-025 | Implemented (local acceptance passed; pipeline pending) | [Collapse and expand the saved-drafts section](NIY-025-collapsible-saved-drafts.md) | NIY-007, NIY-020 |
 
-## Acceptance guardrails
+## Historical local acceptance guardrails
+
+These guardrails describe the original local implementation phase. They remain evidence limits for its completion statements; the current [pre-live checklist](../../PRE-LIVE-CHECKLIST.md) owns live gates.
 
 - No credentials, real patient details, live hospital requests, live LINE sends, deployment, push, or publication in the local implementation phase.
 - A source adapter fixture is not an approved or reliable live connector.

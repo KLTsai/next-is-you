@@ -5,6 +5,8 @@ Next is you is a new application project.
 This repository is maintained in English.
 More details will be added as the product direction takes shape.
 
+Active work is tracked in [GitHub Issues](https://github.com/KLTsai/next-is-you/issues); see the [issue-tracker conventions](docs/agents/issue-tracker.md). The former local tickets are [archived historical records](docs/archive/tickets/README.md). Their completion statements retain their original evidence limits; the [pre-live checklist](docs/PRE-LIVE-CHECKLIST.md) owns the remaining live gates.
+
 ## Local Worker
 
 Install the Python development dependencies with `uv sync --group dev` and the frontend dependencies with `npm ci`. Copy `.env_template` to the repository-root `.env`, then fill only the values needed for local work. For example, run `cp .env_template .env` and open it with `${EDITOR:-vi} .env`; do not put values in shell commands or terminal transcripts. `npm run dev:local` builds the Vite UI, loads that `.env` when present, and serves the FastAPI app at `http://127.0.0.1:8787`. It binds to loopback and does not deploy. The loader never prints configuration values. Do not commit or share `.env`.

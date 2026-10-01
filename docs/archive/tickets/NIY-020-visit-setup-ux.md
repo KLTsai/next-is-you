@@ -12,7 +12,7 @@ Make visit setup, correction, start, and stop understandable during the next loc
 
 Accordingly, NIY-020 used the existing API only. Dynamic clinic/date-specific session options remain deferred. Saved patient-number prefilling is implemented in the authorized correction flow by [NIY-023](NIY-023-draft-correction-patient-number.md). The UI may present the three session codes accepted by the current API, but must say these do not confirm clinic/date availability.
 
-Dynamic sessions remain deferred pending evidence in the [NIY-021 findings summary](../research/NIY-021-findings-summary.md). The earlier patient-number-prefill deferral is superseded by [NIY-023](NIY-023-draft-correction-patient-number.md), which narrows exposure to the authorized correction flow.
+Dynamic sessions remain deferred pending evidence in the [NIY-021 findings summary](../../../research/NIY-021-findings-summary.md). The earlier patient-number-prefill deferral is superseded by [NIY-023](NIY-023-draft-correction-patient-number.md), which narrows exposure to the authorized correction flow.
 
 ## Captain-confirmed needs
 
@@ -64,4 +64,4 @@ NIY-007, NIY-008, NIY-010, and NIY-016.
 
 - No standalone "check or modify settings" button was added. **修正草稿** and **修正後重新檢查** open the relevant correction form directly; **重新檢查並開始提醒** is a distinct lifecycle action.
 - Draft edits show their unsaved state, preserve entered values through refreshes, and distinguish save from cancel. Start and Stop feedback follows the service response and refreshed visit state.
-- The browser acceptance journey covers unavailable Start, saved draft edits, canceled edits, failed Stop, successful Stop, and correction of a stopped visit. See the [synthetic local checklist](../docs/NIY-020-LOCAL-MANUAL-CHECKLIST.md).
+- The browser acceptance journey covers unavailable Start, saved draft edits, canceled edits, failed Stop, successful Stop, and correction of a stopped visit. See the [synthetic local checklist](../../NIY-020-LOCAL-MANUAL-CHECKLIST.md).

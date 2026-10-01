@@ -148,6 +148,8 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
                 edit = page.locator("#saved-drafts-list [data-edit]")
                 visit_id = edit.get_attribute("data-edit")
                 assert visit_id
+                expect(page.locator("#saved-drafts-list")).to_contain_text("掛號序號")
+                expect(page.locator("#saved-drafts-list")).to_contain_text("85")
                 edit.click()
                 expect(page.locator("input[name=patient_number]")).to_have_value("85")
                 page.locator("input[name=patient_number]").fill("86")
@@ -161,12 +163,15 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
                         "草稿修改已儲存。請在提醒清單重新檢查並開始。", exact=True
                     )
                 ).to_be_visible()
+                expect(page.locator("#saved-drafts-list")).to_contain_text("86")
 
             # The command reapplies migrations and rebuilds, without seeding/resetting.
             with rehearsal(tmp_path, port):
                 page.reload()
                 expect(page.locator("#visit-form")).to_be_visible()
                 page.get_by_role("button", name="展開草稿").click()
+                expect(page.locator("#saved-drafts-list")).to_contain_text("掛號序號")
+                expect(page.locator("#saved-drafts-list")).to_contain_text("86")
                 page.locator(f'[data-edit="{visit_id}"]').click()
                 expect(page.locator("input[name=patient_number]")).to_have_value("86")
                 expect(page.locator("input[name=recipient_ids]")).to_be_checked()
@@ -228,7 +233,6 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
                 )["visits"]
                 saved = next(v for v in visits if v["id"] == visit_id)
                 assert saved["state"] == "stopped"
-                assert "patient_number" not in saved
                 assert saved["date"] == day
         finally:
             context.close()

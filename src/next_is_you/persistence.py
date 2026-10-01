@@ -121,7 +121,7 @@ class VisitRepository:
         return await self._store.fetch_all(
             Statement(
                 """SELECT v.id, v.hospital, v.visit_date, v.department_code, v.clinic_code,
-                v.clinic_session, v.state, v.near_last_current_number, v.latest_observed_at,
+                v.clinic_session, v.patient_number, v.state, v.near_last_current_number, v.latest_observed_at,
                 v.latest_source_read_status, v.latest_source_read_reason,
                 vr.recipient_id, r.display_name,
                 COUNT(e.id) AS notification_count,

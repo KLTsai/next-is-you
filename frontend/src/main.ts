@@ -157,7 +157,7 @@ function formMarkup(): string {
       </fieldset>
       <div class="form-grid">
         <label class="field"><span>看診日期</span><input name="date" type="date" value="${escapeHtml(formValue("date", item?.date ?? ""))}" required></label>
-        <label class="field"><span>掛號序號</span><input name="patient_number" type="number" min="1" max="999999" value="${escapeHtml(formValue("patient_number", initialPatientNumber ?? ""))}" required inputmode="numeric"><small>${item ? "僅供這筆提醒修正使用，不會顯示在狀態清單。" : "僅供這筆提醒使用，不會顯示在狀態清單。"}</small></label>
+        <label class="field"><span>掛號序號</span><input name="patient_number" type="number" min="1" max="999999" value="${escapeHtml(formValue("patient_number", initialPatientNumber ?? ""))}" required inputmode="numeric"><small>${item ? "僅供這筆提醒修正使用；已儲存草稿會顯示序號，方便辨識。" : "僅供這筆提醒使用；已儲存草稿會顯示序號，方便辨識。"}</small></label>
         <label class="field"><span>科別代碼</span><input name="department_code" maxlength="64" value="${escapeHtml(formValue("department_code", item?.department_code ?? ""))}" required autocomplete="off"></label>
         <label class="field"><span>診間代碼</span><input name="clinic_code" maxlength="64" value="${escapeHtml(formValue("clinic_code", item?.clinic_code ?? ""))}" required autocomplete="off"></label>
         <label class="field"><span>診次</span><select name="session" required>
@@ -184,10 +184,14 @@ function visitCard(item: OrganizerVisit): string {
   const notification = item.notification;
   const sourceStatus = item.source_read?.status ?? "unavailable";
   const sourceReason = sourceReasons[item.source_read?.reason] ?? "來源狀態尚未提供";
+  const patientNumberRow = item.state === "draft" && typeof item.patient_number === "number"
+    ? `<div><dt>掛號序號</dt><dd>${escapeHtml(String(item.patient_number))}</dd></div>`
+    : "";
   return `<article class="visit-card" aria-labelledby="visit-${escapeHtml(item.id)}">
     <div class="visit-heading"><div><p class="eyebrow">${escapeHtml(hospitalNames[item.hospital] ?? item.hospital)}</p><h3 id="visit-${escapeHtml(item.id)}">${escapeHtml(item.date)} · ${escapeHtml(item.department_code)} · ${escapeHtml(item.clinic_code)}</h3><p class="visit-session">${escapeHtml(sessionNames[item.session])}（${escapeHtml(item.session)}）</p></div><span class="state state-${stateKey}">${stateKey === "source-unavailable" ? "來源 unavailable · 草稿" : stateKey === "terminal" ? "已結束" : formatVisitState(item.state)}</span></div>
     <dl class="details">
       <div><dt>科別・診間・診次</dt><dd>${escapeHtml(item.department_code)}・${escapeHtml(item.clinic_code)}・${escapeHtml(item.session)}</dd></div>
+      ${patientNumberRow}
       <div><dt>院方資料來源</dt><dd>${sourceLinkMarkup(item.source_url)}</dd></div>
       <div><dt>通知對象</dt><dd>${recipientsText}</dd></div>
       <div><dt>最近檢查</dt><dd>${escapeHtml(text(item.observation?.checked_at))}</dd></div>

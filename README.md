@@ -33,12 +33,14 @@ same `.wrangler/manual-rehearsal` dataset on repeat starts; it does not reset da
 or seed recipients. No real credentials are needed and it does not deploy.
 
 Follow the [complete rehearsal guide](docs/LOCAL-REHEARSAL.md) for one-time native
-synthetic recipient preparation, UI draft save/edit and patient-number prefill,
-Start/Stop, one fake reminder, and same-dataset restart/duplicate-tick checks.
+synthetic recipient preparation, UI draft save/edit, saved-draft patient-number
+identity, patient-number prefill, Start/Stop, one fake reminder, and
+same-dataset restart/duplicate-tick checks.
 The guide includes expected results, failure/recovery and Stop/Ctrl-C instructions.
 The [lifecycle checklist](docs/NIY-020-LOCAL-MANUAL-CHECKLIST.md) covers additional
-fixture UI outcomes. The general list omits the patient number; the selected
-correction flow prefills it through the authorized API.
+fixture UI outcomes. Authenticated organizer draft cards show the synthetic
+patient number for local identification; the selected correction flow also
+prefills it through the authorized API.
 
 `npm run dev:local` remains a lightweight shell smoke without D1/DO. A real local
 binding plus fake delivery is local integration evidence, not hospital freshness,

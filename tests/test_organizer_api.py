@@ -172,6 +172,8 @@ def test_organizer_reads_eligible_roster_and_creates_draft_with_auth_and_csrf():
             assert listing.status_code == 200
             visits = {visit["hospital"]: visit for visit in listing.json()["visits"]}
             assert visits["ntuh-main"]["session"] == "evening"
+            assert visits["ntuh-main"]["patient_number"] == 86
+            assert visits["shin-kong-taipei"]["patient_number"] == 85
             assert (
                 visits["ntuh-main"]["source_url"]
                 == "https://registration.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0"
@@ -255,7 +257,9 @@ def test_correction_patient_number_is_single_visit_authorized_csrf_protected_dat
             assert other.json() == {"patient_number": 42}
             listing = await http.get("/api/organizer/visits")
             assert listing.status_code == 200
-            assert "patient_number" not in repr(listing.json())
+            visits = {visit["id"]: visit for visit in listing.json()["visits"]}
+            assert visits[first.json()["id"]]["patient_number"] == 85
+            assert visits[second.json()["id"]]["patient_number"] == 42
         finally:
             await http.aclose()
 

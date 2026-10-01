@@ -69,11 +69,14 @@ reseed or clear the outbox to repeat the journey.
 1. In the UI, create a draft for tomorrow with **臺大醫院總院**, department `SYN`,
    clinic `SYN-1`, session `afternoon`, patient number `85` and **Synthetic recipient**.
    Expected: **已儲存草稿 1**, initially collapsed; saving does not start reminders.
-   These are synthetic codes, not verified clinic availability.
+   When expanded, the saved draft shows `掛號序號 85` with the hospital, department,
+   clinic and session so the organizer can identify the draft. These are synthetic
+   codes, not verified clinic availability.
 2. Use **展開草稿**, then **修正草稿**. The authorized correction flow prefills `85`;
-   the general list does not expose the patient number. Change a value and use
-   **取消修正**: saved values must stay unchanged. Edit again, save, and verify the
-   saved result. **收合草稿** and **展開草稿** must preserve the draft and keyboard focus.
+   the saved draft card also shows that synthetic number for organizer-only local
+   identification. Change a value and use **取消修正**: saved values must stay
+   unchanged. Edit again, save, and verify the saved result. **收合草稿** and
+   **展開草稿** must preserve the draft and keyboard focus.
 3. Press Ctrl-C in the service terminal and run `npm run dev:rehearsal` again.
    Reload the same URL; sign in again if the session expired. The same draft and
    edits remain. Do not prepare the recipient again or change the state location.

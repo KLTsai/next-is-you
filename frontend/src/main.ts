@@ -348,9 +348,10 @@ function bindActions(): void {
         ? "修正已儲存為草稿。請在提醒清單重新檢查並開始。"
         : previous ? "草稿修改已儲存。請在提醒清單重新檢查並開始。"
           : "草稿已建立。建立草稿不會啟動監控或傳送通知。";
-      formSaving = false;
       renderDashboard(false);
       await loadDashboard(true);
+      formSaving = false;
+      renderDashboard(false);
     } catch (error) {
       formSaving = false;
       message = errorText(error);

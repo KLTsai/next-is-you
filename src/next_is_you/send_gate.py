@@ -282,6 +282,20 @@ class SystemSendGate(_DurableObjectBase):
             await self._save_ledger()
             return True
 
+    async def correct_stopped_visit_rpc(self, request_json: str) -> bool:
+        """Decode the primitive Worker RPC envelope before correcting a visit."""
+        request = json.loads(request_json)
+        return await self.correct_stopped_visit(
+            visit_id=str(request["visit_id"]),
+            hospital=str(request["hospital"]),
+            visit_day=date.fromisoformat(str(request["visit_day"])),
+            department_code=str(request["department_code"]),
+            clinic_code=str(request["clinic_code"]),
+            clinic_session=str(request["clinic_session"]),
+            patient_number=int(request["patient_number"]),
+            recipient_ids=tuple(str(value) for value in request["recipient_ids"]),
+        )
+
     async def remove_visit_recipient(
         self, visit_id: str, recipient_id: str, now: str | None = None
     ) -> bool:

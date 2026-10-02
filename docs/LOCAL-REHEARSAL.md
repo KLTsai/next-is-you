@@ -7,8 +7,11 @@ not contact LINE or a hospital, deploy, or prove handset delivery. The lightweig
 
 ## First-time preparation
 
-From the repository root, use Node compatible with the frontend's locked Vite
-version, Python 3.13 or newer, and uv 0.12.3 or newer:
+From the repository root, use the CI toolchain: Node 24, Python 3.13, and uv
+0.12.3. Vite 7.3.6 requires Node `^20.19.0` or `>=22.12.0`; Python packages
+require Python 3.13 or newer. The complete rehearsal was also validated on
+macOS Apple Silicon with Node 24.18.0, Python 3.14.6, and uv 0.12.19. CI runs
+on Ubuntu; other local hosts have not been validated for this journey.
 
 ```sh
 npm ci
@@ -17,6 +20,16 @@ uv sync --group dev --locked
 
 For automated browser regressions only, also run `uv run playwright install chromium`.
 No real credentials or environment template are needed for this journey.
+`workers-py` 1.17.4 supplies `pywrangler`; `workers-runtime-sdk` 1.9.0 provides
+the Worker runtime support. Worker commands prepare generated compatibility
+modules in the ignored `python_modules/` mirror, with local tooling state in
+`.venv-workers/`. These are generated from the locked project dependencies;
+do not edit or delete them as routine setup.
+
+To intentionally update dependencies, change the relevant manifest and use
+`npm install` for npm dependencies or `uv lock` for Python dependencies. Review
+the manifest and lockfile changes, then install with the locked commands above.
+Do not run those installation commands again just to repeat an unchanged setup.
 
 ## Start and repeat
 
@@ -30,6 +43,10 @@ local migrations and serves in the foreground. Both migration and serving use
 including D1 events and the DO's fake-request log. It does not reinstall Node
 dependencies, seed recipients, or reset data. uv uses the existing locked environment
 when dependencies are unchanged.
+
+The rehearsal does not load the repository-root `.env`; see the [README's
+configuration guidance](../README.md#optional-private-local-development) for
+environment ownership and the separate credentialed shell path.
 
 For an explicitly separate empty fixture dataset or a busy port, native settings
 can be selected before starting:

@@ -437,15 +437,11 @@ class SystemSendGate(_DurableObjectBase):
         stored_digest = await self.ctx.storage.get("inflight_context_digest")
         if stored_event_id != event_id or not stored_digest:
             return False
-        allowed_stopping_visit_id = await self.ctx.storage.get(
-            "inflight_stop_visit_id"
-        )
+        allowed_stopping_visit_id = await self.ctx.storage.get("inflight_stop_visit_id")
         current_digest = await self._repository().scheduler_ledger_digest(
             exclude_event_id=event_id,
             allow_stopping_visit_id=(
-                str(allowed_stopping_visit_id)
-                if allowed_stopping_visit_id
-                else None
+                str(allowed_stopping_visit_id) if allowed_stopping_visit_id else None
             ),
         )
         return str(stored_digest) == current_digest

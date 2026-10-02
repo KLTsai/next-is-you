@@ -249,7 +249,9 @@ async def test_taipei_cutoff_blocks_new_request_at_and_after_boundary(
 
 
 @pytest.mark.asyncio
-async def test_stop_waits_for_active_request_and_blocks_later_sends() -> None:
+async def test_stop_transitions_to_stopping_during_active_request_and_blocks_later_sends() -> (
+    None
+):
     database = LocalD1()
     gate = make_gate(database)
     await seed(gate)
@@ -260,11 +262,22 @@ async def test_stop_waits_for_active_request_and_blocks_later_sends() -> None:
     await gate.wait_test_request_started()
     stopping = asyncio.create_task(gate.stop_visit("v1", "2026-09-27T13:01:00Z"))
     await asyncio.sleep(0)
-    assert not stopping.done()
+    assert await asyncio.wait_for(stopping, timeout=1) == "stopping"
+    assert (
+        database.connection.execute(
+            "SELECT state FROM visits WHERE id = 'v1'"
+        ).fetchone()[0]
+        == "stopping"
+    )
     await gate.release_test_request()
 
     await sending
-    assert await stopping == "stopped"
+    assert (
+        database.connection.execute(
+            "SELECT state FROM visits WHERE id = 'v1'"
+        ).fetchone()[0]
+        == "stopped"
+    )
     await tick(gate, "2026-09-27T13:02:00Z")
     assert len((await gate.test_snapshot())["line_requests"]) == 1
 

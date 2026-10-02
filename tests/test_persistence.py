@@ -137,7 +137,9 @@ async def test_first_start_freezes_roster_and_correction_preserves_event_cap() -
 
 
 @pytest.mark.asyncio
-async def test_expired_series_can_return_to_draft_without_resetting_alert_history() -> None:
+async def test_expired_series_can_return_to_draft_without_resetting_alert_history() -> (
+    None
+):
     store, repo = await seeded_repository()
     await make_draft(repo)
     assert await repo.add_recipient("v1", "r1", at("2026-09-27T00:01:00Z"))

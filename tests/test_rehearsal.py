@@ -174,9 +174,11 @@ def test_rehearsal_started_recipient_can_be_removed_from_dashboard(tmp_path):
                     for visit in visits
                     if visit["id"] == "rehearsal-remove-recipient"
                 )["observation"]["checked_at"]
-                expected_checked_at = datetime.fromisoformat(
-                    checking.replace("Z", "+00:00")
-                ).astimezone(ZoneInfo("Asia/Taipei")).strftime("%Y/%m/%d %H:%M")
+                expected_checked_at = (
+                    datetime.fromisoformat(checking.replace("Z", "+00:00"))
+                    .astimezone(ZoneInfo("Asia/Taipei"))
+                    .strftime("%Y/%m/%d %H:%M")
+                )
                 expect(card).to_contain_text(expected_checked_at)
                 expect(card).not_to_contain_text(checking)
                 remove = card.locator(
@@ -272,9 +274,10 @@ def test_rehearsal_stop_shows_stopping_while_fake_line_request_is_in_flight(tmp_
                 finally:
                     if request_waiting:
                         control(page, origin, "release-request")
-                assert page.evaluate(
-                    "async () => (await window.scheduledRequest).status"
-                ) == 200
+                assert (
+                    page.evaluate("async () => (await window.scheduledRequest).status")
+                    == 200
+                )
                 expect(card.locator(".state")).to_have_text("已停止")
                 visits = page.evaluate(
                     "async () => (await fetch('/api/organizer/visits')).json()"
@@ -358,14 +361,14 @@ def test_rehearsal_stopped_correction_cannot_add_recipients(tmp_path):
                 expect(stopped_card).to_contain_text("掛號序號")
                 expect(stopped_card).to_contain_text("85")
                 page.locator('[data-correct="rehearsal-no-add"]').click()
-                expect(page.get_by_role("heading", name="修正已停止的提醒")).to_be_visible()
+                expect(
+                    page.get_by_role("heading", name="修正已停止的提醒")
+                ).to_be_visible()
                 choices = page.locator('#visit-form input[name="recipient_ids"]')
                 expect(choices).to_have_count(1)
                 expect(choices).to_have_value("rehearsal-selected-recipient")
                 expect(choices).to_be_checked()
-                expect(page.locator("#visit-form")).to_contain_text(
-                    "不能新增通知對象"
-                )
+                expect(page.locator("#visit-form")).to_contain_text("不能新增通知對象")
         finally:
             context.close()
             browser.close()
@@ -379,13 +382,12 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
         port = int(listener.getsockname()[1])
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     next_day = (datetime.fromisoformat(day) + timedelta(days=1)).date().isoformat()
-    expired_at = (
-        datetime.fromisoformat(day).replace(tzinfo=timezone.utc) + timedelta(hours=16)
+    expired_at = datetime.fromisoformat(day).replace(tzinfo=timezone.utc) + timedelta(
+        hours=16
     )
-    next_day_cutoff = (
-        datetime.fromisoformat(next_day).replace(tzinfo=timezone.utc)
-        + timedelta(hours=15, minutes=59)
-    )
+    next_day_cutoff = datetime.fromisoformat(next_day).replace(
+        tzinfo=timezone.utc
+    ) + timedelta(hours=15, minutes=59)
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context()
@@ -440,9 +442,7 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
                 expect(card).to_contain_text("掛號序號")
                 expect(card).to_contain_text("85")
                 expect(card).to_contain_text("可重新檢查並啟動")
-                correction = card.locator(
-                    '[data-correct="rehearsal-expired-restart"]'
-                )
+                correction = card.locator('[data-correct="rehearsal-expired-restart"]')
                 expect(correction).to_be_visible()
                 correction.click()
                 expect(
@@ -512,15 +512,12 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
                     {"now": (next_day_cutoff + timedelta(hours=48)).isoformat()},
                 )
                 page.get_by_role("button", name="重新整理").click()
-                expect(
-                    page.get_by_role("heading", name="尚無提醒狀態")
-                ).to_be_visible()
+                expect(page.get_by_role("heading", name="尚無提醒狀態")).to_be_visible()
                 remaining = page.evaluate(
                     "async () => (await fetch('/api/organizer/visits')).json()"
                 )["visits"]
                 assert not any(
-                    visit["id"] == "rehearsal-expired-restart"
-                    for visit in remaining
+                    visit["id"] == "rehearsal-expired-restart" for visit in remaining
                 )
         finally:
             context.close()

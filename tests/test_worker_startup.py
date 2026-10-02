@@ -31,6 +31,7 @@ def test_wrangler_worker_starts_and_serves_health_endpoint(tmp_path) -> None:
     assets = tmp_path / "assets"
     assets.mkdir()
     (assets / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    persist_to = tmp_path / "wrangler-state"
     port = _free_loopback_port()
     environment = os.environ.copy()
     environment["CI"] = "1"
@@ -46,6 +47,8 @@ def test_wrangler_worker_starts_and_serves_health_endpoint(tmp_path) -> None:
             "--local",
             "--config",
             str(WRANGLER_CONFIG),
+            "--persist-to",
+            str(persist_to),
         ],
         cwd=ROOT,
         env=environment,
@@ -63,6 +66,8 @@ def test_wrangler_worker_starts_and_serves_health_endpoint(tmp_path) -> None:
             "--local",
             "--config",
             str(WRANGLER_CONFIG),
+            "--persist-to",
+            str(persist_to),
             "--assets",
             str(assets),
             "--port",

@@ -303,10 +303,7 @@ class VisitRepository:
         visit_payload = []
         for row in visit_rows:
             item = dict(row)
-            if (
-                item["id"] == allow_stopping_visit_id
-                and item["state"] == "stopping"
-            ):
+            if item["id"] == allow_stopping_visit_id and item["state"] == "stopping":
                 item["state"] = "active"
             visit_payload.append(item)
         payload = [

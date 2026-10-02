@@ -346,7 +346,96 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                     page.locator("input[name=clinic_code]").input_value()
                     == "SYN-CORRECTED-1"
                 )
+                failed_corrections = []
+
+                def reject_correction(route):
+                    payload = route.request.post_data_json
+                    payload["date"] = "not-a-date"
+                    response = route.fetch(post_data=payload)
+                    failed_corrections.append(response.status)
+                    route.fulfill(response=response)
+
+                page.route("**/api/organizer/visits/*/correct", reject_correction)
                 page.get_by_role("button", name="儲存修正並回到草稿").click()
+                expect(
+                    page.get_by_text(
+                        "資料不完整或格式不正確，請檢查後再試。", exact=True
+                    )
+                ).to_be_visible()
+                assert failed_corrections == [400]
+                assert page.locator("input[name=patient_number]").input_value() == "89"
+                assert not page.locator("#visit-form button[type=submit]").is_disabled()
+                stopped_visits = page.evaluate(
+                    "async () => (await fetch('/api/organizer/visits')).json()"
+                )["visits"]
+                stopped_api = next(
+                    visit for visit in stopped_visits if visit["id"] == draft_id
+                )
+                assert stopped_api["state"] == "stopped"
+                assert stopped_api["patient_number"] == 88
+                page.unroute("**/api/organizer/visits/*/correct", reject_correction)
+                cdp = context.new_cdp_session(page)
+                paused_responses = []
+                cdp.on(
+                    "Fetch.requestPaused", lambda event: paused_responses.append(event)
+                )
+                cdp.send(
+                    "Fetch.enable",
+                    {
+                        "patterns": [
+                            {
+                                "urlPattern": "*/api/organizer/visits/*/correct",
+                                "requestStage": "Response",
+                            }
+                        ]
+                    },
+                )
+                try:
+                    page.get_by_role("button", name="儲存修正並回到草稿").click()
+                    for _ in range(50):
+                        if paused_responses:
+                            break
+                        page.wait_for_timeout(100)
+                    assert len(paused_responses) == 1, paused_responses
+                    assert paused_responses[0]["responseStatusCode"] == 200
+                    pending_submit = page.locator("#visit-form button[type=submit]")
+                    assert pending_submit.is_disabled(), "save button stayed enabled"
+                    assert (
+                        page.get_by_role("status")
+                        .filter(has_text="正在儲存修正")
+                        .is_visible()
+                    ), "pending save status was not shown"
+                    corrected_visits = page.evaluate(
+                        "async () => (await fetch('/api/organizer/visits')).json()"
+                    )["visits"]
+                    corrected_api = next(
+                        visit for visit in corrected_visits if visit["id"] == draft_id
+                    )
+                    assert corrected_api["department_code"] == "SYN-CORRECTED"
+
+                    def fail_dashboard_refresh(route):
+                        route.fulfill(
+                            status=503,
+                            content_type="application/json",
+                            body='{"error":{"code":"service_unavailable"}}',
+                        )
+
+                    page.route("**/api/organizer/visits", fail_dashboard_refresh)
+                    cdp.send(
+                        "Fetch.continueResponse",
+                        {"requestId": paused_responses[0]["requestId"]},
+                    )
+                finally:
+                    for paused in paused_responses:
+                        try:
+                            cdp.send(
+                                "Fetch.continueResponse",
+                                {"requestId": paused["requestId"]},
+                            )
+                        except Exception:
+                            pass
+                    cdp.send("Fetch.disable")
+                    cdp.detach()
 
                 expect(
                     page.get_by_text(
@@ -354,16 +443,15 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                         exact=True,
                     )
                 ).to_be_visible()
+                expect(
+                    page.get_by_text(
+                        "草稿已儲存，但清單更新失敗。請重新整理確認狀態。", exact=True
+                    )
+                ).to_be_visible()
+                expect(page.get_by_role("heading", name="已儲存草稿 0")).to_be_visible()
+                page.unroute("**/api/organizer/visits", fail_dashboard_refresh)
+                page.get_by_role("button", name="重新整理").click()
                 expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
-                corrected_visits = page.evaluate(
-                    "async () => (await fetch('/api/organizer/visits')).json()"
-                )["visits"]
-                corrected_api = next(
-                    visit for visit in corrected_visits if visit["id"] == draft_id
-                )
-                assert corrected_api["department_code"] == "SYN-CORRECTED", (
-                    corrected_api
-                )
                 corrected_draft = page.locator(
                     f'#saved-drafts-list article[aria-labelledby="visit-{draft_id}"]'
                 )

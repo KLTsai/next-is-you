@@ -44,6 +44,8 @@ let visits: OrganizerVisit[] = [];
 let authorized = false;
 let loading = false;
 let message = "";
+let refreshWarning = "";
+let formSaving = false;
 let editing: { visit: OrganizerVisit; mode: "update" | "correct" } | null = null;
 let formValues: Record<string, string | string[]> | null = null;
 let initialPatientNumber: string | null = null;
@@ -144,7 +146,7 @@ function formMarkup(): string {
   const selectedRecipients = Array.isArray(draftRecipients) ? draftRecipients : storedRecipients;
   const defaultHospital = formValue("hospital", item?.hospital ?? "ntuh-main");
   const formTitle = editing?.mode === "correct" ? "修正已停止的提醒" : item ? "修正草稿" : "建立候診提醒";
-  const submitLabel = editing?.mode === "correct" ? "儲存修正並回到草稿" : item ? "儲存草稿" : "建立草稿";
+  const submitLabel = formSaving ? "儲存中…" : editing?.mode === "correct" ? "儲存修正並回到草稿" : item ? "儲存草稿" : "建立草稿";
   const showCancel = Boolean(item) || (!item && formValues !== null && hasUnsavedFormChanges());
   const cancelLabel = item ? "取消修正" : "清除未儲存草稿";
   return `<section class="panel" aria-labelledby="setup-heading">
@@ -167,7 +169,8 @@ function formMarkup(): string {
         </select><small>這是系統目前接受的診次代碼，不代表該院、該科別或日期有開診。請先依院方資訊確認；API 尚未提供診間與日期的可選診次。</small></label>
       </div>
       <fieldset class="recipient-panel"><legend>通知對象</legend><div class="recipient-list">${recipientChoices(selectedRecipients)}</div></fieldset>
-      <div class="action-row"><button class="primary-button" type="submit">${submitLabel}</button>${showCancel ? `<button class="secondary-button" id="cancel-edit" type="button">${cancelLabel}</button>` : ""}</div>
+      <div class="action-row"><button class="primary-button" type="submit" ${formSaving ? "disabled" : ""}>${submitLabel}</button>${showCancel ? `<button class="secondary-button" id="cancel-edit" type="button" ${formSaving ? "disabled" : ""}>${cancelLabel}</button>` : ""}</div>
+      ${formSaving ? `<p class="inline-state" role="status">正在儲存${editing?.mode === "correct" ? "修正" : "草稿"}…</p>` : ""}
     </form>
     <p class="gate-note">儲存只會建立或更新草稿。提醒清單會顯示 API 提供的院方官方來源連結；連結不代表已查詢院方資料。</p>
   </section>`;
@@ -225,13 +228,14 @@ function renderDashboard(preserveCurrentForm = true): void {
   const otherVisits = visits.filter((visit) => visit.state !== "draft");
   app.innerHTML = `<div class="dashboard-top"><div><p class="eyebrow">安全的提醒管理</p><h1>看診提醒</h1></div><button class="secondary-button refresh-button" id="refresh" type="button" ${loading ? "disabled" : ""}>重新整理</button></div>
     ${message ? `<p class="message" role="status">${escapeHtml(message)}</p>` : ""}
+    ${refreshWarning ? `<p class="message message-warning" role="status">${escapeHtml(refreshWarning)}</p>` : ""}
     ${formMarkup()}
     <section class="visits saved-drafts" aria-labelledby="drafts-heading"><div class="section-heading"><div><p class="eyebrow">提醒設定</p><h2 id="drafts-heading">已儲存草稿 <span class="draft-count">${drafts.length}</span></h2></div><button class="secondary-button drafts-toggle" type="button" data-drafts-toggle aria-expanded="${!draftsCollapsed}" aria-controls="saved-drafts-list">${draftsCollapsed ? "展開草稿" : "收合草稿"}</button></div><div id="saved-drafts-list" class="draft-list" ${draftsCollapsed ? "hidden" : ""}>${drafts.length ? drafts.map(visitCard).join("") : `<div class="empty-state"><h3>尚無已儲存草稿</h3><p>建立草稿後，會顯示在這裡。</p></div>`}</div></section>
     ${otherVisits.length ? `<section class="visits" aria-labelledby="visits-heading"><div class="section-heading"><div><p class="eyebrow">狀態與控制</p><h2 id="visits-heading">提醒清單</h2></div></div>${otherVisits.map(visitCard).join("")}</section>` : ""}`;
   bindActions();
 }
 
-async function loadDashboard(): Promise<void> {
+async function loadDashboard(preserveSaveConfirmation = false): Promise<void> {
   if (!serviceStatus) return;
   loading = true;
   try {
@@ -243,15 +247,20 @@ async function loadDashboard(): Promise<void> {
     recipients = roster.recipients;
     visits = projection.visits;
     authorized = true;
+    refreshWarning = "";
   } catch (error) {
     if (error instanceof OrganizerApiError && (error.status === 401 || error.status === 403)) {
       authorized = false;
       message = "請登入已授權的管理者帳號。";
     } else {
-      authorized = false;
       serviceStatus.textContent = "本機服務不可用";
       serviceStatus.className = "status status-pending";
-      message = errorText(error);
+      if (preserveSaveConfirmation && authorized) {
+        refreshWarning = "草稿已儲存，但清單更新失敗。請重新整理確認狀態。";
+      } else {
+        authorized = false;
+        message = errorText(error);
+      }
     }
   } finally {
     loading = false;
@@ -300,6 +309,7 @@ function bindActions(): void {
   });
   document.querySelector<HTMLButtonElement>("#refresh")?.addEventListener("click", () => {
     message = "";
+    refreshWarning = "";
     void loadDashboard();
   });
   document.querySelector<HTMLButtonElement>("#cancel-edit")?.addEventListener("click", () => {
@@ -320,6 +330,11 @@ function bindActions(): void {
       renderDashboard();
       return;
     }
+    if (formSaving) return;
+    formSaving = true;
+    message = "";
+    refreshWarning = "";
+    renderDashboard();
     try {
       const previous = editing;
       if (!previous) await createVisit(input);
@@ -333,8 +348,11 @@ function bindActions(): void {
         ? "修正已儲存為草稿。請在提醒清單重新檢查並開始。"
         : previous ? "草稿修改已儲存。請在提醒清單重新檢查並開始。"
           : "草稿已建立。建立草稿不會啟動監控或傳送通知。";
-      await loadDashboard();
+      formSaving = false;
+      renderDashboard(false);
+      await loadDashboard(true);
     } catch (error) {
+      formSaving = false;
       message = errorText(error);
       renderDashboard();
     }

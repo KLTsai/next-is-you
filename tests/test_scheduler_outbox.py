@@ -263,9 +263,7 @@ async def test_stop_transitions_to_stopping_during_active_request_and_blocks_lat
     stopping = asyncio.create_task(gate.stop_visit("v1", "2026-09-27T13:01:00Z"))
     await asyncio.sleep(0)
     assert await asyncio.wait_for(stopping, timeout=1) == "stopping"
-    duplicate_stop = asyncio.create_task(
-        gate.stop_visit("v1", "2026-09-27T13:01:01Z")
-    )
+    duplicate_stop = asyncio.create_task(gate.stop_visit("v1", "2026-09-27T13:01:01Z"))
     await asyncio.sleep(0)
     assert (
         database.connection.execute(
@@ -324,9 +322,7 @@ async def test_withdrawal_waits_for_active_request_then_erases_identity_and_even
 
 
 @pytest.mark.asyncio
-async def test_visit_recipient_removal_cannot_remove_the_last_recipient() -> (
-    None
-):
+async def test_visit_recipient_removal_cannot_remove_the_last_recipient() -> None:
     database = LocalD1()
     gate = make_gate(database)
     await seed(gate)
@@ -350,12 +346,9 @@ async def test_visit_recipient_removal_cannot_remove_the_last_recipient() -> (
         ]
         == 1
     )
-    assert (
-        await VisitRepository(CloudflareD1Store(database)).selected_recipient_ids(
-            "v1"
-        )
-        == {"r1"}
-    )
+    assert await VisitRepository(CloudflareD1Store(database)).selected_recipient_ids(
+        "v1"
+    ) == {"r1"}
     await tick(gate, "2026-09-27T13:02:00Z")
     assert len((await gate.test_snapshot())["line_requests"]) == 1
 
@@ -401,12 +394,9 @@ async def test_visit_recipient_removal_cannot_block_the_only_recipient() -> None
     snapshot = await gate.test_snapshot()
     assert len(snapshot["line_requests"]) == 1
     assert len(snapshot["events"]) == 1
-    assert (
-        await VisitRepository(CloudflareD1Store(database)).selected_recipient_ids(
-            "v1"
-        )
-        == {"r1"}
-    )
+    assert await VisitRepository(CloudflareD1Store(database)).selected_recipient_ids(
+        "v1"
+    ) == {"r1"}
 
 
 @pytest.mark.asyncio

@@ -543,7 +543,20 @@ def create_app(
             return _api_error("invalid_request", 400)
         if gate is None:
             return _api_error("service_unavailable", 503)
-        corrected = await gate.correct_stopped_visit(visit_id, **parsed)
+        rpc_request = json.dumps(
+            {
+                "visit_id": visit_id,
+                "hospital": parsed["hospital"],
+                "visit_day": parsed["visit_day"].isoformat(),
+                "department_code": parsed["department_code"],
+                "clinic_code": parsed["clinic_code"],
+                "clinic_session": parsed["clinic_session"],
+                "patient_number": parsed["patient_number"],
+                "recipient_ids": list(parsed["recipient_ids"]),
+            },
+            separators=(",", ":"),
+        )
+        corrected = await gate.correct_stopped_visit_rpc(rpc_request)
         if not corrected:
             return _api_error("invalid_lifecycle_state", 409)
         return JSONResponse({"id": visit_id, "state": "draft"})

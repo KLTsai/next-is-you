@@ -244,3 +244,147 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
         finally:
             context.close()
             browser.close()
+
+
+def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_drafts(
+    tmp_path,
+):
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        context = browser.new_context()
+        origin = f"http://127.0.0.1:{port}"
+        context.route(
+            "**/*",
+            lambda route: (
+                route.continue_()
+                if route.request.url.startswith(origin + "/")
+                else route.abort()
+            ),
+        )
+        page = context.new_page()
+        try:
+            with rehearsal(tmp_path, port):
+                control(
+                    page,
+                    origin,
+                    "observation",
+                    {"current_number": 70, "trustworthy": True},
+                )
+                control(
+                    page,
+                    origin,
+                    "seed",
+                    {
+                        "visit_id": "rehearsal-transition-setup",
+                        "recipient_id": "rehearsal-transition-recipient",
+                        "visit_day": day,
+                        "patient_number": 85,
+                        "now": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                page.goto(origin)
+                page.get_by_role("button", name="本機合成測試登入").click()
+                page.locator('[data-stop="rehearsal-transition-setup"]').click()
+                page.locator("input[name=date]").fill(day)
+                page.locator("input[name=patient_number]").fill("88")
+                page.locator("input[name=department_code]").fill("SYN-DRAFT")
+                page.locator("input[name=clinic_code]").fill("SYN-DRAFT-1")
+                page.locator("select[name=session]").select_option("afternoon")
+                page.locator(
+                    'input[name=recipient_ids][value="rehearsal-transition-recipient"]'
+                ).check()
+                page.get_by_role("button", name="建立草稿").click()
+                expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
+                page.get_by_role("button", name="展開草稿").click()
+
+                draft_id = page.locator(
+                    "#saved-drafts-list [data-start]"
+                ).get_attribute("data-start")
+                assert draft_id
+                control(
+                    page,
+                    origin,
+                    "observation",
+                    {"current_number": 70, "trustworthy": True},
+                )
+                page.locator(f'[data-start="{draft_id}"]').click()
+
+                expect(page.get_by_role("heading", name="已儲存草稿 0")).to_be_visible()
+                expect(
+                    page.locator(f'#saved-drafts-list [data-start="{draft_id}"]')
+                ).to_have_count(0)
+                active_card = page.locator(f'article:has([data-stop="{draft_id}"])')
+                expect(active_card).to_be_visible()
+                expect(active_card).to_contain_text("掛號序號")
+                expect(active_card).to_contain_text("88")
+                visits = page.evaluate(
+                    "async () => (await fetch('/api/organizer/visits')).json()"
+                )["visits"]
+                started = next(visit for visit in visits if visit["id"] == draft_id)
+                assert started["state"] == "active"
+                assert started["patient_number"] == 88
+
+                active_card.locator(f'[data-stop="{draft_id}"]').click()
+                expect(page.locator(f'[data-correct="{draft_id}"]')).to_be_visible()
+                page.locator(f'[data-correct="{draft_id}"]').click()
+                expect(
+                    page.get_by_role("heading", name="修正已停止的提醒")
+                ).to_be_visible()
+                page.locator("input[name=patient_number]").fill("89")
+                page.locator("input[name=department_code]").fill("SYN-CORRECTED")
+                page.locator("input[name=clinic_code]").fill("SYN-CORRECTED-1")
+                assert page.locator("input[name=patient_number]").input_value() == "89"
+                assert (
+                    page.locator("input[name=department_code]").input_value()
+                    == "SYN-CORRECTED"
+                )
+                assert (
+                    page.locator("input[name=clinic_code]").input_value()
+                    == "SYN-CORRECTED-1"
+                )
+                page.get_by_role("button", name="儲存修正並回到草稿").click()
+
+                expect(
+                    page.get_by_text(
+                        "修正已儲存為草稿。請在提醒清單重新檢查並開始。",
+                        exact=True,
+                    )
+                ).to_be_visible()
+                expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
+                corrected_visits = page.evaluate(
+                    "async () => (await fetch('/api/organizer/visits')).json()"
+                )["visits"]
+                corrected_api = next(
+                    visit for visit in corrected_visits if visit["id"] == draft_id
+                )
+                assert corrected_api["department_code"] == "SYN-CORRECTED", (
+                    corrected_api
+                )
+                corrected_draft = page.locator(
+                    f'#saved-drafts-list article[aria-labelledby="visit-{draft_id}"]'
+                )
+                expect(corrected_draft).to_be_visible()
+                expect(corrected_draft).to_contain_text("SYN-CORRECTED")
+                expect(corrected_draft).to_contain_text("SYN-CORRECTED-1")
+                expect(corrected_draft).to_contain_text("掛號序號")
+                expect(corrected_draft).to_contain_text("89")
+                expect(
+                    page.locator(
+                        f'.visits:not(.saved-drafts) article[aria-labelledby="visit-{draft_id}"]'
+                    )
+                ).to_have_count(0)
+                visits = page.evaluate(
+                    "async () => (await fetch('/api/organizer/visits')).json()"
+                )["visits"]
+                corrected = next(visit for visit in visits if visit["id"] == draft_id)
+                assert corrected["state"] == "draft"
+                assert corrected["department_code"] == "SYN-CORRECTED"
+                assert corrected["clinic_code"] == "SYN-CORRECTED-1"
+                assert corrected["patient_number"] == 89
+        finally:
+            context.close()
+            browser.close()

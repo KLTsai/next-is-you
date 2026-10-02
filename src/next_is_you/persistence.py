@@ -654,6 +654,11 @@ class VisitRepository:
                 AND EXISTS (
                     SELECT 1 FROM visits
                     WHERE id = ? AND state IN ('draft', 'active', 'stopping', 'stopped', 'expired')
+                )
+                AND EXISTS (
+                    SELECT 1 FROM visit_recipients AS remaining
+                    WHERE remaining.visit_id = visit_recipients.visit_id
+                        AND remaining.recipient_id != visit_recipients.recipient_id
                 )""",
                 (visit_id, recipient_id, visit_id),
             )

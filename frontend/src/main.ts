@@ -210,12 +210,13 @@ function visitCard(item: OrganizerVisit): string {
   const displayStateKey = pendingStop ? "stopping" : stateKey;
   const pendingStart = pendingStarts.has(item.id);
   const canRemoveRecipients = ["active", "stopped", "expired"].includes(item.state);
+  const cannotRemoveLastRecipient = canRemoveRecipients && item.recipients.length === 1;
   const recipientsSummary = item.recipients.length
-    ? `<ul class="recipient-summary">${item.recipients.map((recipient) => {
+    ? `<div><ul class="recipient-summary">${item.recipients.map((recipient) => {
       const removalKey = `${item.id}\u0000${recipient.id}`;
       const pendingRemoval = pendingRecipientRemovals.has(removalKey);
-      return `<li><span>${escapeHtml(recipient.display_name)}</span>${canRemoveRecipients ? `<button class="recipient-remove-button" type="button" data-remove-visit="${escapeHtml(item.id)}" data-remove-recipient="${escapeHtml(recipient.id)}" aria-label="移除通知對象 ${escapeHtml(recipient.display_name)}" ${pendingStop || pendingRemoval ? "disabled" : ""}>${pendingRemoval ? "移除中…" : "移除"}</button>` : ""}</li>`;
-    }).join("")}</ul>`
+      return `<li><span>${escapeHtml(recipient.display_name)}</span>${canRemoveRecipients ? `<button class="recipient-remove-button" type="button" data-remove-visit="${escapeHtml(item.id)}" data-remove-recipient="${escapeHtml(recipient.id)}" aria-label="移除通知對象 ${escapeHtml(recipient.display_name)}" ${pendingStop || pendingRemoval || cannotRemoveLastRecipient ? "disabled" : ""}>${pendingRemoval ? "移除中…" : "移除"}</button>` : ""}</li>`;
+    }).join("")}</ul>${cannotRemoveLastRecipient ? `<p class="gate-note">至少保留一位通知對象，才能繼續提醒或日後重新啟動。</p>` : ""}</div>`
     : "沒有選取通知對象";
   const notification = item.notification;
   const sourceStatus = item.source_read?.status ?? "unavailable";
@@ -486,7 +487,8 @@ function bindActions(): void {
     const visitId = button.dataset.removeVisit;
     const recipientId = button.dataset.removeRecipient;
     const item = visits.find((visit) => visit.id === visitId);
-    if (!visitId || !recipientId || !item || !["active", "stopped", "expired"].includes(item.state)) return;
+    if (!visitId || !recipientId || !item || !["active", "stopped", "expired"].includes(item.state)
+      || item.recipients.length <= 1) return;
     if (blockNavigationWithUnsavedChanges()) return;
     const removalKey = `${visitId}\u0000${recipientId}`;
     if (pendingRecipientRemovals.has(removalKey)) return;

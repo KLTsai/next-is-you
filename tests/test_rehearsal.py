@@ -119,7 +119,7 @@ def test_rehearsal_empty_dashboard_keeps_reminder_status_list_visible(tmp_path):
             browser.close()
 
 
-def test_rehearsal_started_recipient_can_be_removed_from_dashboard(tmp_path):
+def test_rehearsal_started_reminder_keeps_its_last_recipient(tmp_path):
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = int(listener.getsockname()[1])
@@ -186,21 +186,20 @@ def test_rehearsal_started_recipient_can_be_removed_from_dashboard(tmp_path):
                     '[data-remove-recipient="rehearsal-removable-recipient"]'
                 )
                 expect(remove).to_be_visible()
-                remove.click()
-                expect(
-                    page.get_by_role("status").filter(has_text="已移除通知對象")
-                ).to_be_visible()
+                expect(remove).to_be_disabled()
+                expect(card).to_contain_text("至少保留一位通知對象")
                 visits = page.evaluate(
                     "async () => (await fetch('/api/organizer/visits')).json()"
                 )["visits"]
-                removed = next(
+                retained = next(
                     visit
                     for visit in visits
                     if visit["id"] == "rehearsal-remove-recipient"
                 )
-                assert removed["state"] == "active"
-                assert removed["recipients"] == []
-                expect(card).to_contain_text("沒有選取通知對象")
+                assert retained["state"] == "active"
+                assert [recipient["id"] for recipient in retained["recipients"]] == [
+                    "rehearsal-removable-recipient"
+                ]
         finally:
             context.close()
             browser.close()

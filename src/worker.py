@@ -381,6 +381,7 @@ def create_app(
         grouped: dict[str, dict[str, Any]] = {}
         for row in rows:
             visit_id = str(row["id"])
+            state = str(row["state"])
             item = grouped.setdefault(
                 visit_id,
                 {
@@ -390,7 +391,7 @@ def create_app(
                     "department_code": str(row["department_code"]),
                     "clinic_code": str(row["clinic_code"]),
                     "session": str(row["clinic_session"]),
-                    "state": str(row["state"]),
+                    "state": state,
                     "observation": {
                         "current_number": row["near_last_current_number"],
                         "checked_at": row["latest_observed_at"],
@@ -407,6 +408,8 @@ def create_app(
                     "recipients": [],
                 },
             )
+            if state == "draft":
+                item["patient_number"] = int(row["patient_number"])
             source_url = progress_link(str(row["hospital"]))
             if source_url is not None:
                 item["source_url"] = source_url

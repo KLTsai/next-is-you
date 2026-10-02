@@ -16,6 +16,7 @@ export interface OrganizerVisit {
   clinic_code: string;
   session: "morning" | "afternoon" | "evening";
   state: VisitState;
+  patient_number?: number;
   observation: { current_number: number | null; checked_at: string | null };
   source_read: { status: SourceReadStatus; reason: SourceReadReason };
   notification: { count: number; accepted: number; issues: number };

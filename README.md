@@ -17,50 +17,35 @@ To verify the fail-closed local setup without credentials, leave the copied temp
 
 Production uses Cloudflare Worker configuration. Store `LINE_LOGIN_CHANNEL_SECRET`, `SESSION_SIGNING_SECRET`, and `LINE_CHANNEL_ACCESS_TOKEN` as Worker secrets. Provision `LINE_LOGIN_CHANNEL_ID`, `LINE_LOGIN_REDIRECT_URI`, and `ORGANIZER_LINE_SUBJECTS` through the deployment environment outside tracked files; treat the organizer allowlist as sensitive operational data. Configure `ASSETS`, `DB`, and `SEND_GATE` as Wrangler platform bindings, not `.env` entries. Never use local `.env` values as production configuration, and never enable `NIY006_LOCAL_TEST_MODE` in production.
 
-## Local UI acceptance (NIY-007)
+## Complete local service rehearsal
 
-For the API-backed browser journey, install dependencies with `npm ci` and `uv sync --group dev`, then build with `npm run build`. Start the local Worker with `uv run pywrangler dev --local --config wrangler.niy006.test.jsonc`; this config supplies local D1, a SQLite Durable Object, a fake hospital reader, fake LINE transport, and the explicit test-only session fixture. Open `http://127.0.0.1:8787`. The Wrangler path binds locally and does not deploy. Do not add `.env` credentials.
+Prepare once with `npm ci` and `uv sync --group dev --locked` (uv 0.12.3 or newer,
+Python 3.13 or newer), then start the complete local service:
 
-Expected local result:
+```sh
+npm run dev:rehearsal
+```
 
-1. Click **本機合成測試登入**. It succeeds only because this local config enables `NIY006_LOCAL_TEST_MODE`; it does not call LINE.
-2. Set the fake source to a trusted number well outside the alert window, then seed an active synthetic visit for the Stop journey. Both operations affect only local test bindings:
+Open <http://127.0.0.1:8787>. This foreground command builds current UI assets,
+applies local D1 migrations and serves the Worker with the existing SQLite
+Durable Object, synthetic login and fake hospital/LINE providers. It uses the
+same `.wrangler/manual-rehearsal` dataset on repeat starts; it does not reset data
+or seed recipients. No real credentials are needed and it does not deploy.
 
-   ```sh
-   curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/observation \
-     -H 'content-type: application/json' \
-     --data '{"current_number":70,"trustworthy":true}'
+Follow the [complete rehearsal guide](docs/LOCAL-REHEARSAL.md) for one-time native
+synthetic recipient preparation, UI draft save/edit, saved-draft patient-number
+identity, patient-number prefill, Start/Stop, one fake reminder, and
+same-dataset restart/duplicate-tick checks.
+The guide includes expected results, failure/recovery and Stop/Ctrl-C instructions.
+The [lifecycle checklist](docs/NIY-020-LOCAL-MANUAL-CHECKLIST.md) covers additional
+fixture UI outcomes. Authenticated organizer draft cards show the synthetic
+patient number for local identification; the selected correction flow also
+prefills it through the authorized API.
 
-   curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/seed \
-     -H 'content-type: application/json' \
-     --data "{\"visit_id\":\"niy007-stop-demo\",\"recipient_id\":\"niy007-family\",\"visit_day\":\"$(date -u -v+1d +%F)\",\"patient_number\":85,\"now\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
-   ```
-
-   Return to the browser and select **重新整理**. The visit should show **監控中**, the synthetic recipient, source status, and notification summary. Select **停止提醒**; it should show the pending stop state, then **已停止** after the API confirms closure. The configured fake number is 15 numbers from its target, so scheduled checks do not create an alert.
-3. Clear the fake observation, then create a draft using the listed **Synthetic recipient**, a future visit date, hospital **臺大醫院總院**, department `SYN`, clinic `SYN-1`, session `afternoon`, and synthetic patient number `85`. These values are local test data. The form lists the API-supported session codes but does not verify clinic/date availability. Saved drafts appear in a collapsed section below setup with a visible count; select **展開草稿** to review or correct them, and **收合草稿** to hide them again. The API-backed draft should appear with its recipient, the NTUH official source link, and **來源 unavailable**. The link is a static official reference; it does not mean the app has read or verified current hospital data.
-4. Select **重新檢查並開始提醒**. The route should return the typed unavailable error, keep the visit in **草稿**, and show the source reason. Configure a fresh trusted synthetic observation at `70` and try Start again:
-
-   ```sh
-   curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/observation \
-     -H 'content-type: application/json' \
-     --data '{"current_number":null,"trustworthy":false}'
-
-   curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/observation \
-     -H 'content-type: application/json' \
-     --data '{"current_number":70,"trustworthy":true}'
-   ```
-
-   After setting the observation, select **重新檢查並開始提醒** again. The route checks freshness, trust, and exact visit scope; only its successful response changes the visit to **監控中**. The UI does not call a hospital.
-
-5. Select **停止提醒** on that active visit and verify the stopping and stopped states. On a stopped visit, **修正後重新檢查** keeps the same logical visit ID and the eligible existing recipient set.
-
-The visit list shows the server-owned official source link for NTUH Main or Taipei Shin Kong when present in the visit projection. Shin Kong's link is its verified official registration portal, not a verified direct progress-query route. A missing link is shown as unavailable and is never made clickable. These static links make no hospital requests and do not imply freshness. The form lists the three session codes accepted by the API, with readable labels; they do not confirm clinic/date availability. The saved patient number is not returned by the API, so correction requires entering it again. See the [NIY-021 findings summary](research/NIY-021-findings-summary.md) for the evidence and follow-up gate. The standard `npm run dev:local` path has no D1 or send-gate bindings; use it only to inspect the unauthenticated shell and unavailable-service behavior.
-
-Follow the [NIY-020 local manual acceptance checklist](docs/NIY-020-LOCAL-MANUAL-CHECKLIST.md) for the draft, correction, recheck, save, cancel, and Stop screens and expected results.
-
-The Wrangler-backed journey and its startup regression test require `uv 0.12.3` or newer. They use only local bindings and synthetic data. The automated acceptance journey below also runs the built UI in local headless Chromium against loopback Uvicorn, SQLite, synthetic fixtures, and fake transports.
-
-Run `npm run test:ui` for the focused lifecycle gate checks, `uv run pytest -q` for the full local Python suite, and `npm run build` for the frontend build. These commands do not contact hospitals or LINE and do not deploy.
+`npm run dev:local` remains a lightweight shell smoke without D1/DO. A real local
+binding plus fake delivery is local integration evidence, not hospital freshness,
+LINE acceptance, handset delivery or deployed ordering. See the
+[pre-live checklist](docs/PRE-LIVE-CHECKLIST.md) for those separate gates.
 
 ## CI and local acceptance (NIY-008)
 
@@ -70,8 +55,8 @@ From a clean checkout, install the pinned dependencies and run the same determin
 uv sync --group dev --locked
 npm ci
 uv run playwright install chromium
-uv run ruff format --check src tests scripts
-uv run ruff check src tests scripts
+uv run ruff format --check src tests
+uv run ruff check src tests
 npm run typecheck
 npm run test:ui
 npm run build
@@ -84,4 +69,4 @@ Expected outcomes: Ruff reports no formatting or lint issues, TypeScript exits s
 
 The workflow fetches full Git history so it can check the actual event range. Pull requests check `base...head`; pushes check `before..after`, and new-branch pushes compare against the fetched default branch. `scripts/check_ci_diff.sh` fails when event metadata, commit objects, or a merge base is unavailable. The local `git diff --check` command checks your working tree changes.
 
-The browser test requires the Playwright Chromium browser installed by the command above. The HTTP test uses ASGI transport; the browser test binds a temporary loopback server and blocks browser requests to every other origin. To repeat the separate Wrangler visual journey, follow **Local UI acceptance (NIY-007)** above. See [the pre-live checklist](docs/PRE-LIVE-CHECKLIST.md) for gates local tests do not prove.
+The browser test requires the Playwright Chromium browser installed by the command above. The HTTP test uses ASGI transport; the browser test binds a temporary loopback server and blocks browser requests to every other origin. To repeat the separate Wrangler visual journey, follow the [complete local service rehearsal](docs/LOCAL-REHEARSAL.md). See [the pre-live checklist](docs/PRE-LIVE-CHECKLIST.md) for gates local tests do not prove.

@@ -6,7 +6,7 @@ This repository is maintained in English. Active work is tracked in [GitHub Issu
 
 ## Local development entrypoints
 
-The repository's checked toolchain is Node 24, Python 3.13, uv 0.12.3, and the Workers Python tooling pinned by `uv.lock` (`workers-py` 1.17.4 and `workers-runtime-sdk` 1.9.0). These are the versions used by CI. Vite 7.3.6 in `package-lock.json` requires Node `^20.19.0` or `>=22.12.0`; Python packages require Python 3.13 or newer. The local rehearsal was also exercised on macOS Apple Silicon with Node 24.18.0, Python 3.14.6, and uv 0.12.19. Other hosts have not been validated for the rehearsal.
+Use the [supported toolchain and validated host details in the complete rehearsal guide](docs/LOCAL-REHEARSAL.md#first-time-preparation) before installing dependencies.
 
 From a clean checkout, install the locked dependencies once:
 
@@ -24,11 +24,11 @@ Choose an entrypoint:
 
 ### Optional private local development
 
-The lightweight `dev:local` path can use your own local LINE Login settings. Copy `.env_template` to the ignored repository-root `.env` and edit it locally; never put values in commands, logs, or repository files. This app reads the root `.env` for this path only; shell environment variables are not merged into its settings. Leave unused values blank. The loader excludes `NIY006_LOCAL_TEST_MODE` and does not print values. This path has no Cloudflare bindings, so a LINE access token cannot enable scheduler sends. Keep credentials on your machine and do not share the `.env` file.
+The lightweight `dev:local` path can use your own local LINE Login settings. Copy [.env_template](.env_template) to the ignored repository-root `.env` and edit it locally; never put values in commands, logs, or repository files. This app reads the root `.env` for this path only; shell environment variables are not merged into its settings. Leave unused values blank. The loader excludes `NIY006_LOCAL_TEST_MODE` and does not print values. This path has no Cloudflare bindings, so a LINE access token cannot enable scheduler sends. Keep credentials on your machine and do not share the `.env` file.
 
 For private local shell work, start `npm run dev:local` when needed and stop it with Ctrl-C when finished. It is a lightweight UI/login smoke, not the complete reminder service. The complete rehearsal does not read root `.env` and does not need real credentials. Its test-only mode comes from `wrangler.niy006.test.jsonc`; `ASSETS`, `DB`, and `SEND_GATE` are Wrangler platform bindings. For deployed Worker use, configure secrets and non-secret variables through the deployment environment, and provision the bindings there. Local `.env` is never a deployment source. See [NIY-009 runtime configuration decisions](docs/archive/tickets/NIY-009-runtime-configuration-secrets.md) and the [pre-live checklist](docs/PRE-LIVE-CHECKLIST.md) for ownership and live gates.
 
-`workers-py` provides the `pywrangler` command and `workers-runtime-sdk` provides Worker runtime support. On Worker commands, pywrangler prepares generated compatibility modules under `python_modules/`; this ignored mirror supports the Python Worker bundle. Treat `python_modules/` and `.venv-workers/` as generated local tooling state: normal preparation and `uv run pywrangler` maintain them. Do not edit or delete them as routine setup. Project runtime dependencies are declared in `pyproject.toml` and locked in `uv.lock`.
+The [rehearsal guide](docs/LOCAL-REHEARSAL.md#first-time-preparation) explains the locked Worker runtime dependencies and generated tooling mirrors; project runtime dependencies are declared in `pyproject.toml` and locked in `uv.lock`.
 
 ## Validation and operations
 

@@ -44,13 +44,9 @@ including D1 events and the DO's fake-request log. It does not reinstall Node
 dependencies, seed recipients, or reset data. uv uses the existing locked environment
 when dependencies are unchanged.
 
-The rehearsal does not load the repository-root `.env`. The local test Wrangler
-configuration enables only its synthetic test mode and declares local `ASSETS`,
-`DB`, and `SEND_GATE` bindings. No real credential is needed. Optional personal
-LINE Login configuration belongs to the separate lightweight `dev:local` ASGI
-path, which reads settings from the ignored root `.env`; the two paths do not
-share configuration. Deployed Worker secrets and variables belong in the
-deployment environment, and platform bindings are configured by Wrangler.
+The rehearsal does not load the repository-root `.env`; see the [README's
+configuration guidance](../README.md#optional-private-local-development) for
+environment ownership and the separate credentialed shell path.
 
 For an explicitly separate empty fixture dataset or a busy port, native settings
 can be selected before starting:

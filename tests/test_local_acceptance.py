@@ -404,7 +404,7 @@ def test_local_browser_acceptance_journey() -> None:
                 assert (
                     first_draft.get_by_text("Selected family", exact=True).count() == 1
                 )
-                assert page.get_by_text("unavailable", exact=False).count() >= 1
+                assert page.get_by_text("來源暫不可用", exact=False).count() >= 1
 
                 page.locator('input[name="department_code"]').fill("UNSAVED-NEW")
                 first_draft.get_by_role("button", name="修正草稿").click()

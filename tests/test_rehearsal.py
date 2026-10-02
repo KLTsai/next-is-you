@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
+from zoneinfo import ZoneInfo
 
 from playwright.sync_api import expect, sync_playwright
 
@@ -86,7 +87,444 @@ def control(page, origin, operation, data=None):
         origin + "/__niy006_test/" + operation, data=data or {}
     )
     assert response.ok, response.text()
-    return response.json()
+    return response.json() if response.status != 204 else {}
+
+
+def test_rehearsal_empty_dashboard_keeps_reminder_status_list_visible(tmp_path):
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = int(listener.getsockname()[1])
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        origin = f"http://127.0.0.1:{port}"
+        context.route(
+            "**/*",
+            lambda route: (
+                route.continue_()
+                if route.request.url.startswith(origin + "/")
+                else route.abort()
+            ),
+        )
+        page = context.new_page()
+        try:
+            with rehearsal(tmp_path, port):
+                page.goto(origin)
+                page.get_by_role("button", name="本機合成測試登入").click()
+                status_list = page.get_by_role("region", name="提醒清單")
+                expect(status_list).to_be_visible()
+                expect(status_list).to_contain_text("尚無提醒狀態")
+        finally:
+            context.close()
+            browser.close()
+
+
+def test_rehearsal_started_recipient_can_be_removed_from_dashboard(tmp_path):
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = int(listener.getsockname()[1])
+    day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        context = browser.new_context()
+        origin = f"http://127.0.0.1:{port}"
+        context.route(
+            "**/*",
+            lambda route: (
+                route.continue_()
+                if route.request.url.startswith(origin + "/")
+                else route.abort()
+            ),
+        )
+        page = context.new_page()
+        try:
+            with rehearsal(tmp_path, port):
+                control(
+                    page,
+                    origin,
+                    "seed",
+                    {
+                        "visit_id": "rehearsal-remove-recipient",
+                        "recipient_id": "rehearsal-removable-recipient",
+                        "visit_day": day,
+                        "patient_number": 85,
+                        "now": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                page.goto(origin)
+                page.get_by_role("button", name="本機合成測試登入").click()
+                control(
+                    page,
+                    origin,
+                    "observation",
+                    {"current_number": 82, "trustworthy": True},
+                )
+                assert page.request.get(origin + "/cdn-cgi/local/scheduled").ok
+                page.get_by_role("button", name="重新整理").click()
+                card = page.locator(
+                    '[aria-labelledby="visit-rehearsal-remove-recipient"]'
+                )
+                expect(card).to_contain_text("掛號序號")
+                expect(card).to_contain_text("85")
+                visits = page.evaluate(
+                    "async () => (await fetch('/api/organizer/visits')).json()"
+                )["visits"]
+                checking = next(
+                    visit
+                    for visit in visits
+                    if visit["id"] == "rehearsal-remove-recipient"
+                )["observation"]["checked_at"]
+                expected_checked_at = datetime.fromisoformat(
+                    checking.replace("Z", "+00:00")
+                ).astimezone(ZoneInfo("Asia/Taipei")).strftime("%Y/%m/%d %H:%M")
+                expect(card).to_contain_text(expected_checked_at)
+                expect(card).not_to_contain_text(checking)
+                remove = card.locator(
+                    '[data-remove-visit="rehearsal-remove-recipient"]'
+                    '[data-remove-recipient="rehearsal-removable-recipient"]'
+                )
+                expect(remove).to_be_visible()
+                remove.click()
+                expect(
+                    page.get_by_role("status").filter(has_text="已移除通知對象")
+                ).to_be_visible()
+                visits = page.evaluate(
+                    "async () => (await fetch('/api/organizer/visits')).json()"
+                )["visits"]
+                removed = next(
+                    visit
+                    for visit in visits
+                    if visit["id"] == "rehearsal-remove-recipient"
+                )
+                assert removed["state"] == "active"
+                assert removed["recipients"] == []
+                expect(card).to_contain_text("沒有選取通知對象")
+        finally:
+            context.close()
+            browser.close()
+
+
+def test_rehearsal_stop_shows_stopping_while_fake_line_request_is_in_flight(tmp_path):
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = int(listener.getsockname()[1])
+    day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        context = browser.new_context()
+        origin = f"http://127.0.0.1:{port}"
+        context.route(
+            "**/*",
+            lambda route: (
+                route.continue_()
+                if route.request.url.startswith(origin + "/")
+                else route.abort()
+            ),
+        )
+        page = context.new_page()
+        request_waiting = False
+        try:
+            with rehearsal(tmp_path, port):
+                control(
+                    page,
+                    origin,
+                    "seed",
+                    {
+                        "visit_id": "rehearsal-stop-in-flight",
+                        "recipient_id": "rehearsal-stop-recipient",
+                        "visit_day": day,
+                        "patient_number": 85,
+                        "now": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                page.goto(origin)
+                page.get_by_role("button", name="本機合成測試登入").click()
+                control(
+                    page,
+                    origin,
+                    "observation",
+                    {"current_number": 82, "trustworthy": True},
+                )
+                control(page, origin, "line-mode", {"mode": "wait"})
+                page.evaluate(
+                    "() => { window.scheduledRequest = fetch('/cdn-cgi/local/scheduled'); }"
+                )
+                control(page, origin, "wait-request")
+                request_waiting = True
+                try:
+                    card = page.locator(
+                        '[aria-labelledby="visit-rehearsal-stop-in-flight"]'
+                    )
+                    card.locator('[data-stop="rehearsal-stop-in-flight"]').click()
+                    expect(card.locator(".state")).to_have_text("停止中")
+                    expect(card).to_contain_text("停止請求處理中")
+                    visits = page.evaluate(
+                        "async () => (await fetch('/api/organizer/visits')).json()"
+                    )["visits"]
+                    stopping = next(
+                        visit
+                        for visit in visits
+                        if visit["id"] == "rehearsal-stop-in-flight"
+                    )
+                    assert stopping["state"] == "stopping"
+                    control(page, origin, "release-request")
+                    request_waiting = False
+                finally:
+                    if request_waiting:
+                        control(page, origin, "release-request")
+                assert page.evaluate(
+                    "async () => (await window.scheduledRequest).status"
+                ) == 200
+                expect(card.locator(".state")).to_have_text("已停止")
+                visits = page.evaluate(
+                    "async () => (await fetch('/api/organizer/visits')).json()"
+                )["visits"]
+                stopped = next(
+                    visit
+                    for visit in visits
+                    if visit["id"] == "rehearsal-stop-in-flight"
+                )
+                assert stopped["state"] == "stopped"
+                snapshot = control(page, origin, "snapshot")
+                assert not snapshot["held"]
+                assert len(snapshot["events"]) == len(snapshot["line_requests"]) == 1
+                assert snapshot["events"][0]["outcome"] == "accepted"
+                assert page.request.get(origin + "/cdn-cgi/local/scheduled").ok
+                assert control(page, origin, "snapshot") == snapshot
+        finally:
+            context.close()
+            browser.close()
+
+
+def test_rehearsal_stopped_correction_cannot_add_recipients(tmp_path):
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = int(listener.getsockname()[1])
+    day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        context = browser.new_context()
+        origin = f"http://127.0.0.1:{port}"
+        context.route(
+            "**/*",
+            lambda route: (
+                route.continue_()
+                if route.request.url.startswith(origin + "/")
+                else route.abort()
+            ),
+        )
+        page = context.new_page()
+        try:
+            with rehearsal(tmp_path, port):
+                control(
+                    page,
+                    origin,
+                    "seed",
+                    {
+                        "visit_id": "rehearsal-other",
+                        "recipient_id": "rehearsal-other-recipient",
+                        "visit_day": day,
+                        "patient_number": 85,
+                        "now": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                control(
+                    page,
+                    origin,
+                    "stop",
+                    {
+                        "visit_id": "rehearsal-other",
+                        "now": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                control(
+                    page,
+                    origin,
+                    "seed",
+                    {
+                        "visit_id": "rehearsal-no-add",
+                        "recipient_id": "rehearsal-selected-recipient",
+                        "visit_day": day,
+                        "patient_number": 85,
+                        "now": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                page.goto(origin)
+                page.get_by_role("button", name="本機合成測試登入").click()
+                stopped_card = page.locator(
+                    '[aria-labelledby="visit-rehearsal-no-add"]'
+                )
+                page.locator('[data-stop="rehearsal-no-add"]').click()
+                expect(stopped_card).to_contain_text("掛號序號")
+                expect(stopped_card).to_contain_text("85")
+                page.locator('[data-correct="rehearsal-no-add"]').click()
+                expect(page.get_by_role("heading", name="修正已停止的提醒")).to_be_visible()
+                choices = page.locator('#visit-form input[name="recipient_ids"]')
+                expect(choices).to_have_count(1)
+                expect(choices).to_have_value("rehearsal-selected-recipient")
+                expect(choices).to_be_checked()
+                expect(page.locator("#visit-form")).to_contain_text(
+                    "不能新增通知對象"
+                )
+        finally:
+            context.close()
+            browser.close()
+
+
+def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_duplicate_alert(
+    tmp_path,
+):
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = int(listener.getsockname()[1])
+    day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
+    next_day = (datetime.fromisoformat(day) + timedelta(days=1)).date().isoformat()
+    expired_at = (
+        datetime.fromisoformat(day).replace(tzinfo=timezone.utc) + timedelta(hours=16)
+    )
+    next_day_cutoff = (
+        datetime.fromisoformat(next_day).replace(tzinfo=timezone.utc)
+        + timedelta(hours=15, minutes=59)
+    )
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        context = browser.new_context()
+        origin = f"http://127.0.0.1:{port}"
+        context.route(
+            "**/*",
+            lambda route: (
+                route.continue_()
+                if route.request.url.startswith(origin + "/")
+                else route.abort()
+            ),
+        )
+        page = context.new_page()
+        try:
+            with rehearsal(tmp_path, port):
+                control(
+                    page,
+                    origin,
+                    "observation",
+                    {"current_number": 70, "trustworthy": True},
+                )
+                control(
+                    page,
+                    origin,
+                    "seed",
+                    {
+                        "visit_id": "rehearsal-expired-restart",
+                        "recipient_id": "rehearsal-expired-recipient",
+                        "visit_day": day,
+                        "patient_number": 85,
+                        "now": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                page.goto(origin)
+                page.get_by_role("button", name="本機合成測試登入").click()
+                control(
+                    page,
+                    origin,
+                    "observation",
+                    {"current_number": 82, "trustworthy": True},
+                )
+                assert page.request.get(origin + "/cdn-cgi/local/scheduled").ok
+                first = control(page, origin, "snapshot")
+                assert len(first["events"]) == len(first["line_requests"]) == 1
+                assert first["events"][0]["event_kind"] == "near"
+                control(page, origin, "tick", {"now": expired_at.isoformat()})
+                page.get_by_role("button", name="重新整理").click()
+                card = page.locator(
+                    '[aria-labelledby="visit-rehearsal-expired-restart"]'
+                )
+                expect(card.locator(".state")).to_have_text("已結束")
+                expect(card).to_contain_text("掛號序號")
+                expect(card).to_contain_text("85")
+                expect(card).to_contain_text("可重新檢查並啟動")
+                correction = card.locator(
+                    '[data-correct="rehearsal-expired-restart"]'
+                )
+                expect(correction).to_be_visible()
+                correction.click()
+                expect(
+                    page.get_by_role("heading", name="修正已結束的提醒")
+                ).to_be_visible()
+                page.locator('input[name="date"]').fill(next_day)
+                page.get_by_role("button", name="儲存修正並回到草稿").click()
+                expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
+                page.get_by_role("button", name="展開草稿").click()
+                draft = page.locator(
+                    '#saved-drafts-list [aria-labelledby="visit-rehearsal-expired-restart"]'
+                )
+                expect(draft).to_be_visible()
+                expect(draft).to_contain_text("掛號序號")
+                expect(draft).to_contain_text("85")
+                visits = page.evaluate(
+                    "async () => (await fetch('/api/organizer/visits')).json()"
+                )["visits"]
+                corrected = next(
+                    visit
+                    for visit in visits
+                    if visit["id"] == "rehearsal-expired-restart"
+                )
+                assert corrected["state"] == "draft"
+                assert corrected["date"] == next_day
+                assert corrected["patient_number"] == 85
+                control(
+                    page,
+                    origin,
+                    "observation",
+                    {"current_number": 82, "trustworthy": True},
+                )
+                draft.locator('[data-start="rehearsal-expired-restart"]').click()
+                active = page.locator(
+                    '[aria-labelledby="visit-rehearsal-expired-restart"]'
+                )
+                expect(active.locator(".state")).to_have_text("監控中")
+                expect(active).to_contain_text("掛號序號")
+                expect(active).to_contain_text("85")
+                assert page.request.get(origin + "/cdn-cgi/local/scheduled").ok
+                restarted = control(page, origin, "snapshot")
+                assert restarted["events"] == first["events"]
+                assert restarted["line_requests"] == first["line_requests"]
+                visits = page.evaluate(
+                    "async () => (await fetch('/api/organizer/visits')).json()"
+                )["visits"]
+                active_api = next(
+                    visit
+                    for visit in visits
+                    if visit["id"] == "rehearsal-expired-restart"
+                )
+                assert active_api["state"] == "active"
+                assert active_api["date"] == next_day
+                control(
+                    page,
+                    origin,
+                    "tick",
+                    {"now": (next_day_cutoff + timedelta(minutes=1)).isoformat()},
+                )
+                page.get_by_role("button", name="重新整理").click()
+                expect(active.locator(".state")).to_have_text("已結束")
+                assert control(page, origin, "snapshot") == restarted
+                control(
+                    page,
+                    origin,
+                    "tick",
+                    {"now": (next_day_cutoff + timedelta(hours=48)).isoformat()},
+                )
+                page.get_by_role("button", name="重新整理").click()
+                expect(
+                    page.get_by_role("heading", name="尚無提醒狀態")
+                ).to_be_visible()
+                remaining = page.evaluate(
+                    "async () => (await fetch('/api/organizer/visits')).json()"
+                )["visits"]
+                assert not any(
+                    visit["id"] == "rehearsal-expired-restart"
+                    for visit in remaining
+                )
+        finally:
+            context.close()
+            browser.close()
 
 
 def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_path):

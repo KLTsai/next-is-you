@@ -82,6 +82,18 @@ async def test_draft_expiry_uses_taipei_end_of_day_plus_48_hours() -> None:
 
 
 @pytest.mark.asyncio
+async def test_draft_is_removed_at_its_retention_deadline() -> None:
+    store, repo = await seeded_repository()
+    await make_draft(repo)
+
+    assert await repo.delete_expired(at("2026-09-29T15:58:59Z")) == 0
+    assert await repo.get_visit("v1") is not None
+    assert await repo.delete_expired(at("2026-09-29T15:59:00Z")) == 1
+    assert await repo.get_visit("v1") is None
+    await store.close()
+
+
+@pytest.mark.asyncio
 async def test_first_start_freezes_roster_and_correction_preserves_event_cap() -> None:
     store, repo = await seeded_repository()
     await make_draft(repo)
@@ -121,6 +133,44 @@ async def test_first_start_freezes_roster_and_correction_preserves_event_cap() -
     assert visit["clinic_code"] == "IM-B"
     assert visit["patient_number"] == 86
     assert events == 1
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_expired_series_can_return_to_draft_without_resetting_alert_history() -> None:
+    store, repo = await seeded_repository()
+    await make_draft(repo)
+    assert await repo.add_recipient("v1", "r1", at("2026-09-27T00:01:00Z"))
+    assert await repo.start("v1", at("2026-09-27T00:02:00Z"))
+    store.connection.execute(
+        """INSERT INTO outbound_events (
+            id, visit_id, recipient_id, event_kind, retry_key, payload_json, outcome, created_at
+        ) VALUES ('e1', 'v1', 'r1', 'near', 'retry-1', '{}', 'accepted', '2026-09-27T00:04:00Z')"""
+    )
+
+    assert await repo.expire_due_visits(at("2026-09-27T16:00:00Z")) == 1
+    assert await repo.prepare_correction("v1")
+    assert await repo.correct_clinic(
+        visit_id="v1",
+        hospital="ntuh-main",
+        visit_day=date(2026, 9, 28),
+        department_code="IM",
+        clinic_code="IM-B",
+        clinic_session="afternoon",
+        patient_number=86,
+        doctor_code=None,
+        room_code=None,
+    )
+    assert await repo.start("v1", at("2026-09-27T16:01:00Z"))
+
+    visit = store.connection.execute(
+        "SELECT id, state, visit_date, patient_number, delete_after FROM visits WHERE id = 'v1'"
+    ).fetchone()
+    events = store.connection.execute(
+        "SELECT id, retry_key, outcome FROM outbound_events WHERE visit_id = 'v1'"
+    ).fetchall()
+    assert tuple(visit) == ("v1", "active", "2026-09-28", 86, None)
+    assert [tuple(event) for event in events] == [("e1", "retry-1", "accepted")]
     await store.close()
 
 
@@ -197,6 +247,9 @@ async def test_stop_waits_for_inflight_send_before_terminal_retention_clock() ->
     ).fetchone()
     assert visit["state"] == "stopped"
     assert visit["delete_after"] == "2026-09-29T01:02:00Z"
+    assert await repo.delete_expired(at("2026-09-29T01:01:59Z")) == 0
+    assert await repo.delete_expired(at("2026-09-29T01:02:00Z")) == 1
+    assert await repo.get_visit("v1") is None
     await store.close()
 
 

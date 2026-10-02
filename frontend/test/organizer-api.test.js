@@ -7,6 +7,7 @@ import {
   getVisitCorrection,
   listRecipients,
   listVisits,
+  removeVisitRecipient,
   startVisit,
   stopVisit,
   updateVisit,
@@ -69,6 +70,20 @@ test("correction initialization uses a single-visit route with CSRF", async () =
   assert.deepEqual(result, { patient_number: 85 });
   assert.equal(call[0], "/api/organizer/visits/draft%2Fone/correction");
   assert.equal(call[1].method, "GET");
+  assert.equal(call[1].headers["x-csrf-token"], "csrf-local");
+});
+
+test("recipient removal uses the existing ordered route with CSRF", async () => {
+  let call;
+  await removeVisitRecipient("visit/one", "recipient one", {
+    fetcher: async (path, options) => {
+      call = [path, options];
+      return response(null, 204);
+    },
+    csrfToken: "csrf-local",
+  });
+  assert.equal(call[0], "/api/visits/visit%2Fone/recipients/recipient%20one");
+  assert.equal(call[1].method, "DELETE");
   assert.equal(call[1].headers["x-csrf-token"], "csrf-local");
 });
 

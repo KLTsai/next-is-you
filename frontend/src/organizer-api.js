@@ -61,6 +61,13 @@ export function stopVisit(id, options = {}) {
   return request(`/api/organizer/visits/${encodeURIComponent(id)}/stop`, { ...options, method: "POST" });
 }
 
+export function removeVisitRecipient(visitId, recipientId, options = {}) {
+  return request(`/api/visits/${encodeURIComponent(visitId)}/recipients/${encodeURIComponent(recipientId)}`, {
+    ...options,
+    method: "DELETE",
+  });
+}
+
 export function correctVisit(id, input, options = {}) {
   return request(`/api/organizer/visits/${encodeURIComponent(id)}/correct`, { ...options, method: "POST", body: input });
 }

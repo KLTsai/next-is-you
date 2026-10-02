@@ -170,12 +170,16 @@ an Active reminder and sends no further notices. Before automatic cleanup, choos
 **修正後重新啟動** on that expired reminder, update its date or appointment details,
 and save. It returns to **已儲存草稿** as the same reminder; use
 **重新檢查並開始提醒** to recheck the source before it can become **監控中**
-again. Correction by itself must not add another `near` event. After a successful
-start, selected recipients can be removed from the reminder card; new recipients
-cannot be added to that reminder.
+again. Correction by itself must not add another `near` event. Confirmed
+**停止提醒** ends monitoring and all later notifications; a notice already in
+flight may settle before Stop is confirmed. After the first successful start,
+existing recipients can be removed from the reminder card, but the frozen roster
+cannot accept new recipients. At least one recipient must remain. When only one
+remains, its Remove button is disabled because reminders need a recipient to keep
+monitoring or restart later.
 
-Stopped reminders are cleaned up 48 hours after Stop; expired reminders are
-cleaned up 48 hours after the appointment cutoff. A genuinely new fixture journey
-can use an explicit separate state directory, without deleting the old one. Live
-LINE, hospital access and deployment remain separate
-[pre-live gates](PRE-LIVE-CHECKLIST.md).
+Drafts and expired reminders are cleaned up 48 hours after the appointment cutoff
+at 23:59 Taipei time; stopped reminders are cleaned up 48 hours after Stop. A
+genuinely new fixture journey can use an explicit separate state directory,
+without deleting the old one. Live LINE, hospital access and deployment remain
+separate [pre-live gates](PRE-LIVE-CHECKLIST.md).

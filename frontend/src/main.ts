@@ -303,8 +303,11 @@ async function loadDashboard(preserveSaveConfirmation = false): Promise<void> {
       serviceStatus.className = "status status-pending";
       if (preserveSaveConfirmation && authorized) {
         refreshWarning = "草稿已儲存，但清單更新失敗。請重新整理確認狀態。";
+      } else if (authorized) {
+        refreshWarning = visits.some((visit) => visit.state === "stopping")
+          ? `提醒狀態更新失敗，將自動重試。${errorText(error)}`
+          : errorText(error);
       } else {
-        authorized = false;
         message = errorText(error);
       }
     }
@@ -467,6 +470,9 @@ function bindActions(): void {
     renderDashboard();
     try {
       const result = await stopVisit(id);
+      visits = visits.map((visit) => visit.id === id
+        ? { ...visit, state: result.state }
+        : visit);
       message = result.state === "stopped" ? "提醒已停止。" : "停止請求已送出，正在等候關閉確認。";
     } catch (error) {
       message = errorText(error);

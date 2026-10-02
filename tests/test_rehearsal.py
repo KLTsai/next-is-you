@@ -215,14 +215,27 @@ def test_rehearsal_stop_shows_stopping_while_fake_line_request_is_in_flight(tmp_
         browser = playwright.chromium.launch()
         context = browser.new_context()
         origin = f"http://127.0.0.1:{port}"
-        context.route(
-            "**/*",
-            lambda route: (
+        fail_next_visits = False
+
+        def route_request(route):
+            nonlocal fail_next_visits
+            url = route.request.url
+            if not url.startswith(origin + "/"):
+                route.abort()
+            elif url.endswith("/stop"):
+                fail_next_visits = True
                 route.continue_()
-                if route.request.url.startswith(origin + "/")
-                else route.abort()
-            ),
-        )
+            elif url.endswith("/api/organizer/visits") and fail_next_visits:
+                fail_next_visits = False
+                route.fulfill(
+                    status=503,
+                    content_type="application/json",
+                    body='{"error":{"code":"service_unavailable"}}',
+                )
+            else:
+                route.continue_()
+
+        context.route("**/*", route_request)
         page = context.new_page()
         request_waiting = False
         try:
@@ -260,6 +273,10 @@ def test_rehearsal_stop_shows_stopping_while_fake_line_request_is_in_flight(tmp_
                     card.locator('[data-stop="rehearsal-stop-in-flight"]').click()
                     expect(card.locator(".state")).to_have_text("停止中")
                     expect(card).to_contain_text("停止請求處理中")
+                    expect(
+                        page.get_by_role("status").filter(has_text="將自動重試")
+                    ).to_be_visible()
+                    expect(card.locator(".state")).to_have_text("停止中")
                     visits = page.evaluate(
                         "async () => (await fetch('/api/organizer/visits')).json()"
                     )["visits"]

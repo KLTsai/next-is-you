@@ -38,9 +38,9 @@ identity, patient-number prefill, Start/Stop, one fake reminder, and
 same-dataset restart/duplicate-tick checks.
 The guide includes expected results, failure/recovery and Stop/Ctrl-C instructions.
 The [lifecycle checklist](docs/NIY-020-LOCAL-MANUAL-CHECKLIST.md) covers additional
-fixture UI outcomes. Authenticated organizer draft cards show the synthetic
-patient number for local identification; the selected correction flow also
-prefills it through the authorized API.
+fixture UI outcomes. Authenticated organizer draft and reminder cards show the
+patient number when present. The selected correction flow also prefills it
+through the authorized API.
 
 `npm run dev:local` remains a lightweight shell smoke without D1/DO. A real local
 binding plus fake delivery is local integration evidence, not hospital freshness,

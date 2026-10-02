@@ -2,58 +2,39 @@
 
 Next is you is a new application project.
 
-This repository is maintained in English.
-More details will be added as the product direction takes shape.
+This repository is maintained in English. Active work is tracked in [GitHub Issues](https://github.com/KLTsai/next-is-you/issues); see the [issue-tracker conventions](docs/agents/issue-tracker.md). Former local tickets are [archived historical records](docs/archive/tickets/README.md), not current work assignments. Their completion statements retain their original evidence limits.
 
-Active work is tracked in [GitHub Issues](https://github.com/KLTsai/next-is-you/issues); see the [issue-tracker conventions](docs/agents/issue-tracker.md). The former local tickets are [archived historical records](docs/archive/tickets/README.md). Their completion statements retain their original evidence limits; the [pre-live checklist](docs/PRE-LIVE-CHECKLIST.md) owns the remaining live gates.
+## Local development entrypoints
 
-## Local Worker
+The repository's checked toolchain is Node 24, Python 3.13, uv 0.12.3, and the Workers Python tooling pinned by `uv.lock` (`workers-py` 1.17.4 and `workers-runtime-sdk` 1.9.0). These are the versions used by CI. Vite 7.3.6 in `package-lock.json` requires Node `^20.19.0` or `>=22.12.0`; Python packages require Python 3.13 or newer. The local rehearsal was also exercised on macOS Apple Silicon with Node 24.18.0, Python 3.14.6, and uv 0.12.19. Other hosts have not been validated for the rehearsal.
 
-Install the Python development dependencies with `uv sync --group dev` and the frontend dependencies with `npm ci`. Copy `.env_template` to the repository-root `.env`, then fill only the values needed for local work. For example, run `cp .env_template .env` and open it with `${EDITOR:-vi} .env`; do not put values in shell commands or terminal transcripts. `npm run dev:local` builds the Vite UI, loads that `.env` when present, and serves the FastAPI app at `http://127.0.0.1:8787`. It binds to loopback and does not deploy. The loader never prints configuration values. Do not commit or share `.env`.
-
-For local LINE Login configuration, set `LINE_LOGIN_CHANNEL_ID`, `LINE_LOGIN_CHANNEL_SECRET`, `LINE_LOGIN_REDIRECT_URI`, and a `SESSION_SIGNING_SECRET` of at least 32 UTF-8 bytes. Set `ORGANIZER_LINE_SUBJECTS` to the comma-separated LINE subject IDs authorized as organizers. Missing or invalid settings leave login unavailable. The plain Uvicorn launch has no Cloudflare bindings, so database-backed features and scheduler sends remain unavailable; `LINE_CHANNEL_ACCESS_TOKEN` alone cannot enable sending. `NIY006_LOCAL_TEST_MODE` is ignored by this launch path. Use the separate `wrangler.niy006.test.jsonc` only for the NIY-006 local test harness.
-
-To verify the fail-closed local setup without credentials, leave the copied template blank, start `npm run dev:local`, and in another terminal run `curl -i http://127.0.0.1:8787/auth/line`; the route should return `503`. Open `http://127.0.0.1:8787/` to check the built UI, then stop the server with Ctrl-C. For a configured local login, use only your own local values in `.env`; this standard Python launch has no Cloudflare bindings, and scheduler sends remain disabled. The local `.env` is ignored and may be kept on this machine; never commit or share it. Never paste credential values into commands, tickets, or logs.
-
-Production uses Cloudflare Worker configuration. Store `LINE_LOGIN_CHANNEL_SECRET`, `SESSION_SIGNING_SECRET`, and `LINE_CHANNEL_ACCESS_TOKEN` as Worker secrets. Provision `LINE_LOGIN_CHANNEL_ID`, `LINE_LOGIN_REDIRECT_URI`, and `ORGANIZER_LINE_SUBJECTS` through the deployment environment outside tracked files; treat the organizer allowlist as sensitive operational data. Configure `ASSETS`, `DB`, and `SEND_GATE` as Wrangler platform bindings, not `.env` entries. Never use local `.env` values as production configuration, and never enable `NIY006_LOCAL_TEST_MODE` in production.
-
-## Complete local service rehearsal
-
-Prepare once with `npm ci` and `uv sync --group dev --locked` (uv 0.12.3 or newer,
-Python 3.13 or newer), then start the complete local service:
+From a clean checkout, install the locked dependencies once:
 
 ```sh
-npm run dev:rehearsal
+npm ci
+uv sync --group dev --locked
 ```
 
-Open <http://127.0.0.1:8787>. This foreground command builds current UI assets,
-applies local D1 migrations and serves the Worker with the existing SQLite
-Durable Object, synthetic login and fake hospital/LINE providers. It uses the
-same `.wrangler/manual-rehearsal` dataset on repeat starts; it does not reset data
-or seed recipients. No real credentials are needed and it does not deploy.
+Choose an entrypoint:
 
-Follow the [complete rehearsal guide](docs/LOCAL-REHEARSAL.md) for one-time native
-synthetic recipient preparation, UI draft save/edit, saved-draft patient-number
-identity, patient-number prefill, Start/Stop, one fake reminder, and
-same-dataset restart/duplicate-tick checks.
-The guide includes expected results, failure/recovery and Stop/Ctrl-C instructions.
-The [lifecycle checklist](docs/NIY-020-LOCAL-MANUAL-CHECKLIST.md) covers additional
-fixture UI outcomes. Authenticated organizer draft and reminder cards show the
-patient number when present. The selected correction flow also prefills it
-through the authorized API.
+- **Complete local service rehearsal:** run `npm run dev:rehearsal` and open <http://127.0.0.1:8787>. This is the recommended path for trying the UI with real local D1 and SQLite Durable Object bindings plus synthetic login and fake providers. It needs no credentials. Follow the [complete rehearsal guide](docs/LOCAL-REHEARSAL.md) for the first synthetic setup, draft, Start/Stop, fake send, duplicate tick, and restart journey.
+- **Lightweight shell smoke:** run `npm run dev:local`, then open <http://127.0.0.1:8787>. This builds the UI and serves the Python ASGI app on loopback without Cloudflare bindings, D1, or Durable Objects. With the blank template, `curl -i http://127.0.0.1:8787/auth/line` should return `503`. Stop the foreground server with Ctrl-C. It does not exercise database features or reminder sends.
 
-`npm run dev:local` remains a lightweight shell smoke without D1/DO. A real local
-binding plus fake delivery is local integration evidence, not hospital freshness,
-LINE acceptance, handset delivery or deployed ordering. See the
-[pre-live checklist](docs/PRE-LIVE-CHECKLIST.md) for those separate gates.
+`npm run dev:rehearsal` builds current UI assets, applies pending local migrations, and serves the Worker in the foreground. It uses `.wrangler/manual-rehearsal` on every start. Stop it with Ctrl-C, then run the same command to continue with the same data and outbox. Do not delete that state or reset the database to repeat the journey. Unchanged dependencies are not reinstalled on repeat starts. Update dependencies only when intentionally changing a manifest or lockfile; use `npm install` for npm dependency changes and `uv lock` for Python dependency changes, review the lockfile diff, then repeat the locked setup commands and relevant checks.
 
-## CI and local acceptance (NIY-008)
+### Optional private local development
 
-From a clean checkout, install the pinned dependencies and run the same deterministic gates as CI:
+The lightweight `dev:local` path can use your own local LINE Login settings. Copy `.env_template` to the ignored repository-root `.env` and edit it locally; never put values in commands, logs, or repository files. This app reads the root `.env` for this path only; shell environment variables are not merged into its settings. Leave unused values blank. The loader excludes `NIY006_LOCAL_TEST_MODE` and does not print values. This path has no Cloudflare bindings, so a LINE access token cannot enable scheduler sends. Keep credentials on your machine and do not share the `.env` file.
+
+For private local shell work, start `npm run dev:local` when needed and stop it with Ctrl-C when finished. It is a lightweight UI/login smoke, not the complete reminder service. The complete rehearsal does not read root `.env` and does not need real credentials. Its test-only mode comes from `wrangler.niy006.test.jsonc`; `ASSETS`, `DB`, and `SEND_GATE` are Wrangler platform bindings. For deployed Worker use, configure secrets and non-secret variables through the deployment environment, and provision the bindings there. Local `.env` is never a deployment source. See [NIY-009 runtime configuration decisions](docs/archive/tickets/NIY-009-runtime-configuration-secrets.md) and the [pre-live checklist](docs/PRE-LIVE-CHECKLIST.md) for ownership and live gates.
+
+`workers-py` provides the `pywrangler` command and `workers-runtime-sdk` provides Worker runtime support. On Worker commands, pywrangler prepares generated compatibility modules under `python_modules/`; this ignored mirror supports the Python Worker bundle. Treat `python_modules/` and `.venv-workers/` as generated local tooling state: normal preparation and `uv run pywrangler` maintain them. Do not edit or delete them as routine setup. Project runtime dependencies are declared in `pyproject.toml` and locked in `uv.lock`.
+
+## Validation and operations
+
+The CI-equivalent deterministic checks are:
 
 ```sh
-uv sync --group dev --locked
-npm ci
 uv run playwright install chromium
 uv run ruff format --check src tests
 uv run ruff check src tests
@@ -65,8 +46,6 @@ uv run pytest -q
 git diff --check
 ```
 
-Expected outcomes: Ruff reports no formatting or lint issues, TypeScript exits successfully, all frontend tests pass, Vite builds `dist/`, the migration checker reports that every migration applied and SQLite schema checks passed, and pytest reports the complete Python suite passed. The Python suite includes `tests/test_local_acceptance.py`, which serves the built browser shell and drives organizer HTTP routes, SQLite, the synthetic hospital fixture, scheduled ticks, and the fake LINE transport in process. Scheduler tests also cover duplicate ticks and corrected watches, equality and jumps past the target, the one-time third-read unavailable warning, and both send/Stop orderings. None of these tests make hospital, LINE, Cloudflare, or deployment requests.
+These are fixture/mock and local automated evidence. `tests/test_local_acceptance.py` exercises organizer routes, SQLite, synthetic hospital observations, scheduled ticks, and fake LINE transport in process. Worker startup and draft RPC tests use local Wrangler bindings. They do not contact a live hospital or LINE, deploy, or prove handset delivery. See the [CI workflow](.github/workflows/ci.yml) for the automated gates. For tested UI steps and recovery, use the [local manual checklist](docs/NIY-020-LOCAL-MANUAL-CHECKLIST.md) and [complete rehearsal guide](docs/LOCAL-REHEARSAL.md). The [pre-live checklist](docs/PRE-LIVE-CHECKLIST.md) lists deployed integration, provider acceptance, and handset evidence still required.
 
-The workflow fetches full Git history so it can check the actual event range. Pull requests check `base...head`; pushes check `before..after`, and new-branch pushes compare against the fetched default branch. `scripts/check_ci_diff.sh` fails when event metadata, commit objects, or a merge base is unavailable. The local `git diff --check` command checks your working tree changes.
-
-The browser test requires the Playwright Chromium browser installed by the command above. The HTTP test uses ASGI transport; the browser test binds a temporary loopback server and blocks browser requests to every other origin. To repeat the separate Wrangler visual journey, follow the [complete local service rehearsal](docs/LOCAL-REHEARSAL.md). See [the pre-live checklist](docs/PRE-LIVE-CHECKLIST.md) for gates local tests do not prove.
+Source research and evidence limits are indexed in [research/README.md](research/README.md), including the [NIY-021 findings summary](research/NIY-021-findings-summary.md). Historical implementation decisions and their owning current guides are indexed in [docs/archive/tickets/README.md](docs/archive/tickets/README.md).

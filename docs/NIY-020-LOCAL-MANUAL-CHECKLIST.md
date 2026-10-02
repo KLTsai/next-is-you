@@ -18,7 +18,7 @@ Start the local test app using the **Complete local service rehearsal** setup in
 ## Recheck, start, and stop
 
 1. With the fake observation unavailable, select **重新檢查並開始提醒**. Expected: a pending recheck indicator appears, the service returns the unavailable error, and the visit remains **草稿**.
-2. Set the fake source to a trusted synthetic observation using the local test route from the README. Select **重新檢查並開始提醒** again. Expected: the API confirms activation and the list changes to **監控中**. Check the patient-number row during active and stopped states using the [rehearsal guide](LOCAL-REHEARSAL.md#start-one-fake-reminder).
+2. Set the fake source to a trusted synthetic observation using the local test route from the [rehearsal guide](LOCAL-REHEARSAL.md#start-one-fake-reminder-and-duplicate-ticks). Select **重新檢查並開始提醒** again. Expected: the API confirms activation and the list changes to **監控中**. Check the patient-number row during active and stopped states using the same guide.
 3. While active, verify **停止提醒** is visible and the copy explains that confirmed Stop ends future checks and notifications. Select it. Expected: the button shows a pending state while the request is in flight; the UI does not say the visit is stopped until the API projection reports **已停止**. If the request fails, the visit remains active and the error is shown.
 4. After **已停止**, verify the Stop button is gone. Select **修正後重新檢查**. Expected: the correction form is clearly labeled, existing projected settings and recipient remain selected, and saving returns the same visit to **草稿** for a fresh Start check.
 

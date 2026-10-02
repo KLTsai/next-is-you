@@ -263,6 +263,10 @@ async def test_stop_transitions_to_stopping_during_active_request_and_blocks_lat
     stopping = asyncio.create_task(gate.stop_visit("v1", "2026-09-27T13:01:00Z"))
     await asyncio.sleep(0)
     assert await asyncio.wait_for(stopping, timeout=1) == "stopping"
+    duplicate_stop = asyncio.create_task(
+        gate.stop_visit("v1", "2026-09-27T13:01:01Z")
+    )
+    await asyncio.sleep(0)
     assert (
         database.connection.execute(
             "SELECT state FROM visits WHERE id = 'v1'"
@@ -271,14 +275,16 @@ async def test_stop_transitions_to_stopping_during_active_request_and_blocks_lat
     )
     await gate.release_test_request()
 
-    await sending
+    result = await sending
+    assert result["held"] is False
+    assert await asyncio.wait_for(duplicate_stop, timeout=1) == "stopped"
     assert (
         database.connection.execute(
             "SELECT state FROM visits WHERE id = 'v1'"
         ).fetchone()[0]
         == "stopped"
     )
-    await tick(gate, "2026-09-27T13:02:00Z")
+    assert (await tick(gate, "2026-09-27T13:02:00Z"))["held"] is False
     assert len((await gate.test_snapshot())["line_requests"]) == 1
 
 

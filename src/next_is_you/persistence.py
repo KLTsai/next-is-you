@@ -758,7 +758,7 @@ class VisitRepository:
             await self._store.execute(
                 Statement(
                     """UPDATE visits SET state = 'stopping'
-                    WHERE id = ? AND state = 'active'
+                    WHERE id = ? AND state IN ('active', 'stopping')
                     AND EXISTS (
                         SELECT 1 FROM outbound_events AS e
                         WHERE e.visit_id = visits.id AND e.outcome = 'in_flight'

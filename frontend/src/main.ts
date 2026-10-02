@@ -184,7 +184,7 @@ function visitCard(item: OrganizerVisit): string {
   const notification = item.notification;
   const sourceStatus = item.source_read?.status ?? "unavailable";
   const sourceReason = sourceReasons[item.source_read?.reason] ?? "來源狀態尚未提供";
-  const patientNumberRow = item.state === "draft" && typeof item.patient_number === "number"
+  const patientNumberRow = typeof item.patient_number === "number"
     ? `<div><dt>掛號序號</dt><dd>${escapeHtml(String(item.patient_number))}</dd></div>`
     : "";
   return `<article class="visit-card" aria-labelledby="visit-${escapeHtml(item.id)}">

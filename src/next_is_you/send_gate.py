@@ -107,7 +107,6 @@ class SystemSendGate(_DurableObjectBase):
                 if await repository.stop_while_event_is_in_flight(visit_id):
                     await self._save_ledger()
                     return "stopping"
-                await self.ctx.storage.put("inflight_stop_visit_id", "")
 
         async with self._lock:
             repository = self._repository()

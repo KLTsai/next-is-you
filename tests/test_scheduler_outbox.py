@@ -265,6 +265,7 @@ async def test_stop_transitions_to_stopping_during_active_request_and_blocks_lat
     assert await asyncio.wait_for(stopping, timeout=1) == "stopping"
     duplicate_stop = asyncio.create_task(gate.stop_visit("v1", "2026-09-27T13:01:01Z"))
     await asyncio.sleep(0)
+    assert await asyncio.wait_for(duplicate_stop, timeout=1) == "stopping"
     assert (
         database.connection.execute(
             "SELECT state FROM visits WHERE id = 'v1'"
@@ -275,7 +276,6 @@ async def test_stop_transitions_to_stopping_during_active_request_and_blocks_lat
 
     result = await sending
     assert result["held"] is False
-    assert await asyncio.wait_for(duplicate_stop, timeout=1) == "stopped"
     assert (
         database.connection.execute(
             "SELECT state FROM visits WHERE id = 'v1'"
@@ -424,6 +424,15 @@ async def test_removal_waits_for_draft_update_and_wins_roster_ordering() -> None
         )
     )
     assert await repository.add_recipient("draft-v1", "r1", timestamp)
+    await repository._store.execute(
+        Statement(
+            """INSERT INTO recipients (id, line_subject, display_name, consented_at,
+            friendship_checked_at, active, created_at) VALUES
+            ('r2', 'line-r2', 'Family B', ?, ?, 1, ?)""",
+            (timestamp.isoformat(), timestamp.isoformat(), timestamp.isoformat()),
+        )
+    )
+    assert await repository.add_recipient("draft-v1", "r2", timestamp)
     gate._repository = lambda: repository
     eligible_read = asyncio.Event()
     continue_update = asyncio.Event()
@@ -446,7 +455,7 @@ async def test_removal_waits_for_draft_update_and_wins_roster_ordering() -> None
             clinic_code="MED-A",
             clinic_session="morning",
             patient_number=86,
-            recipient_ids=("r1",),
+            recipient_ids=("r1", "r2"),
             now=timestamp,
         )
     )
@@ -460,7 +469,7 @@ async def test_removal_waits_for_draft_update_and_wins_roster_ordering() -> None
 
     assert await updating
     assert await removing
-    assert await repository.selected_recipient_ids("draft-v1") == set()
+    assert await repository.selected_recipient_ids("draft-v1") == {"r2"}
 
 
 @pytest.mark.asyncio

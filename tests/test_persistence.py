@@ -206,6 +206,7 @@ async def test_removal_stops_future_membership_but_keeps_recent_event_audit() ->
     store, repo = await seeded_repository()
     await make_draft(repo)
     await repo.add_recipient("v1", "r1", at("2026-09-27T00:01:00Z"))
+    await repo.add_recipient("v1", "r2", at("2026-09-27T00:01:30Z"))
     await repo.start("v1", at("2026-09-27T00:02:00Z"))
     store.connection.execute(
         """INSERT INTO outbound_events (
@@ -217,8 +218,9 @@ async def test_removal_stops_future_membership_but_keeps_recent_event_audit() ->
     assert not await repo.add_recipient("v1", "r1", at("2026-09-27T00:05:00Z"))
     assert (
         store.connection.execute("SELECT COUNT(*) FROM visit_recipients").fetchone()[0]
-        == 0
+        == 1
     )
+    assert await repo.selected_recipient_ids("v1") == {"r2"}
     assert (
         store.connection.execute("SELECT COUNT(*) FROM outbound_events").fetchone()[0]
         == 1

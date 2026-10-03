@@ -14,6 +14,7 @@ import {
 import type { Hospital, OrganizerVisit, Recipient, VisitInput } from "./organizer-api.js";
 import { canRequestStart, formatSourceStatus, formatVisitState, visitStatusKey } from "./visit-state.js";
 import { sourceLinkMarkup } from "./source-link.js";
+import { projectDashboardVisits } from "./dashboard-projection.js";
 
 const app = document.querySelector<HTMLElement>("#app");
 const serviceStatus = document.querySelector<HTMLSpanElement>("#service-status");
@@ -259,14 +260,13 @@ function renderDashboard(preserveCurrentForm = true): void {
     document.querySelector<HTMLButtonElement>("#synthetic-login")?.addEventListener("click", voidSyntheticLogin);
     return;
   }
-  const drafts = visits.filter((visit) => visit.state === "draft");
-  const otherVisits = visits.filter((visit) => visit.state !== "draft");
+  const { drafts, reminders, reminderCount } = projectDashboardVisits(visits);
   app.innerHTML = `<div class="dashboard-top"><div><p class="eyebrow">安全的提醒管理</p><h1>看診提醒</h1></div><button class="secondary-button refresh-button" id="refresh" type="button" ${loading ? "disabled" : ""}>重新整理</button></div>
     ${message ? `<p class="message" role="status">${escapeHtml(message)}</p>` : ""}
     ${refreshWarning ? `<p class="message message-warning" role="status">${escapeHtml(refreshWarning)}</p>` : ""}
     ${formMarkup()}
     <section class="visits saved-drafts" aria-labelledby="drafts-heading"><div class="section-heading"><div><p class="eyebrow">提醒設定</p><h2 id="drafts-heading">已儲存草稿 <span class="draft-count">${drafts.length}</span></h2></div><button class="secondary-button drafts-toggle" type="button" data-drafts-toggle aria-expanded="${!draftsCollapsed}" aria-controls="saved-drafts-list">${draftsCollapsed ? "展開草稿" : "收合草稿"}</button></div><div id="saved-drafts-list" class="draft-list" ${draftsCollapsed ? "hidden" : ""}>${drafts.length ? drafts.map(visitCard).join("") : `<div class="empty-state"><h3>尚無已儲存草稿</h3><p>建立草稿後，會顯示在這裡。</p></div>`}</div></section>
-    <section class="visits" aria-labelledby="visits-heading"><div class="section-heading"><div><p class="eyebrow">狀態與控制</p><h2 id="visits-heading">提醒清單</h2></div></div>${otherVisits.length ? otherVisits.map(visitCard).join("") : `<div class="empty-state"><h3>尚無提醒狀態</h3><p>執行中、已停止或已結束的提醒會顯示在這裡。</p></div>`}</section>`;
+    <section class="visits" aria-labelledby="visits-heading"><div class="section-heading"><div><p class="eyebrow">狀態與控制</p><h2 id="visits-heading">提醒清單 <span class="draft-count">${reminderCount}</span></h2></div></div>${reminders.length ? reminders.map(visitCard).join("") : `<div class="empty-state"><h3>尚無提醒狀態</h3><p>執行中、已停止或已結束的提醒會顯示在這裡。</p></div>`}</section>`;
   bindActions();
 }
 

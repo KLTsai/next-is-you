@@ -163,7 +163,7 @@ def test_local_runtime_keeps_dotenv_values_server_side_and_uses_fake_oauth(
     values = {
         "LINE_LOGIN_CHANNEL_ID": "local-channel-id-marker",
         "LINE_LOGIN_CHANNEL_SECRET": "local-channel-secret-marker",
-        "LINE_LOGIN_REDIRECT_URI": "https://redirect-uri-marker.invalid/callback",
+        "LINE_LOGIN_REDIRECT_URI": "https://redirect-uri-marker.invalid/auth/line/callback",
         "SESSION_SIGNING_SECRET": "local-session-secret-marker-with-32-bytes",
         "ORGANIZER_LINE_SUBJECTS": "local-organizer-marker",
         "LINE_CHANNEL_ACCESS_TOKEN": "local-push-token-marker",

@@ -30,6 +30,18 @@ For private local shell work, start `npm run dev:local` when needed and stop it 
 
 The [rehearsal guide](docs/LOCAL-REHEARSAL.md#first-time-preparation) explains the locked Worker runtime dependencies and generated tooling mirrors; project runtime dependencies are declared in `pyproject.toml` and locked in `uv.lock`.
 
+### Held HTTPS service preparation
+
+[Issue #18 setup and acceptance instructions](docs/HTTPS-SERVICE.md) provide the
+native Cloudflare Free candidate, isolated production template, exact callback
+format, private provisioning, hold/stop and rollback steps. Account authorization,
+origin/privacy agreement, organizer identity and deployment remain owner gates;
+there is no deployed URL yet. All remote changes in that guide are marked unrun.
+Production sends are held by code and the hospital reader remains unavailable.
+Only `NIY_ENVIRONMENT=local-test` together with `NIY006_LOCAL_TEST_MODE=1` enables
+the synthetic local rehearsal. The production template disables both public and
+preview routes until the owner explicitly approves the fixed origin.
+
 ## Validation and operations
 
 The CI-equivalent deterministic checks are:

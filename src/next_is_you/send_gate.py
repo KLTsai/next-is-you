@@ -186,7 +186,7 @@ class SystemSendGate(_DurableObjectBase):
                 return {"error": "scheduler_held"}
             # No production hospital reader is configured until NIY-004 supplies a
             # verified transport. The local reader exists only under NIY-006 test mode.
-            if not _test_mode(self.env):
+            if not local_test_mode(self.env):
                 await repository.set_source_read(
                     visit_id, "unavailable", "no_observation"
                 )
@@ -350,7 +350,7 @@ class SystemSendGate(_DurableObjectBase):
             return True
 
     async def resume_after_reconciliation(self, reconciled: bool) -> bool:
-        if reconciled is not True:
+        if reconciled is not True or not local_test_mode(self.env):
             return False
         async with self._lock:
             if not await self._held():
@@ -407,8 +407,23 @@ class SystemSendGate(_DurableObjectBase):
     async def recovery_held(self) -> bool:
         return await self._held()
 
+    async def scheduler_status(self) -> dict[str, bool]:
+        recovery_hold = (await self.ctx.storage.get("recovery_hold")) is True
+        configuration_hold = not local_test_mode(self.env)
+        return {
+            "held": configuration_hold or recovery_hold,
+            "configuration_hold": configuration_hold,
+            "recovery_hold": recovery_hold,
+            "hospital_reader_available": local_test_mode(self.env),
+        }
+
     async def _held(self) -> bool:
-        return (await self.ctx.storage.get("recovery_hold")) is True
+        # Issue #18 is a held service bootstrap. Only the synthetic local
+        # rehearsal can send; a token or resume request cannot release production.
+        return (
+            not local_test_mode(self.env)
+            or (await self.ctx.storage.get("recovery_hold")) is True
+        )
 
     async def _check_ledger(self) -> bool:
         digest = await self._repository().scheduler_ledger_digest()
@@ -461,7 +476,7 @@ class SystemSendGate(_DurableObjectBase):
         return VisitRepository(CloudflareD1Store(binding))
 
     def _scheduler(self, clock) -> OutboxScheduler:
-        test_mode = _test_mode(self.env)
+        test_mode = local_test_mode(self.env)
         hospital: HospitalReader | None = (
             _TestHospitalReader(self.ctx.storage) if test_mode else None
         )
@@ -578,7 +593,7 @@ class SystemSendGate(_DurableObjectBase):
         }
 
     def _require_test_mode(self) -> None:
-        if not _test_mode(self.env):
+        if not local_test_mode(self.env):
             raise RuntimeError("local scheduler test controls are disabled")
 
 
@@ -644,9 +659,9 @@ class _TestLineTransport:
         return LinePushHttpResponse(status_code=status, request_id="local-test-request")
 
 
-def _test_mode(env: Any) -> bool:
+def local_test_mode(env: Any) -> bool:
     value = _field(env, "NIY006_LOCAL_TEST_MODE", "")
-    return value is True or str(value) == "1"
+    return str(_field(env, "NIY_ENVIRONMENT", "")) == "local-test" and str(value) == "1"
 
 
 def _field(value: Any, key: str, default: Any = None) -> Any:

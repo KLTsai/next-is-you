@@ -3,6 +3,12 @@
 These gates are not proven by local synthetic tests and must be completed before
 enabling real reminders:
 
+[Issue #18 held HTTPS setup](HTTPS-SERVICE.md) separates native local evidence
+from the still-unrun owner provisioning and deployed acceptance. Its production
+configuration hold cannot be released by the organizer resume API. Preserve the
+DO recovery hold through setup, deployments and rollback; the approved origin,
+Cloudflare Free plan/headroom and exact Login callback still need owner evidence.
+
 - [ ] **Hospital sources:** confirm each hospital permits the access method, verify
   live clinic/date/session identity and current-number meaning, measure freshness,
   and exercise timeout, denial, challenge, ambiguity, and schema-change handling.

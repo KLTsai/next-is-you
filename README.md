@@ -33,14 +33,10 @@ The [rehearsal guide](docs/LOCAL-REHEARSAL.md#first-time-preparation) explains t
 ### Held HTTPS service preparation
 
 [Issue #18 setup and acceptance instructions](docs/HTTPS-SERVICE.md) provide the
-native Cloudflare Free candidate, isolated production template, exact callback
-format, private provisioning, hold/stop and rollback steps. Account authorization,
-origin/privacy agreement, organizer identity and deployment remain owner gates;
-there is no deployed URL yet. All remote changes in that guide are marked unrun.
-Production sends are held by code and the hospital reader remains unavailable.
-Only `NIY_ENVIRONMENT=local-test` together with `NIY006_LOCAL_TEST_MODE=1` enables
-the synthetic local rehearsal. The production template disables both public and
-preview routes until the owner explicitly approves the fixed origin.
+native Cloudflare setup, callback registration, private provisioning, and
+hold/stop and rollback steps. Production reminders stay held and the hospital
+reader remains unavailable. Deployment requires the owner inputs listed in that
+guide; there is no deployed URL yet.
 
 ## Validation and operations
 

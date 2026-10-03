@@ -1,4 +1,4 @@
-"""Cloudflare Python Worker entrypoint for the local application."""
+"""Same-origin application shell and API for local and held Worker runtimes."""
 
 from __future__ import annotations
 

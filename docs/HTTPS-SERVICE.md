@@ -98,6 +98,11 @@ subsequent deployments. The existing SQLite class export provisions the native
 DO class on deployment; do not add a legacy DO migration alongside `exports`.
 The singleton name remains `next-is-you-system`.
 
+Synthetic login, test controls and fake providers require both
+`NIY_ENVIRONMENT=local-test` and `NIY006_LOCAL_TEST_MODE=1`, as configured in
+`wrangler.niy006.test.jsonc`. Every other mode keeps sends held and the hospital
+reader unavailable; a test flag alone cannot enable the rehearsal.
+
 The runtime regression uses this production template with fixture credentials,
 self-signed loopback HTTPS, real local D1/SQLite DO bindings, and current built
 assets. It creates an invitation through the authorized API, sets recovery hold,
@@ -272,9 +277,13 @@ uv run python -m pywrangler deployments list --config .wrangler.production.jsonc
 uv run python -m pywrangler rollback <known-good-held-version-id> --config .wrangler.production.jsonc
 ```
 
-Rollback changes Worker code/assets/config; it does not reverse D1 migrations
-or restore DO data. Roll back only to a version compatible with the current
-schema and preserved SQLite class. Do not roll back to pre-hold/test-capable
+[Rollback](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/)
+selects the earlier Worker's code, assets and versioned bindings/settings; it
+does not reverse D1 migrations or restore DO data. Routes and Cron triggers are
+[managed separately](https://developers.cloudflare.com/workers/versions-and-deployments/deployment-management/)
+and must be checked explicitly after rollback; rolling back does not undo an
+operator's route or schedule shutdown. Roll back only to a version compatible
+with the current schema and preserved SQLite class. Do not roll back to pre-hold/test-capable
 code. If native rollback rejects a migration/storage/asset constraint, leave
 sends held and deploy a forward fix; do not delete resources to force it.
 Review settings after rollback and repeat the status, asset and persistence

@@ -117,6 +117,16 @@ class VisitRepository:
         )
         return {str(row["recipient_id"]) for row in rows}
 
+    async def event_is_in_flight_for_visit(self, event_id: str, visit_id: str) -> bool:
+        rows = await self._store.fetch_all(
+            Statement(
+                """SELECT 1 FROM outbound_events
+                WHERE id = ? AND visit_id = ? AND outcome = 'in_flight'""",
+                (event_id, visit_id),
+            )
+        )
+        return bool(rows)
+
     async def organizer_visits(self) -> list[Mapping[str, Any]]:
         return await self._store.fetch_all(
             Statement(
@@ -254,7 +264,10 @@ class VisitRepository:
         return True
 
     async def scheduler_ledger_digest(
-        self, *, exclude_event_id: str | None = None
+        self,
+        *,
+        exclude_event_id: str | None = None,
+        allow_stopping_visit_id: str | None = None,
     ) -> str:
         """Fingerprint D1 state that can affect future sends or sent-event dedupe."""
         visit_rows = await self._store.fetch_all(
@@ -287,8 +300,14 @@ class VisitRepository:
             else Statement(f"{event_sql} ORDER BY id")
         )
         event_rows = await self._store.fetch_all(event_statement)
+        visit_payload = []
+        for row in visit_rows:
+            item = dict(row)
+            if item["id"] == allow_stopping_visit_id and item["state"] == "stopping":
+                item["state"] = "active"
+            visit_payload.append(item)
         payload = [
-            [dict(row) for row in visit_rows],
+            visit_payload,
             [dict(row) for row in recipient_rows],
             [dict(row) for row in event_rows],
         ]
@@ -635,6 +654,11 @@ class VisitRepository:
                 AND EXISTS (
                     SELECT 1 FROM visits
                     WHERE id = ? AND state IN ('draft', 'active', 'stopping', 'stopped', 'expired')
+                )
+                AND EXISTS (
+                    SELECT 1 FROM visit_recipients AS remaining
+                    WHERE remaining.visit_id = visit_recipients.visit_id
+                        AND remaining.recipient_id != visit_recipients.recipient_id
                 )""",
                 (visit_id, recipient_id, visit_id),
             )
@@ -669,11 +693,11 @@ class VisitRepository:
         return changes == 1
 
     async def prepare_correction(self, visit_id: str) -> bool:
-        """Reopen a stopped series for correction without resetting its identity or event caps."""
+        """Reopen a stopped or expired series without resetting its identity or event caps."""
         changes = await self._store.execute(
             Statement(
                 """UPDATE visits SET state = 'draft', stopped_at = NULL, delete_after = NULL
-                WHERE id = ? AND state = 'stopped' AND roster_frozen = 1""",
+                WHERE id = ? AND state IN ('stopped', 'expired') AND roster_frozen = 1""",
                 (visit_id,),
             )
         )
@@ -732,6 +756,23 @@ class VisitRepository:
             Statement("SELECT state FROM visits WHERE id = ?", (visit_id,))
         )
         return str(rows[0]["state"]) if rows else None
+
+    async def stop_while_event_is_in_flight(self, visit_id: str) -> bool:
+        """Close a visit to new sends while one of its provider requests is pending."""
+        return (
+            await self._store.execute(
+                Statement(
+                    """UPDATE visits SET state = 'stopping'
+                    WHERE id = ? AND state IN ('active', 'stopping')
+                    AND EXISTS (
+                        SELECT 1 FROM outbound_events AS e
+                        WHERE e.visit_id = visits.id AND e.outcome = 'in_flight'
+                    )""",
+                    (visit_id,),
+                )
+            )
+            == 1
+        )
 
     async def finalize_stopping(self, now: datetime) -> int:
         rows = await self._store.fetch_all(

@@ -46,4 +46,5 @@ export function createVisit(input: VisitInput, options?: object): Promise<{ id: 
 export function updateVisit(id: string, input: VisitInput, options?: object): Promise<{ id: string; state: "draft" }>;
 export function startVisit(id: string, options?: object): Promise<{ state: "active" }>;
 export function stopVisit(id: string, options?: object): Promise<{ state: "stopping" | "stopped" }>;
+export function removeVisitRecipient(visitId: string, recipientId: string, options?: object): Promise<null>;
 export function correctVisit(id: string, input: VisitInput, options?: object): Promise<{ id: string; state: "draft" }>;

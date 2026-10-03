@@ -6,6 +6,7 @@ import {
   getVisitCorrection,
   listRecipients,
   listVisits,
+  removeVisitRecipient,
   startVisit,
   stopVisit,
   updateVisit,
@@ -52,6 +53,8 @@ let initialPatientNumber: string | null = null;
 let discardFormOnNextRender = false;
 const pendingStops = new Set<string>();
 const pendingStarts = new Set<string>();
+const pendingRecipientRemovals = new Set<string>();
+let stoppingRefreshTimer: number | null = null;
 let draftsCollapsed = true;
 
 function escapeHtml(value: string): string {
@@ -60,6 +63,23 @@ function escapeHtml(value: string): string {
 
 function text(value: string | number | null | undefined): string {
   return value === null || value === undefined || value === "" ? "尚無資料" : String(value);
+}
+
+function formatCheckedAt(value: string | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "尚無資料";
+  const checkedAt = new Date(value);
+  if (Number.isNaN(checkedAt.getTime())) return "時間格式無效";
+  return new Intl.DateTimeFormat("zh-TW", {
+    timeZone: "Asia/Taipei",
+    calendar: "gregory",
+    numberingSystem: "latn",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(checkedAt);
 }
 
 function errorText(error: unknown): string {
@@ -91,9 +111,12 @@ function renderLogin(): string {
   </section>`;
 }
 
-function recipientChoices(selected: string[]): string {
-  if (!recipients.length) return `<p class="empty-inline">目前沒有已同意且可用的通知對象。</p>`;
-  return recipients.map((recipient) => `<label class="recipient-choice"><input type="checkbox" name="recipient_ids" value="${escapeHtml(recipient.id)}" ${selected.includes(recipient.id) ? "checked" : ""}><span>${escapeHtml(recipient.display_name)}</span></label>`).join("");
+function recipientChoices(selected: string[], allowedRecipientIds?: Set<string>): string {
+  const choices = allowedRecipientIds
+    ? recipients.filter((recipient) => allowedRecipientIds.has(recipient.id))
+    : recipients;
+  if (!choices.length) return `<p class="empty-inline">目前沒有已同意且可用的通知對象。</p>`;
+  return choices.map((recipient) => `<label class="recipient-choice"><input type="checkbox" name="recipient_ids" value="${escapeHtml(recipient.id)}" ${selected.includes(recipient.id) ? "checked" : ""}><span>${escapeHtml(recipient.display_name)}</span></label>`).join("");
 }
 
 function rememberFormValues(): void {
@@ -142,16 +165,20 @@ function blockNavigationWithUnsavedChanges(): boolean {
 function formMarkup(): string {
   const item = editing?.visit;
   const storedRecipients = item?.recipients.map((recipient) => recipient.id) ?? [];
+  const allowedRecipientIds = editing?.mode === "correct" ? new Set(storedRecipients) : undefined;
   const draftRecipients = formValues?.recipient_ids;
   const selectedRecipients = Array.isArray(draftRecipients) ? draftRecipients : storedRecipients;
   const defaultHospital = formValue("hospital", item?.hospital ?? "ntuh-main");
-  const formTitle = editing?.mode === "correct" ? "修正已停止的提醒" : item ? "修正草稿" : "建立候診提醒";
+  const correctionIsExpired = item?.state === "expired";
+  const formTitle = editing?.mode === "correct"
+    ? correctionIsExpired ? "修正已結束的提醒" : "修正已停止的提醒"
+    : item ? "修正草稿" : "建立候診提醒";
   const submitLabel = formSaving ? "儲存中…" : editing?.mode === "correct" ? "儲存修正並回到草稿" : item ? "儲存草稿" : "建立草稿";
   const showCancel = Boolean(item) || (!item && formValues !== null && hasUnsavedFormChanges());
   const cancelLabel = item ? "取消修正" : "清除未儲存草稿";
   return `<section class="panel" aria-labelledby="setup-heading">
     <div class="panel-heading"><div><p class="eyebrow">提醒設定</p><h2 id="setup-heading">${formTitle}</h2></div><span class="step-count">${item ? formatVisitState(item.state) : "新草稿"}</span></div>
-    ${item ? `<p class="edit-notice" role="status">你正在修改已儲存的${editing?.mode === "correct" ? "已停止提醒" : "草稿"}。畫面上的變更尚未儲存；取消會捨棄這次編輯，儲存後仍須重新檢查才能開始提醒。</p>` : `<p class="intro">先建立草稿，再由提醒清單檢查並開始。建立或儲存草稿不會啟動監控，也不會傳送通知。</p>`}
+    ${item ? `<p class="edit-notice" role="status">你正在修改已儲存的${editing?.mode === "correct" ? correctionIsExpired ? "已結束提醒" : "已停止提醒" : "草稿"}。畫面上的變更尚未儲存；取消會捨棄這次編輯，儲存後仍須重新檢查才能開始提醒。</p>` : `<p class="intro">先建立草稿，再由提醒清單檢查並開始。建立或儲存草稿不會啟動監控，也不會傳送通知。</p>`}
     <form id="visit-form" novalidate>
       <fieldset class="hospital-options"><legend>醫院</legend>
         <label class="choice"><input type="radio" name="hospital" value="ntuh-main" ${defaultHospital === "ntuh-main" ? "checked" : ""} required><span>臺大醫院總院</span></label>
@@ -168,7 +195,7 @@ function formMarkup(): string {
           <option value="evening" ${formValue("session", item?.session ?? "morning") === "evening" ? "selected" : ""}>${sessionNames.evening}（evening）</option>
         </select><small>這是系統目前接受的診次代碼，不代表該院、該科別或日期有開診。請先依院方資訊確認；API 尚未提供診間與日期的可選診次。</small></label>
       </div>
-      <fieldset class="recipient-panel"><legend>通知對象</legend><div class="recipient-list">${recipientChoices(selectedRecipients)}</div></fieldset>
+      <fieldset class="recipient-panel"><legend>通知對象</legend><div class="recipient-list">${recipientChoices(selectedRecipients, allowedRecipientIds)}</div>${allowedRecipientIds ? `<p class="recipient-note">第一次成功啟動後，不能新增通知對象；修正時只能保留或移除原有對象。</p>` : ""}</fieldset>
       <div class="action-row"><button class="primary-button" type="submit" ${formSaving ? "disabled" : ""}>${submitLabel}</button>${showCancel ? `<button class="secondary-button" id="cancel-edit" type="button" ${formSaving ? "disabled" : ""}>${cancelLabel}</button>` : ""}</div>
       ${formSaving ? `<p class="inline-state" role="status">正在儲存${editing?.mode === "correct" ? "修正" : "草稿"}…</p>` : ""}
     </form>
@@ -180,9 +207,16 @@ function visitCard(item: OrganizerVisit): string {
   const stateKey = visitStatusKey(item);
   const active = item.state === "active";
   const pendingStop = pendingStops.has(item.id);
+  const displayStateKey = pendingStop ? "stopping" : stateKey;
   const pendingStart = pendingStarts.has(item.id);
-  const recipientsText = item.recipients.length
-    ? item.recipients.map((recipient) => escapeHtml(recipient.display_name)).join("、")
+  const canRemoveRecipients = ["active", "stopped", "expired"].includes(item.state);
+  const cannotRemoveLastRecipient = canRemoveRecipients && item.recipients.length === 1;
+  const recipientsSummary = item.recipients.length
+    ? `<div><ul class="recipient-summary">${item.recipients.map((recipient) => {
+      const removalKey = `${item.id}\u0000${recipient.id}`;
+      const pendingRemoval = pendingRecipientRemovals.has(removalKey);
+      return `<li><span>${escapeHtml(recipient.display_name)}</span>${canRemoveRecipients ? `<button class="recipient-remove-button" type="button" data-remove-visit="${escapeHtml(item.id)}" data-remove-recipient="${escapeHtml(recipient.id)}" aria-label="移除通知對象 ${escapeHtml(recipient.display_name)}" ${pendingStop || pendingRemoval || cannotRemoveLastRecipient ? "disabled" : ""}>${pendingRemoval ? "移除中…" : "移除"}</button>` : ""}</li>`;
+    }).join("")}</ul>${cannotRemoveLastRecipient ? `<p class="gate-note">至少保留一位通知對象，才能繼續提醒或日後重新啟動。</p>` : ""}</div>`
     : "沒有選取通知對象";
   const notification = item.notification;
   const sourceStatus = item.source_read?.status ?? "unavailable";
@@ -191,13 +225,13 @@ function visitCard(item: OrganizerVisit): string {
     ? `<div><dt>掛號序號</dt><dd>${escapeHtml(String(item.patient_number))}</dd></div>`
     : "";
   return `<article class="visit-card" aria-labelledby="visit-${escapeHtml(item.id)}">
-    <div class="visit-heading"><div><p class="eyebrow">${escapeHtml(hospitalNames[item.hospital] ?? item.hospital)}</p><h3 id="visit-${escapeHtml(item.id)}">${escapeHtml(item.date)} · ${escapeHtml(item.department_code)} · ${escapeHtml(item.clinic_code)}</h3><p class="visit-session">${escapeHtml(sessionNames[item.session])}（${escapeHtml(item.session)}）</p></div><span class="state state-${stateKey}">${stateKey === "source-unavailable" ? "來源 unavailable · 草稿" : stateKey === "terminal" ? "已結束" : formatVisitState(item.state)}</span></div>
+    <div class="visit-heading"><div><p class="eyebrow">${escapeHtml(hospitalNames[item.hospital] ?? item.hospital)}</p><h3 id="visit-${escapeHtml(item.id)}">${escapeHtml(item.date)} · ${escapeHtml(item.department_code)} · ${escapeHtml(item.clinic_code)}</h3><p class="visit-session">${escapeHtml(sessionNames[item.session])}（${escapeHtml(item.session)}）</p></div><span class="state state-${displayStateKey}">${pendingStop ? "停止中" : stateKey === "source-unavailable" ? "來源暫不可用 · 草稿" : stateKey === "terminal" ? "已結束" : formatVisitState(item.state)}</span></div>
     <dl class="details">
       <div><dt>科別・診間・診次</dt><dd>${escapeHtml(item.department_code)}・${escapeHtml(item.clinic_code)}・${escapeHtml(item.session)}</dd></div>
       ${patientNumberRow}
       <div><dt>院方資料來源</dt><dd>${sourceLinkMarkup(item.source_url)}</dd></div>
-      <div><dt>通知對象</dt><dd>${recipientsText}</dd></div>
-      <div><dt>最近檢查</dt><dd>${escapeHtml(text(item.observation?.checked_at))}</dd></div>
+      <div><dt>通知對象</dt><dd>${recipientsSummary}</dd></div>
+      <div><dt>最近檢查</dt><dd>${escapeHtml(formatCheckedAt(item.observation?.checked_at))}</dd></div>
       <div><dt>院方觀察</dt><dd>${item.observation?.current_number ? `目前號碼 ${escapeHtml(String(item.observation.current_number))}` : "尚無可用的號碼觀察"}</dd></div>
       <div><dt>來源狀態</dt><dd>${escapeHtml(formatSourceStatus(sourceStatus))} · ${escapeHtml(sourceReason)}</dd></div>
       <div><dt>訊息傳送結果</dt><dd>共 ${notification.count} 則；已接受 ${notification.accepted} 則；需留意 ${notification.issues} 則</dd></div>
@@ -205,11 +239,12 @@ function visitCard(item: OrganizerVisit): string {
     ${active ? `<div class="stop-row"><div><p>${pendingStop ? "停止請求處理中…" : "監控中。停止確認後，系統會停止後續檢查與通知。"}</p><small>停止完成前，狀態仍以服務回覆為準。</small></div><button class="stop-button" type="button" data-stop="${escapeHtml(item.id)}" ${pendingStop ? "disabled" : ""}>${pendingStop ? "停止中" : "停止提醒"}</button></div>` : ""}
     ${item.state === "stopping" ? `<p class="inline-state" role="status">停止已送出，正在等候關閉確認。</p>` : ""}
     ${item.state === "stopped" ? `<p class="inline-state" role="status">提醒已停止。</p>` : ""}
-    ${item.state === "expired" ? `<p class="inline-state" role="status">此提醒已結束，不能再次啟動。</p>` : ""}
+    ${item.state === "expired" ? `<p class="inline-state" role="status">此提醒已結束。修正日期或診次並儲存後，可重新檢查並啟動同一筆提醒。</p>` : ""}
     ${pendingStart ? `<p class="inline-state" role="status">正在檢查可信院方觀察…</p>` : ""}
     <div class="visit-actions">
       ${item.state === "draft" ? `<button class="secondary-button" type="button" data-edit="${escapeHtml(item.id)}">修正草稿</button><button class="primary-button" type="button" data-start="${escapeHtml(item.id)}" ${canRequestStart(item) && !pendingStart && editing?.visit.id !== item.id ? "" : "disabled"}>${pendingStart ? "重新檢查中…" : "重新檢查並開始提醒"}</button>` : ""}
       ${item.state === "stopped" ? `<button class="secondary-button" type="button" data-correct="${escapeHtml(item.id)}">修正後重新檢查</button>` : ""}
+      ${item.state === "expired" ? `<button class="secondary-button" type="button" data-correct="${escapeHtml(item.id)}">修正後重新啟動</button>` : ""}
     </div>
     ${item.state === "draft" && editing?.visit.id === item.id ? `<p class="gate-note">清單仍顯示已儲存的草稿。先儲存或取消修正，再重新檢查並開始。</p>` : item.state === "draft" && !canRequestStart(item) ? `<p class="gate-note">開始前請填妥醫院、日期、科別、診間、診次，並選擇至少一位通知對象。</p>` : item.state === "draft" ? `<p class="gate-note">服務會重新檢查來源資料。只有取得新鮮、可信且完全符合診次的觀察後，服務才會回覆啟動成功；失敗時維持草稿。</p>` : ""}
   </article>`;
@@ -231,8 +266,20 @@ function renderDashboard(preserveCurrentForm = true): void {
     ${refreshWarning ? `<p class="message message-warning" role="status">${escapeHtml(refreshWarning)}</p>` : ""}
     ${formMarkup()}
     <section class="visits saved-drafts" aria-labelledby="drafts-heading"><div class="section-heading"><div><p class="eyebrow">提醒設定</p><h2 id="drafts-heading">已儲存草稿 <span class="draft-count">${drafts.length}</span></h2></div><button class="secondary-button drafts-toggle" type="button" data-drafts-toggle aria-expanded="${!draftsCollapsed}" aria-controls="saved-drafts-list">${draftsCollapsed ? "展開草稿" : "收合草稿"}</button></div><div id="saved-drafts-list" class="draft-list" ${draftsCollapsed ? "hidden" : ""}>${drafts.length ? drafts.map(visitCard).join("") : `<div class="empty-state"><h3>尚無已儲存草稿</h3><p>建立草稿後，會顯示在這裡。</p></div>`}</div></section>
-    ${otherVisits.length ? `<section class="visits" aria-labelledby="visits-heading"><div class="section-heading"><div><p class="eyebrow">狀態與控制</p><h2 id="visits-heading">提醒清單</h2></div></div>${otherVisits.map(visitCard).join("")}</section>` : ""}`;
+    <section class="visits" aria-labelledby="visits-heading"><div class="section-heading"><div><p class="eyebrow">狀態與控制</p><h2 id="visits-heading">提醒清單</h2></div></div>${otherVisits.length ? otherVisits.map(visitCard).join("") : `<div class="empty-state"><h3>尚無提醒狀態</h3><p>執行中、已停止或已結束的提醒會顯示在這裡。</p></div>`}</section>`;
   bindActions();
+}
+
+function scheduleStoppingRefresh(): void {
+  if (stoppingRefreshTimer !== null) {
+    window.clearTimeout(stoppingRefreshTimer);
+    stoppingRefreshTimer = null;
+  }
+  if (!authorized || !visits.some((visit) => visit.state === "stopping")) return;
+  stoppingRefreshTimer = window.setTimeout(() => {
+    stoppingRefreshTimer = null;
+    void loadDashboard();
+  }, 1000);
 }
 
 async function loadDashboard(preserveSaveConfirmation = false): Promise<void> {
@@ -257,14 +304,18 @@ async function loadDashboard(preserveSaveConfirmation = false): Promise<void> {
       serviceStatus.className = "status status-pending";
       if (preserveSaveConfirmation && authorized) {
         refreshWarning = "草稿已儲存，但清單更新失敗。請重新整理確認狀態。";
+      } else if (authorized) {
+        refreshWarning = visits.some((visit) => visit.state === "stopping")
+          ? `提醒狀態更新失敗，將自動重試。${errorText(error)}`
+          : errorText(error);
       } else {
-        authorized = false;
         message = errorText(error);
       }
     }
   } finally {
     loading = false;
     renderDashboard();
+    scheduleStoppingRefresh();
   }
 }
 
@@ -420,11 +471,37 @@ function bindActions(): void {
     renderDashboard();
     try {
       const result = await stopVisit(id);
+      visits = visits.map((visit) => visit.id === id
+        ? { ...visit, state: result.state }
+        : visit);
       message = result.state === "stopped" ? "提醒已停止。" : "停止請求已送出，正在等候關閉確認。";
     } catch (error) {
       message = errorText(error);
     } finally {
       pendingStops.delete(id);
+      await loadDashboard();
+    }
+  }));
+
+  document.querySelectorAll<HTMLButtonElement>("[data-remove-visit]").forEach((button) => button.addEventListener("click", async () => {
+    const visitId = button.dataset.removeVisit;
+    const recipientId = button.dataset.removeRecipient;
+    const item = visits.find((visit) => visit.id === visitId);
+    if (!visitId || !recipientId || !item || !["active", "stopped", "expired"].includes(item.state)
+      || item.recipients.length <= 1) return;
+    if (blockNavigationWithUnsavedChanges()) return;
+    const removalKey = `${visitId}\u0000${recipientId}`;
+    if (pendingRecipientRemovals.has(removalKey)) return;
+    pendingRecipientRemovals.add(removalKey);
+    message = "正在移除通知對象…";
+    renderDashboard();
+    try {
+      await removeVisitRecipient(visitId, recipientId);
+      message = "已移除通知對象。";
+    } catch (error) {
+      message = errorText(error);
+    } finally {
+      pendingRecipientRemovals.delete(removalKey);
       await loadDashboard();
     }
   }));

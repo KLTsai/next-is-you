@@ -487,7 +487,7 @@ def create_app(
         visit = await repository.get_visit(visit_id)
         if visit is None:
             return _api_error("visit_not_found", 404)
-        if visit["state"] not in {"draft", "stopped"}:
+        if visit["state"] not in {"draft", "stopped", "expired"}:
             return _api_error("invalid_lifecycle_state", 409)
         return JSONResponse({"patient_number": int(visit["patient_number"])})
 
@@ -529,6 +529,8 @@ def create_app(
             return _api_error("visit_not_found", 404)
         if state == "invalid_lifecycle_state":
             return _api_error("invalid_lifecycle_state", 409)
+        if state == "scheduler_held":
+            return _api_error("scheduler_held", 503)
         return JSONResponse({"state": state})
 
     @app.post("/api/organizer/visits/{visit_id}/correct")

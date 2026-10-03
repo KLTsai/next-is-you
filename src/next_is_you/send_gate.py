@@ -36,6 +36,7 @@ class SystemSendGate(_DurableObjectBase):
     def __init__(self, ctx: Any, env: Any) -> None:
         super().__init__(ctx, env)
         self._lock = asyncio.Lock()
+        self._stop_transition_lock = asyncio.Lock()
         self._test_request_started = asyncio.Event()
         self._test_request_release = asyncio.Event()
 
@@ -86,11 +87,28 @@ class SystemSendGate(_DurableObjectBase):
                         break
                 await self._clear_request_context()
                 await self._save_ledger()
+                if await self._repository().finalize_stopping(
+                    datetime.now(timezone.utc)
+                ):
+                    await self._save_ledger()
         return result
 
     async def stop_visit(self, visit_id: str, now: str | None = None) -> str | None:
+        timestamp = _datetime(now)
+        async with self._stop_transition_lock:
+            event_id = await self.ctx.storage.get("inflight_event_id")
+            repository = self._repository()
+            if event_id and await repository.event_is_in_flight_for_visit(
+                str(event_id), visit_id
+            ):
+                if not await self._check_ledger():
+                    return "scheduler_held"
+                await self.ctx.storage.put("inflight_stop_visit_id", visit_id)
+                if await repository.stop_while_event_is_in_flight(visit_id):
+                    await self._save_ledger()
+                    return "stopping"
+
         async with self._lock:
-            timestamp = _datetime(now)
             repository = self._repository()
             await self._check_ledger()
             await repository.recover_in_flight_events(timestamp)
@@ -247,13 +265,13 @@ class SystemSendGate(_DurableObjectBase):
         patient_number: int,
         recipient_ids: tuple[str, ...],
     ) -> bool:
-        """Reopen a stopped logical series without resetting its alert history."""
+        """Reopen a stopped or expired logical series without resetting alert history."""
         async with self._lock:
             repository = self._repository()
             if not await self._check_ledger():
                 return False
             visit = await repository.get_visit(visit_id)
-            if visit is None or visit["state"] != "stopped":
+            if visit is None or visit["state"] not in {"stopped", "expired"}:
                 return False
             existing = await repository.selected_recipient_ids(visit_id)
             selected = set(recipient_ids)
@@ -411,20 +429,26 @@ class SystemSendGate(_DurableObjectBase):
         )
         await self.ctx.storage.put("inflight_event_id", event_id)
         await self.ctx.storage.put("inflight_context_digest", digest)
+        await self.ctx.storage.put("inflight_stop_visit_id", "")
 
     async def _request_ledger_matches(self, event_id: str) -> bool:
         stored_event_id = await self.ctx.storage.get("inflight_event_id")
         stored_digest = await self.ctx.storage.get("inflight_context_digest")
         if stored_event_id != event_id or not stored_digest:
             return False
+        allowed_stopping_visit_id = await self.ctx.storage.get("inflight_stop_visit_id")
         current_digest = await self._repository().scheduler_ledger_digest(
-            exclude_event_id=event_id
+            exclude_event_id=event_id,
+            allow_stopping_visit_id=(
+                str(allowed_stopping_visit_id) if allowed_stopping_visit_id else None
+            ),
         )
         return str(stored_digest) == current_digest
 
     async def _clear_request_context(self) -> None:
         await self.ctx.storage.put("inflight_event_id", "")
         await self.ctx.storage.put("inflight_context_digest", "")
+        await self.ctx.storage.put("inflight_stop_visit_id", "")
 
     async def _save_ledger(self) -> None:
         digest = await self._repository().scheduler_ledger_digest()

@@ -249,7 +249,9 @@ async def test_taipei_cutoff_blocks_new_request_at_and_after_boundary(
 
 
 @pytest.mark.asyncio
-async def test_stop_waits_for_active_request_and_blocks_later_sends() -> None:
+async def test_stop_transitions_to_stopping_during_active_request_and_blocks_later_sends() -> (
+    None
+):
     database = LocalD1()
     gate = make_gate(database)
     await seed(gate)
@@ -260,12 +262,27 @@ async def test_stop_waits_for_active_request_and_blocks_later_sends() -> None:
     await gate.wait_test_request_started()
     stopping = asyncio.create_task(gate.stop_visit("v1", "2026-09-27T13:01:00Z"))
     await asyncio.sleep(0)
-    assert not stopping.done()
+    assert await asyncio.wait_for(stopping, timeout=1) == "stopping"
+    duplicate_stop = asyncio.create_task(gate.stop_visit("v1", "2026-09-27T13:01:01Z"))
+    await asyncio.sleep(0)
+    assert await asyncio.wait_for(duplicate_stop, timeout=1) == "stopping"
+    assert (
+        database.connection.execute(
+            "SELECT state FROM visits WHERE id = 'v1'"
+        ).fetchone()[0]
+        == "stopping"
+    )
     await gate.release_test_request()
 
-    await sending
-    assert await stopping == "stopped"
-    await tick(gate, "2026-09-27T13:02:00Z")
+    result = await sending
+    assert result["held"] is False
+    assert (
+        database.connection.execute(
+            "SELECT state FROM visits WHERE id = 'v1'"
+        ).fetchone()[0]
+        == "stopped"
+    )
+    assert (await tick(gate, "2026-09-27T13:02:00Z"))["held"] is False
     assert len((await gate.test_snapshot())["line_requests"]) == 1
 
 
@@ -305,9 +322,7 @@ async def test_withdrawal_waits_for_active_request_then_erases_identity_and_even
 
 
 @pytest.mark.asyncio
-async def test_visit_recipient_removal_waits_then_erases_events_and_blocks_future_sends() -> (
-    None
-):
+async def test_visit_recipient_removal_cannot_remove_the_last_recipient() -> None:
     database = LocalD1()
     gate = make_gate(database)
     await seed(gate)
@@ -324,19 +339,45 @@ async def test_visit_recipient_removal_waits_then_erases_events_and_blocks_futur
     await gate.release_test_request()
 
     await sending
-    assert await removing
+    assert not await removing
     assert (
         database.connection.execute("SELECT COUNT(*) FROM outbound_events").fetchone()[
             0
         ]
-        == 0
+        == 1
     )
+    assert await VisitRepository(CloudflareD1Store(database)).selected_recipient_ids(
+        "v1"
+    ) == {"r1"}
     await tick(gate, "2026-09-27T13:02:00Z")
     assert len((await gate.test_snapshot())["line_requests"]) == 1
 
 
 @pytest.mark.asyncio
-async def test_visit_recipient_removal_wins_ordering_and_blocks_future_sends() -> None:
+async def test_removing_a_recipient_keeps_another_selected_recipient() -> None:
+    database = LocalD1()
+    gate = make_gate(database)
+    await seed(gate)
+    timestamp = "2026-09-27T13:00:00Z"
+    database.connection.execute(
+        """INSERT INTO recipients (
+            id, line_subject, display_name, consented_at,
+            friendship_checked_at, active, created_at
+        ) VALUES ('r2', 'U00000000000000000000000000000002', 'Family 2', ?, ?, 1, ?)""",
+        (timestamp, timestamp, timestamp),
+    )
+    database.connection.execute(
+        "INSERT INTO visit_recipients (visit_id, recipient_id, selected_at) VALUES ('v1', 'r2', ?)",
+        (timestamp,),
+    )
+
+    repository = VisitRepository(CloudflareD1Store(database))
+    assert await repository.remove_recipient("v1", "r1")
+    assert await repository.selected_recipient_ids("v1") == {"r2"}
+
+
+@pytest.mark.asyncio
+async def test_visit_recipient_removal_cannot_block_the_only_recipient() -> None:
     database = LocalD1()
     gate = make_gate(database)
     await seed(gate)
@@ -347,12 +388,15 @@ async def test_visit_recipient_removal_wins_ordering_and_blocks_future_sends() -
     )
     sending = asyncio.create_task(tick(gate, "2026-09-27T13:01:00Z"))
 
-    assert await removing
+    assert not await removing
     await sending
 
     snapshot = await gate.test_snapshot()
-    assert snapshot["line_requests"] == []
-    assert snapshot["events"] == []
+    assert len(snapshot["line_requests"]) == 1
+    assert len(snapshot["events"]) == 1
+    assert await VisitRepository(CloudflareD1Store(database)).selected_recipient_ids(
+        "v1"
+    ) == {"r1"}
 
 
 @pytest.mark.asyncio
@@ -380,6 +424,15 @@ async def test_removal_waits_for_draft_update_and_wins_roster_ordering() -> None
         )
     )
     assert await repository.add_recipient("draft-v1", "r1", timestamp)
+    await repository._store.execute(
+        Statement(
+            """INSERT INTO recipients (id, line_subject, display_name, consented_at,
+            friendship_checked_at, active, created_at) VALUES
+            ('r2', 'line-r2', 'Family B', ?, ?, 1, ?)""",
+            (timestamp.isoformat(), timestamp.isoformat(), timestamp.isoformat()),
+        )
+    )
+    assert await repository.add_recipient("draft-v1", "r2", timestamp)
     gate._repository = lambda: repository
     eligible_read = asyncio.Event()
     continue_update = asyncio.Event()
@@ -402,7 +455,7 @@ async def test_removal_waits_for_draft_update_and_wins_roster_ordering() -> None
             clinic_code="MED-A",
             clinic_session="morning",
             patient_number=86,
-            recipient_ids=("r1",),
+            recipient_ids=("r1", "r2"),
             now=timestamp,
         )
     )
@@ -416,7 +469,7 @@ async def test_removal_waits_for_draft_update_and_wins_roster_ordering() -> None
 
     assert await updating
     assert await removing
-    assert await repository.selected_recipient_ids("draft-v1") == set()
+    assert await repository.selected_recipient_ids("draft-v1") == {"r2"}
 
 
 @pytest.mark.asyncio

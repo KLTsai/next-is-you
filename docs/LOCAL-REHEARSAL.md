@@ -165,9 +165,21 @@ outcomes, bounded retries, both send/Stop orderings, authorization, consent,
 withdrawal and recovery holds remain covered by the existing regression tests;
 you need not provoke these faults or generate new data every manual run.
 
-After the visit's Taipei cutoff it cannot start/send; settled data is eventually
-cleaned up after 48 hours. To exercise draft editing again, use the UI correction
-flow where allowed and a valid date; the same logical visit must not gain another
-`near` event merely from correction. A genuinely new fixture journey can use an
-explicit separate state directory, without deleting the old one. Live LINE,
-hospital access and deployment remain separate [pre-live gates](PRE-LIVE-CHECKLIST.md).
+After 23:59 Taipei time on the appointment date, the next scheduled run expires
+an Active reminder and sends no further notices. Before automatic cleanup, choose
+**修正後重新啟動** on that expired reminder, update its date or appointment details,
+and save. It returns to **已儲存草稿** as the same reminder; use
+**重新檢查並開始提醒** to recheck the source before it can become **監控中**
+again. Correction by itself must not add another `near` event. Confirmed
+**停止提醒** ends monitoring and all later notifications; a notice already in
+flight may settle before Stop is confirmed. After the first successful start,
+existing recipients can be removed from the reminder card, but the frozen roster
+cannot accept new recipients. At least one recipient must remain. When only one
+remains, its Remove button is disabled because reminders need a recipient to keep
+monitoring or restart later.
+
+Drafts and expired reminders are cleaned up 48 hours after the appointment cutoff
+at 23:59 Taipei time; stopped reminders are cleaned up 48 hours after Stop. A
+genuinely new fixture journey can use an explicit separate state directory,
+without deleting the old one. Live LINE, hospital access and deployment remain
+separate [pre-live gates](PRE-LIVE-CHECKLIST.md).

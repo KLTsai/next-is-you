@@ -10,7 +10,7 @@ const STATE_LABELS = Object.freeze({
 });
 const SOURCE_LABELS = Object.freeze({
   usable: "資料已核對",
-  unavailable: "來源 unavailable",
+  unavailable: "來源暫不可用",
   stale: "資料已過期",
   untrusted: "來源尚未驗證",
   scope_mismatch: "診次資料不相符",

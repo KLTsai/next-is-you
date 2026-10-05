@@ -133,7 +133,7 @@ def test_wrangler_draft_save_crosses_real_worker_durable_object_binding(tmp_path
                 if status == 200:
                     assert json.loads(body) == {
                         "status": "ok",
-                        "mode": "local-development",
+                        "mode": "local-test",
                     }
                     break
             except (OSError, URLError):

@@ -44,6 +44,7 @@ const sourceReasons: Record<string, string> = {
 let recipients: Recipient[] = [];
 let visits: OrganizerVisit[] = [];
 let authorized = false;
+let localTestMode = false;
 let loading = false;
 let message = "";
 let refreshWarning = "";
@@ -84,7 +85,7 @@ function formatCheckedAt(value: string | null | undefined): string {
 }
 
 function errorText(error: unknown): string {
-  if (!(error instanceof OrganizerApiError)) return "連線失敗，請確認本機服務後重試。";
+  if (!(error instanceof OrganizerApiError)) return "連線失敗，請確認服務後重試。";
   const labels: Record<string, string> = {
     service_unavailable: "目前無法使用提醒服務。",
     invalid_request: "資料不完整或格式不正確，請檢查後再試。",
@@ -105,10 +106,10 @@ function errorText(error: unknown): string {
 function renderLogin(): string {
   return `<section class="panel login-panel" aria-labelledby="login-heading">
     <p class="eyebrow">管理者登入</p><h1 id="login-heading">登入以管理家人提醒</h1>
-    <p class="intro">只有已授權的管理者能查看或修改提醒。請使用已設定的 LINE Login，或在明確啟用 NIY-006 本機測試設定時使用合成測試登入。</p>
+    <p class="intro">只有已授權的管理者能查看或修改提醒。請使用已設定的 LINE Login。</p>
     ${message ? `<p class="message message-warning" role="status">${escapeHtml(message)}</p>` : ""}
-    <div class="login-actions"><a class="primary-button link-button" href="/auth/line">使用 LINE Login</a><button class="secondary-button" id="synthetic-login" type="button">本機合成測試登入</button></div>
-    <p class="gate-note">合成測試登入只在 NIY006_LOCAL_TEST_MODE 明確啟用的本機綁定中有效，不會呼叫 LINE。</p>
+    <div class="login-actions"><a class="primary-button link-button" href="/auth/line">使用 LINE Login</a>${localTestMode ? '<button class="secondary-button" id="synthetic-login" type="button">本機合成測試登入</button>' : ""}</div>
+    ${localTestMode ? '<p class="gate-note">本機合成測試登入不會呼叫 LINE。</p>' : ""}
   </section>`;
 }
 
@@ -288,7 +289,8 @@ async function loadDashboard(preserveSaveConfirmation = false): Promise<void> {
   try {
     const health = await fetch("/api/healthz", { headers: { accept: "application/json" } });
     if (!health.ok) throw new Error("service unavailable");
-    serviceStatus.textContent = "本機服務正常";
+    localTestMode = (await health.json()).mode === "local-test";
+    serviceStatus.textContent = "服務正常";
     serviceStatus.className = "status status-ok";
     const [roster, projection] = await Promise.all([listRecipients(), listVisits()]);
     recipients = roster.recipients;
@@ -300,7 +302,7 @@ async function loadDashboard(preserveSaveConfirmation = false): Promise<void> {
       authorized = false;
       message = "請登入已授權的管理者帳號。";
     } else {
-      serviceStatus.textContent = "本機服務不可用";
+      serviceStatus.textContent = "服務不可用";
       serviceStatus.className = "status status-pending";
       if (preserveSaveConfirmation && authorized) {
         refreshWarning = "草稿已儲存，但清單更新失敗。請重新整理確認狀態。";

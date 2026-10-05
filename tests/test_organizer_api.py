@@ -308,7 +308,15 @@ def test_synthetic_organizer_session_requires_explicit_niy006_test_binding():
         class TestConfigApp:
             async def __call__(self, scope, receive, send):
                 await app(
-                    {**scope, "env": {"NIY006_LOCAL_TEST_MODE": "1"}}, receive, send
+                    {
+                        **scope,
+                        "env": {
+                            "NIY006_LOCAL_TEST_MODE": "1",
+                            "NIY_ENVIRONMENT": "local-test",
+                        },
+                    },
+                    receive,
+                    send,
                 )
 
         async with AsyncClient(

@@ -106,8 +106,11 @@ class LocalTestBindingApp:
         self.app = app
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
-        if scope["path"].startswith("/__niy006_test/"):
-            scope = {**scope, "env": {"NIY006_LOCAL_TEST_MODE": "1"}}
+        if scope["path"].startswith(("/__niy006_test/", "/api/", "/auth/")):
+            scope = {
+                **scope,
+                "env": {"NIY006_LOCAL_TEST_MODE": "1", "NIY_ENVIRONMENT": "local-test"},
+            }
         await self.app(scope, receive, send)
 
 
@@ -125,7 +128,11 @@ def test_local_http_acceptance_journey() -> None:
         )
         gate = SystemSendGate(
             LocalContext(),
-            {"DB": database, "NIY006_LOCAL_TEST_MODE": "1"},
+            {
+                "DB": database,
+                "NIY006_LOCAL_TEST_MODE": "1",
+                "NIY_ENVIRONMENT": "local-test",
+            },
         )
         visits = VisitRepository(database)
         app = create_app(
@@ -282,7 +289,11 @@ def test_local_browser_acceptance_journey() -> None:
     )
     gate = SystemSendGate(
         LocalContext(),
-        {"DB": database, "NIY006_LOCAL_TEST_MODE": "1"},
+        {
+            "DB": database,
+            "NIY006_LOCAL_TEST_MODE": "1",
+            "NIY_ENVIRONMENT": "local-test",
+        },
     )
     app = create_app(
         settings={
@@ -510,9 +521,7 @@ def test_local_browser_acceptance_journey() -> None:
                 stop_route = "**/api/organizer/visits/*/stop"
                 page.route(stop_route, lambda route: route.abort())
                 first_visit.get_by_role("button", name="停止提醒").click()
-                page.get_by_text(
-                    "連線失敗，請確認本機服務後重試。", exact=True
-                ).wait_for()
+                page.get_by_text("連線失敗，請確認服務後重試。", exact=True).wait_for()
                 assert first_visit.locator(".state").inner_text() == "監控中"
                 assert first_visit.get_by_role("button", name="停止提醒").is_visible()
                 page.unroute(stop_route)

@@ -3,6 +3,10 @@
 These gates are not proven by local synthetic tests and must be completed before
 enabling real reminders:
 
+Use [Issue #18 held HTTPS setup](HTTPS-SERVICE.md) for provisioning, deployment
+acceptance, and hold/stop and rollback procedures. This checklist owns the gates
+for enabling real reminders.
+
 - [ ] **Hospital sources:** confirm each hospital permits the access method, verify
   live clinic/date/session identity and current-number meaning, measure freshness,
   and exercise timeout, denial, challenge, ambiguity, and schema-change handling.

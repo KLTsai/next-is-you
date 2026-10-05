@@ -1,0 +1,48 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "next-is-you-held",
+  "main": "src/worker.py",
+  "compatibility_date": "2026-09-25",
+  "compatibility_flags": [
+    "python_workers"
+  ],
+  "assets": {
+    "directory": "./dist/",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "next-is-you-production",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SEND_GATE",
+        "class_name": "SystemSendGate"
+      }
+    ]
+  },
+  "exports": {
+    "SystemSendGate": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "triggers": {
+    "crons": [
+      "* * * * *"
+    ]
+  },
+  "workers_dev": false,
+  "preview_urls": false,
+  "keep_vars": true,
+  "vars": {
+    "NIY_ENVIRONMENT": "production",
+    "NIY006_LOCAL_TEST_MODE": "0"
+  }
+}

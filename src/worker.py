@@ -1,11 +1,11 @@
-"""Cloudflare Python Worker entrypoint for the local application."""
+"""Same-origin application shell and API for local and held Worker runtimes."""
 
 from __future__ import annotations
 
 import json
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -39,7 +39,7 @@ from next_is_you.line_messaging import (
 from next_is_you.persistence import CloudflareD1Store, VisitRepository, iso_utc
 
 # Wrangler discovers the Durable Object class from this imported module export.
-from next_is_you.send_gate import SystemSendGate  # noqa: F401
+from next_is_you.send_gate import SystemSendGate, local_test_mode  # noqa: F401
 
 try:
     from workers import asgi
@@ -64,6 +64,10 @@ class LineLoginSettings:
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any]) -> "LineLoginSettings":
+        def text_setting(local_name: str, runtime_name: str) -> str:
+            value = values.get(local_name, values.get(runtime_name, ""))
+            return value if isinstance(value, str) and value.strip() else ""
+
         raw_subjects = values.get(
             "organizer_subjects", values.get("ORGANIZER_LINE_SUBJECTS", "")
         )
@@ -71,30 +75,23 @@ class LineLoginSettings:
             subjects = frozenset(
                 part.strip() for part in raw_subjects.split(",") if part.strip()
             )
-        else:
+        elif isinstance(raw_subjects, (list, tuple, set, frozenset)):
             subjects = frozenset(
-                str(subject).strip() for subject in raw_subjects if str(subject).strip()
+                subject.strip()
+                for subject in raw_subjects
+                if isinstance(subject, str) and subject.strip()
             )
+        else:
+            subjects = frozenset()
         return cls(
-            channel_id=str(
-                values.get(
-                    "line_login_channel_id", values.get("LINE_LOGIN_CHANNEL_ID", "")
-                )
+            channel_id=text_setting("line_login_channel_id", "LINE_LOGIN_CHANNEL_ID"),
+            channel_secret=text_setting(
+                "line_login_channel_secret", "LINE_LOGIN_CHANNEL_SECRET"
             ),
-            channel_secret=str(
-                values.get(
-                    "line_login_channel_secret",
-                    values.get("LINE_LOGIN_CHANNEL_SECRET", ""),
-                )
+            redirect_uri=text_setting(
+                "line_login_redirect_uri", "LINE_LOGIN_REDIRECT_URI"
             ),
-            redirect_uri=str(
-                values.get(
-                    "line_login_redirect_uri", values.get("LINE_LOGIN_REDIRECT_URI", "")
-                )
-            ),
-            session_secret=str(
-                values.get("session_secret", values.get("SESSION_SIGNING_SECRET", ""))
-            ),
+            session_secret=text_setting("session_secret", "SESSION_SIGNING_SECRET"),
             organizer_subjects=subjects,
         )
 
@@ -107,7 +104,10 @@ class LineLoginSettings:
                 and callback.hostname is not None
                 and callback.username is None
                 and callback.password is None
+                and callback.path == "/auth/line/callback"
+                and not callback.query
                 and not callback.fragment
+                and (callback.port is None or callback.port > 0)
             )
         except ValueError:
             callback_is_secure = False
@@ -147,8 +147,16 @@ def create_app(
     app.state.clock = clock
 
     @app.get("/api/healthz")
-    async def health_check() -> dict[str, str]:
-        return {"status": "ok", "mode": "local-development"}
+    async def health_check(request: Request) -> dict[str, str]:
+        env = request.scope.get("env")
+        mode = (
+            "local-test"
+            if local_test_mode(env)
+            else "held-service"
+            if env is not None
+            else "local-development"
+        )
+        return {"status": "ok", "mode": mode}
 
     @app.get("/auth/line")
     async def line_login(request: Request) -> Response:
@@ -669,6 +677,16 @@ def create_app(
             )
         return Response(status_code=204)
 
+    @app.get("/api/organizer/scheduler/status")
+    async def scheduler_status(request: Request) -> Response:
+        _, denied = await _authorized(request, "organizer", csrf=False)
+        if denied:
+            return denied
+        gate = _send_gate(request)
+        if gate is None:
+            return _api_error("service_unavailable", 503)
+        return JSONResponse(await gate.scheduler_status())
+
     @app.post("/api/organizer/scheduler/recovery-hold", status_code=204)
     async def hold_scheduler_for_reconciliation(request: Request) -> Response:
         _, denied = await _authorized(request, "organizer", csrf=True)
@@ -710,7 +728,7 @@ def create_app(
         operation: str, request: Request
     ) -> Response:
         env = request.scope.get("env")
-        if str(_binding_value(env, "NIY006_LOCAL_TEST_MODE", "")) != "1":
+        if not local_test_mode(env):
             return Response(status_code=404)
         gate = _send_gate(request)
         if gate is None:
@@ -835,7 +853,7 @@ def _login_settings(request: Request) -> LineLoginSettings:
     if configured is not None:
         return configured
     env = request.scope.get("env")
-    test_mode = str(_binding(env, "NIY006_LOCAL_TEST_MODE")) == "1"
+    test_mode = local_test_mode(env)
     values = {
         name: _binding(env, name)
         for name in (
@@ -856,7 +874,22 @@ def _login_settings(request: Request) -> LineLoginSettings:
         )
         subjects.add("niy006-synthetic-organizer")
         values["ORGANIZER_LINE_SUBJECTS"] = ",".join(subjects)
-    return LineLoginSettings.from_mapping(values)
+    settings = LineLoginSettings.from_mapping(values)
+    if env is not None and not test_mode:
+        # Cookies and callback must return to the same HTTPS origin. Do not trust
+        # forwarded headers or redirect a misconfigured deployment elsewhere.
+        try:
+            callback = urlsplit(settings.redirect_uri)
+            same_origin = (
+                callback.scheme == request.url.scheme == "https"
+                and callback.hostname == request.url.hostname
+                and (callback.port or 443) == (request.url.port or 443)
+            )
+        except ValueError:
+            same_origin = False
+        if not same_origin:
+            settings = replace(settings, redirect_uri="")
+    return settings
 
 
 async def _organizer_body(request: Request) -> Mapping[str, Any] | None:
@@ -927,11 +960,8 @@ def _api_error(code: str, status_code: int) -> JSONResponse:
 
 
 def _binding(env: Any, name: str) -> str:
-    if env is None:
-        return ""
-    if isinstance(env, Mapping):
-        return str(env.get(name, ""))
-    return str(getattr(env, name, ""))
+    value = _binding_value(env, name, "")
+    return value if isinstance(value, str) else ""
 
 
 def _now(request: Request) -> datetime:
@@ -998,6 +1028,10 @@ async def _authorized(
     allow_pending: bool = False,
 ):
     config = _login_settings(request)
+    if not local_test_mode(request.scope.get("env")) and not config.ready:
+        return None, JSONResponse(
+            {"detail": "LINE Login is not configured"}, status_code=503
+        )
     try:
         claims = verify_session(
             request.cookies.get(SESSION_COOKIE_NAME, ""),

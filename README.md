@@ -30,6 +30,14 @@ For private local shell work, start `npm run dev:local` when needed and stop it 
 
 The [rehearsal guide](docs/LOCAL-REHEARSAL.md#first-time-preparation) explains the locked Worker runtime dependencies and generated tooling mirrors; project runtime dependencies are declared in `pyproject.toml` and locked in `uv.lock`.
 
+### Held HTTPS service preparation
+
+[Issue #18 setup and acceptance instructions](docs/HTTPS-SERVICE.md) provide the
+native Cloudflare setup, callback registration, private provisioning, and
+hold/stop and rollback steps. Production reminders stay held and the hospital
+reader remains unavailable. Deployment requires the owner inputs listed in that
+guide; there is no deployed URL yet.
+
 ## Validation and operations
 
 The CI-equivalent deterministic checks are:

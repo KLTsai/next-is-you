@@ -8,8 +8,10 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,7 +29,10 @@ def _process_output(process: subprocess.Popen[str]) -> str:
     return output or ""
 
 
-def test_wrangler_worker_starts_and_serves_health_endpoint(tmp_path) -> None:
+@pytest.mark.parametrize("production", [False, True])
+def test_wrangler_worker_starts_and_serves_health_endpoint(
+    tmp_path, production
+) -> None:
     assets = tmp_path / "assets"
     assets.mkdir()
     (assets / "index.html").write_text("<!doctype html>", encoding="utf-8")
@@ -73,6 +78,7 @@ def test_wrangler_worker_starts_and_serves_health_endpoint(tmp_path) -> None:
             "--port",
             str(port),
             "--show-interactive-dev-session=false",
+            *(["--var", "NIY_ENVIRONMENT:production"] if production else []),
         ],
         cwd=ROOT,
         env=environment,
@@ -107,7 +113,34 @@ def test_wrangler_worker_starts_and_serves_health_endpoint(tmp_path) -> None:
                 "Wrangler did not serve the Worker before the timeout:\n" + output
             )
 
-        assert response_body == b'{"status":"ok","mode":"local-development"}'
+        assert json.loads(response_body) == {
+            "status": "ok",
+            "mode": "held-service" if production else "local-test",
+        }
+
+        if production:
+            for operation in ("organizer-session", "seed", "snapshot", "observation"):
+                with pytest.raises(HTTPError) as denied:
+                    urlopen(
+                        Request(
+                            f"http://127.0.0.1:{port}/__niy006_test/{operation}",
+                            data=b"{}",
+                            headers={"content-type": "application/json"},
+                            method="POST",
+                        ),
+                        timeout=10,
+                    )
+                assert denied.value.code == 404
+            with pytest.raises(HTTPError) as unavailable:
+                urlopen(f"http://127.0.0.1:{port}/auth/line", timeout=10)
+            assert unavailable.value.code == 503
+            with urlopen(f"http://127.0.0.1:{port}/", timeout=10) as response:
+                assert response.read() == b"<!doctype html>"
+            with urlopen(
+                f"http://127.0.0.1:{port}/cdn-cgi/local/scheduled", timeout=10
+            ) as response:
+                assert response.status == 200
+            return
 
         with urlopen(
             Request(

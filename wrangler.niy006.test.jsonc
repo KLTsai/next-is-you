@@ -35,6 +35,7 @@
     "crons": ["* * * * *"]
   },
   "vars": {
-    "NIY006_LOCAL_TEST_MODE": "1"
+    "NIY006_LOCAL_TEST_MODE": "1",
+    "NIY_ENVIRONMENT": "local-test"
   }
 }

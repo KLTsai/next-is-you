@@ -84,7 +84,11 @@ def make_gate(
     storage: LocalDurableStorage | None = None,
 ) -> SystemSendGate:
     ctx = LocalContext(storage or LocalDurableStorage())
-    env = {"DB": database, "NIY006_LOCAL_TEST_MODE": "1"}
+    env = {
+        "DB": database,
+        "NIY006_LOCAL_TEST_MODE": "1",
+        "NIY_ENVIRONMENT": "local-test",
+    }
     return SystemSendGate(ctx, env)
 
 

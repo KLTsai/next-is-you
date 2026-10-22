@@ -1,10 +1,11 @@
 # V4 reminder lifecycle audit (issue #27)
 
-Evidence level: local integration. Rows reported as observed below were exercised
-in a real local Worker with D1 and SQLite Durable Object bindings
-(`npm run dev:rehearsal`), the synthetic organizer login, the fake hospital reader
-and fake LINE transport, in Chromium at 1280 px (desktop) and 390 px (mobile)
-widths. Nothing here contacts
+Evidence level: local integration. The table distinguishes Chromium observations
+from existing-test coverage and prior walkthroughs; each result records its
+evidence. Browser observations used a real local Worker with D1 and SQLite Durable
+Object bindings (`npm run dev:rehearsal`), the synthetic organizer login, the fake
+hospital reader and fake LINE transport, in Chromium at 1280 px (desktop) and
+390 px (mobile) widths. Nothing here contacts
 LINE or a hospital, and nothing proves handset delivery or live source behavior
 (issues #20 and #22 remain open gates). Rows marked "not executed" were not
 exercised and are not reported as passing.

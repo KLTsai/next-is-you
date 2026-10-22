@@ -55,6 +55,7 @@ let initialPatientNumber: string | null = null;
 let discardFormOnNextRender = false;
 const pendingStops = new Set<string>();
 const pendingStarts = new Set<string>();
+const startFailures = new Map<string, string>();
 const pendingRecipientRemovals = new Set<string>();
 let stoppingRefreshTimer: number | null = null;
 let draftsCollapsed = true;
@@ -243,6 +244,7 @@ function visitCard(item: OrganizerVisit): string {
     ${item.state === "stopped" ? `<p class="inline-state" role="status">提醒已停止。</p>` : ""}
     ${item.state === "expired" ? `<p class="inline-state" role="status">此提醒已結束。修正日期或診次並儲存後，可重新檢查並啟動同一筆提醒。</p>` : ""}
     ${pendingStart ? `<p class="inline-state" role="status">正在檢查可信院方觀察…</p>` : ""}
+    ${startFailures.has(item.id) && !pendingStart && item.state === "draft" ? `<p class="inline-state inline-error" role="alert">${escapeHtml(startFailures.get(item.id) ?? "")}</p>` : ""}
     <div class="visit-actions">
       ${item.state === "draft" ? `<button class="secondary-button" type="button" data-edit="${escapeHtml(item.id)}">修正草稿</button><button class="primary-button" type="button" data-start="${escapeHtml(item.id)}" ${canRequestStart(item) && !pendingStart && editing?.visit.id !== item.id ? "" : "disabled"}>${pendingStart ? "重新檢查中…" : "重新檢查並開始提醒"}</button>` : ""}
       ${item.state === "stopped" ? `<button class="secondary-button" type="button" data-correct="${escapeHtml(item.id)}">修正後重新檢查</button>` : ""}
@@ -453,13 +455,14 @@ function bindActions(): void {
     const item = visits.find((visit) => visit.id === id);
     if (!id || !item || !canRequestStart(item)) return;
     pendingStarts.add(id);
+    startFailures.delete(id);
     message = "";
     renderDashboard();
     try {
       const result = await startVisit(id);
       message = result.state === "active" ? "服務已回覆啟動成功。" : "服務尚未確認啟動，請查看清單狀態。";
     } catch (error) {
-      message = errorText(error);
+      startFailures.set(id, errorText(error));
     } finally {
       pendingStarts.delete(id);
       await loadDashboard();

@@ -112,23 +112,24 @@ def test_clinic_key_requires_room_doctor_and_type() -> None:
     assert parse_clinic_key("11//Dr. Appt.") is None
 
 
-def test_request_url_is_the_fixed_official_list_for_the_session() -> None:
-    assert progress_list_url(ClinicSession.AFTERNOON) == (
+def test_request_url_is_the_observed_branch_list_without_department_or_session() -> None:
+    expected = (
         "https://reg.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo"
-        "?vHospCode=T0&strDeptCode=OPH&strAmPmCode=2"
+        "?vHospCode=T0"
     )
+    assert progress_list_url() == expected
 
 
 @pytest.mark.asyncio
-async def test_exact_match_returns_fresh_trusted_observation_stamped_with_fetch_time():
+async def test_exact_match_returns_fresh_untrusted_observation_stamped_with_fetch_time():
     source = FakeSource(PAGE)
     observation = await reader(source).observe(scope(), taipei(15, 0))
     assert isinstance(observation, QueueObservation)
     assert observation.current_number == 25
-    assert observation.trustworthy_current
+    assert not observation.trustworthy_current
+    assert not observation.is_comparable_to(scope())
     assert observation.observed_at == taipei(15, 0).isoformat()
     assert observation.source_updated_at is None
-    assert observation.is_comparable_to(scope())
 
 
 @pytest.mark.asyncio
@@ -416,13 +417,16 @@ async def seed_ntuh(database: LocalD1, gate, visit_id: str, patient: int = 28):
 
 
 @pytest.mark.asyncio
-async def test_start_reaches_monitoring_only_on_a_fresh_exact_read() -> None:
-    database, gate = await gate_with_visit(FakeSource(PAGE))
+async def test_start_does_not_trust_unverified_default_list_department_and_session() -> None:
+    source = FakeSource(PAGE)
+    database, gate = await gate_with_visit(source)
     repository = await seed_ntuh(database, gate, "d1")
     started = await gate.start_visit("d1", taipei(15, 0).isoformat())
-    assert started == {"state": "active"}
+    assert started == {"error": "observation_untrusted"}
     visit = await repository.get_visit("d1")
-    assert (visit["state"], visit["near_last_current_number"]) == ("active", 25)
+    assert visit["state"] == "draft"
+    assert counts(database, "d1")[:2] == ("untrusted", "untrusted_source")
+    assert source.urls == [progress_list_url()]
 
 
 @pytest.mark.asyncio
@@ -478,22 +482,28 @@ async def test_reader_is_off_without_the_explicit_flag() -> None:
 
 
 async def active_visit(database, gate, visit_id="d1", patient=28):
-    await seed_ntuh(database, gate, visit_id, patient)
-    assert await gate.start_visit(visit_id, taipei(15, 0).isoformat()) == {
-        "state": "active"
-    }
+    repository = await seed_ntuh(database, gate, visit_id, patient)
+    assert await repository.start(visit_id, taipei(14, 59))
+    assert await repository.update_observation(
+        visit_id,
+        current_number=25,
+        observed_at=taipei(14, 59),
+        consecutive_unusable_reads=0,
+    )
+    assert await repository.set_source_read(visit_id, "usable", "none")
 
 
 @pytest.mark.asyncio
-async def test_scheduled_checks_use_the_reader_and_send_one_near_alert() -> None:
+async def test_scheduled_checks_keep_default_list_numbers_untrusted() -> None:
     source = FakeSource(PAGE, page_with("026"))
     database, gate = await gate_with_visit(source)
     await active_visit(database, gate)
     result = await gate.scheduled_tick(taipei(15, 2).isoformat())
-    assert result["events_created"] == 1  # 28 - 26 is within the near distance
+    assert result["events_created"] == 0
     again = await gate.scheduled_tick(taipei(15, 4).isoformat())
     assert again["events_created"] == 0
-    assert len((await gate.test_snapshot())["line_requests"]) == 1
+    assert counts(database, "d1")[:2] == ("untrusted", "untrusted_source")
+    assert (await gate.test_snapshot())["line_requests"] == []
 
 
 @pytest.mark.asyncio
@@ -501,18 +511,17 @@ async def test_skipped_ticks_never_count_as_failed_reads() -> None:
     source = FakeSource(PAGE)
     database, gate = await gate_with_visit(source)
     await active_visit(database, gate)
-    for second in (0, 30, 60, 90):  # inside the two minute cadence: not due
-        await gate.scheduled_tick(taipei(15, 0, 30).replace(second=0).isoformat())
-        await gate.scheduled_tick(
-            (taipei(15, 0) + timedelta(seconds=second + 1)).isoformat()
-        )
-    assert counts(database, "d1")[2] == 0
+    await gate.scheduled_tick(taipei(15, 0).isoformat())
+    unusable_reads = counts(database, "d1")[2]
+    await gate.scheduled_tick(taipei(15, 1).isoformat())
+    await gate.scheduled_tick(taipei(15, 1, 30).isoformat())
+    assert counts(database, "d1")[2] == unusable_reads
     assert len(source.urls) == 1
 
 
 @pytest.mark.asyncio
 async def test_three_failed_reads_inside_the_window_send_the_existing_unavailable_alert():
-    source = FakeSource(PAGE, FetchedPage(503, ""))
+    source = FakeSource(FetchedPage(503, ""))
     database, gate = await gate_with_visit(source)
     await active_visit(database, gate)
     created = 0
@@ -528,14 +537,13 @@ async def test_three_failed_reads_inside_the_window_send_the_existing_unavailabl
 @pytest.mark.asyncio
 async def test_clinic_end_stops_reads_and_sends_no_unavailable_alert() -> None:
     gone = PAGE.replace("Hsiao-Sang Chu", "Someone Else")
-    source = FakeSource(PAGE, gone)
+    source = FakeSource(gone)
     database, gate = await gate_with_visit(source)
     await active_visit(database, gate)
     for minute in (31, 33, 35, 40, 50):
         result = await gate.scheduled_tick(taipei(16, minute).isoformat())
         assert result["events_created"] == 0
-    assert counts(database, "d1") == ("unavailable", "empty_result", 0)
-    assert len(source.urls) == 2  # Start read plus the one read that saw the row gone
+    assert len(source.urls) == 1
     assert (await gate.test_snapshot())["events"] == []
 
 

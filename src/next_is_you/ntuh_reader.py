@@ -31,14 +31,12 @@ from next_is_you.domain import (
 from next_is_you.hospital_adapters import _page_status, _TableCollector
 from next_is_you.persistence import TAIPEI
 
+# This route is derived from manual observation and is not live-verified.
+# The default list's department and session are unverified; the reader stays
+# behind NTUH_READER_ENABLED and never marks its numbers verified-accurate.
 PROGRESS_LIST_URL = "https://reg.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo"
 BRANCH_CODE = "T0"
 SUPPORTED_DEPARTMENT = "OPH"
-# strDeptCode and strAmPmCode are the only selector names the evidence records,
-# taken from the public search page URL. How the registration page itself
-# selects department and session is undocumented, so confirm the request in a
-# first owner-approved manual check before enabling the reader.
-_SESSION_CODES = {ClinicSession.MORNING: "1", ClinicSession.AFTERNOON: "2"}
 # Afternoon hours come from the evidence. The morning hours are an assumption to
 # be confirmed against the official schedule.
 SESSION_WINDOWS = {
@@ -110,15 +108,8 @@ def parse_clinic_key(clinic_code: str) -> ClinicKey | None:
     return ClinicKey(*parts)
 
 
-def progress_list_url(session: ClinicSession) -> str:
-    query = urlencode(
-        {
-            "vHospCode": BRANCH_CODE,
-            "strDeptCode": SUPPORTED_DEPARTMENT,
-            "strAmPmCode": _SESSION_CODES[session],
-        }
-    )
-    return f"{PROGRESS_LIST_URL}?{query}"
+def progress_list_url() -> str:
+    return f"{PROGRESS_LIST_URL}?{urlencode({'vHospCode': BRANCH_CODE})}"
 
 
 def parse_progress_list(html: str) -> tuple[str, list[ListRow]]:
@@ -243,7 +234,7 @@ class NtuhProgressReader:
                 return _failure(entry.get("result")) or ReadFailed(
                     "unavailable", "no_observation"
                 )
-            result = await self._fetch_result(scope.session)
+            result = await self._fetch_result()
             self._record(entry, result, now)
             read_at = now
             await self._save(states, scope.visit_date)
@@ -271,13 +262,13 @@ class NtuhProgressReader:
             scope=scope,
             observed_at=read_at.isoformat(),
             current_number=int(text),
-            trustworthy_current=True,
+            trustworthy_current=False,
         )
 
-    async def _fetch_result(self, session: ClinicSession) -> dict[str, Any]:
+    async def _fetch_result(self) -> dict[str, Any]:
         try:
             page = await asyncio.wait_for(
-                self._fetch(progress_list_url(session)), REQUEST_TIMEOUT_SECONDS
+                self._fetch(progress_list_url()), REQUEST_TIMEOUT_SECONDS
             )
         except TimeoutError:
             return _failed("unavailable", "timeout")

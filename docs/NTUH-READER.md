@@ -6,7 +6,7 @@ Supported scope: NTU Hospital main campus (branch `T0`), department ophthalmolog
 
 ## Enabling
 
-The reader is off by default. Start and scheduled checks use it only when the Worker has `NTUH_READER_ENABLED=1`; otherwise Start reports the source as unavailable, as before. The production hold is separate and unchanged: scheduled ticks stay held outside the local rehearsal.
+The reader is off by default. Start and scheduled checks use it only when the Worker has `NTUH_READER_ENABLED=1`; otherwise Start reports the source as unavailable, as before. The production hold is separate and unchanged: scheduled ticks stay held outside the local rehearsal. The observed default list does not expose a verified department or session, so fetched numbers are never marked trustworthy or reported as verified-accurate. The flag is a deliberate enablement gate while that source scope remains unverified.
 
 ## Entering the clinic
 
@@ -16,19 +16,16 @@ The reminder form has no doctor or room fields, so the NTUH clinic code carries 
 
 - Match: room, doctor and clinic type must all equal one list row. Zero rows or several rows never produce a number. The current number is never inferred from neighbors, "Expected Call Number" is never read, and the page's "Last updated" is ignored (it is render time).
 - Blank current light means no data, never zero. `0` or non-numeric text is invalid data.
-- Freshness is the time the reader fetched the page. An observation older than 2 minutes cannot start a reminder.
+- Freshness is the time the reader fetched the page. An observation older than 2 minutes cannot start a reminder. Since the default list's department and session are unverified, its number is also marked untrusted and cannot start a reminder or be used as a verified-accurate number.
 - Cadence: the one-minute cron only offers a chance to read. The reader skips unless 2 minutes passed since the last read of the same source, and visits in one tick share one read. Reader state lives in Durable Object storage.
 - Window: reads happen only inside the session (afternoon 13:30 to 16:30, morning 08:30 to 12:30) plus 10 minutes either side. The morning hours are an assumption; confirm them against the official schedule.
 - Failures: a timeout, HTTP 408/429/5xx or other transport error retries after 1, then 2, then 4 minutes (capped), honoring `Retry-After` up to 10 minutes. A challenge or CAPTCHA marker, HTTP 401/403/451, or any redirect stops reading that source for the day and shows "來源拒絕讀取". Nothing bypasses, solves or works around a challenge, and requests are plain GETs without cookies.
 - Unusable reads inside the window feed the existing unavailable alert (third consecutive unusable read, once per recipient). Skipped ticks, the time before the window and the clinic ending are not unusable reads.
 - End of session: a blank number with the doctor row present is temporary no data. After the session end, the doctor row being gone marks the clinic as ended: reading stops, no unavailable alert is sent, and the reminder shows "來源沒有可用資料" until it expires at the normal cutoff.
 
-## Known gaps before any live use
+## Source evidence and known gaps
 
-1. The request selects department and session with `strDeptCode` and `strAmPmCode`, the only selector names the evidence records (from the public search page). How the registration page itself selects them is undocumented. Confirm with one owner-approved manual check.
-2. The list's column headers and the English or Chinese doctor rendering are taken from the evidence's field description, not from a captured page. A different header fails closed as `schema_drift`.
-3. Accuracy against the room's physical indicator is unproven. The reader marks an exact, just-fetched match as trustworthy; the owner's in-person comparison remains a pre-live gate (see the pre-live checklist).
-4. The existing organizer progress link uses `registration.ntuh.gov.tw`, while the evidence read `reg.ntuh.gov.tw`.
+The exact request construction, `https://reg.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0`, is derived from manual observation and is **not live-verified**. It carries no department or session selectors. The default list's department and session are unverified, and its returned rows do not label either; OPH and the requested session are enforced only by supported-scope checks and the time window. The list's column headers and English or Chinese doctor rendering are taken from the evidence's field description, not from a captured page. A different header fails closed as `schema_drift`. Accuracy against the room's physical indicator is unproven. The existing organizer progress link uses `registration.ntuh.gov.tw`, while the evidence read `reg.ntuh.gov.tw`.
 
 ## Recovery
 

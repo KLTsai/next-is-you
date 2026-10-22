@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import fcntl
 import os
 import pty
 import signal
 import socket
+import struct
 import subprocess
+import termios
 import threading
 import time
 from contextlib import contextmanager
@@ -29,6 +32,7 @@ def rehearsal(tmp_path, port):
     }
     environment.pop("CI", None)
     master, terminal = pty.openpty()
+    fcntl.ioctl(terminal, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
     output = []
 
     def read_terminal():
@@ -995,6 +999,23 @@ def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fie
                 expect(draft.get_by_role("alert")).to_contain_text("提醒維持草稿")
                 expect(draft.locator("[data-start]")).to_be_enabled()
                 expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
+
+                draft.get_by_role("button", name="修正草稿").click()
+                expect(page.locator("input[name=patient_number]")).to_have_value("85")
+                page.locator("input[name=patient_number]").fill("86")
+                page.get_by_role("button", name="儲存草稿").click()
+                draft = page.locator("#saved-drafts-list .visit-card")
+                expect(draft).to_contain_text("86")
+                expect(draft.get_by_role("alert")).to_have_count(0)
+
+                visits = page.evaluate(
+                    "async () => (await fetch('/api/organizer/visits')).json()"
+                )["visits"]
+                saved_draft = next(
+                    visit for visit in visits if visit["state"] == "draft"
+                )
+                assert saved_draft["state"] == "draft"
+                assert saved_draft["patient_number"] == 86
 
                 control(
                     page,

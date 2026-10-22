@@ -927,3 +927,108 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
         finally:
             context.close()
             browser.close()
+
+
+def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fields(
+    tmp_path,
+):
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        origin = f"http://127.0.0.1:{port}"
+        context.route(
+            "**/*",
+            lambda route: (
+                route.continue_()
+                if route.request.url.startswith(origin + "/")
+                else route.abort()
+            ),
+        )
+        page = context.new_page()
+        try:
+            with rehearsal(tmp_path, port):
+                control(
+                    page,
+                    origin,
+                    "observation",
+                    {"current_number": None, "trustworthy": False},
+                )
+                control(
+                    page,
+                    origin,
+                    "seed",
+                    {
+                        "visit_id": "rehearsal-failure-setup",
+                        "recipient_id": "rehearsal-failure-recipient",
+                        "visit_day": day,
+                        "patient_number": 85,
+                        "now": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                page.goto(origin)
+                page.get_by_role("button", name="本機合成測試登入").click()
+                expect(page.locator("#visit-form")).to_be_visible()
+                page.locator('[data-stop="rehearsal-failure-setup"]').click()
+                expect(
+                    page.locator('[data-correct="rehearsal-failure-setup"]')
+                ).to_be_visible()
+
+                date_box = page.locator("input[name=date]").bounding_box()
+                number_box = page.locator("input[name=patient_number]").bounding_box()
+                assert date_box and number_box
+                assert abs(date_box["height"] - number_box["height"]) < 1
+                assert abs(date_box["y"] - number_box["y"]) < 1
+
+                page.locator("input[name=date]").fill(day)
+                page.locator("input[name=patient_number]").fill("85")
+                page.locator("input[name=department_code]").fill("SYN")
+                page.locator("input[name=clinic_code]").fill("SYN-1")
+                page.locator(
+                    'input[name=recipient_ids][value="rehearsal-failure-recipient"]'
+                ).check()
+                page.get_by_role("button", name="建立草稿").click()
+                expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
+                page.get_by_role("button", name="展開草稿").click()
+                draft = page.locator("#saved-drafts-list .visit-card")
+                draft.locator("[data-start]").click()
+
+                expect(
+                    draft.get_by_role("alert").get_by_text(
+                        "目前沒有可用的可信院方觀察，提醒維持草稿。", exact=True
+                    )
+                ).to_be_visible()
+                expect(draft.locator("[data-start]")).to_be_enabled()
+                expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
+
+                draft.get_by_role("button", name="修正草稿").click()
+                expect(page.locator("input[name=patient_number]")).to_have_value("85")
+                page.locator("input[name=patient_number]").fill("86")
+                page.get_by_role("button", name="儲存草稿").click()
+                draft = page.locator("#saved-drafts-list .visit-card")
+                expect(draft).to_contain_text("86")
+                expect(draft.get_by_role("alert")).to_have_count(0)
+
+                visits = page.evaluate(
+                    "async () => (await fetch('/api/organizer/visits')).json()"
+                )["visits"]
+                saved_draft = next(
+                    visit for visit in visits if visit["state"] == "draft"
+                )
+                assert saved_draft["state"] == "draft"
+                assert saved_draft["patient_number"] == 86
+
+                control(
+                    page,
+                    origin,
+                    "observation",
+                    {"current_number": 70, "trustworthy": True},
+                )
+                draft.locator("[data-start]").click()
+                expect(page.get_by_role("heading", name="已儲存草稿 0")).to_be_visible()
+        finally:
+            context.close()
+            browser.close()

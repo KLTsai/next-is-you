@@ -10,6 +10,8 @@ fetched the page; it is never taken from the page.
 
 Live hospital behavior is unverified. Tests drive this module with fixture
 pages and an injected fetcher and never contact the hospital.
+Each clinic keeps its own transient read state; cross-clinic sharing is outside
+this ticket and may be considered as a future optimization.
 """
 
 from __future__ import annotations
@@ -51,7 +53,7 @@ WINDOW_BUFFER = timedelta(minutes=10)
 # One read per source every 2 to 3 minutes. The one-minute cron only offers the
 # reader a chance to read; the reader skips ticks inside the interval.
 MIN_READ_INTERVAL = timedelta(minutes=2)
-# A read this recent is reused by the other visits of the same tick.
+# Duplicate reads of the same clinic in one tick reuse the same result.
 SAME_READ_WINDOW = timedelta(seconds=30)
 # Matches the scheduler and Start freshness bound.
 FRESH_MAX_AGE = timedelta(minutes=2)
@@ -178,10 +180,6 @@ class NtuhProgressReader:
     def __init__(self, state: ReaderState, fetch: Fetcher) -> None:
         self._state = state
         self._fetch = fetch
-        self._tracked_scopes: tuple[ClinicScope, ...] = ()
-
-    def set_tracked_scopes(self, scopes: tuple[ClinicScope, ...]) -> None:
-        self._tracked_scopes = scopes
 
     async def observe(
         self, scope: ClinicScope, now: datetime
@@ -211,64 +209,34 @@ class NtuhProgressReader:
         if now >= end + WINDOW_BUFFER:
             return ReadSkipped("session_ended")
 
-        source = (
-            f"{BRANCH_CODE}|{scope.department_code}|{scope.session}|{scope.visit_date}"
+        source = f"{BRANCH_CODE}|{scope.department_code}|{scope.session}"
+        day = scope.visit_date.isoformat()
+        clinic_id = json.dumps(
+            [_norm(key.room), _norm(key.doctor), _norm(key.clinic_type)],
+            separators=(",", ":"),
         )
+        entry_key = f"{source}|clinic|{clinic_id}|{day}"
+        blocked_key = f"{source}|blocked|{day}"
         states = await self._load()
-        entry = states.setdefault(source, {})
-        if scope.clinic_code in entry.get("ended", []):
+        entry = states.setdefault(entry_key, {})
+        legacy_entry = states.get(f"{source}|{scope.visit_date}", {})
+        if legacy_entry.get("blocked"):
+            states[blocked_key] = {"blocked": True}
+            await self._save(states, scope.visit_date)
+            return ReadFailed("unavailable", "access_denied")
+        if entry.get("ended"):
             return ReadSkipped("session_ended")
-        if entry.get("blocked"):
+        if states.get(blocked_key, {}).get("blocked"):
             return ReadFailed("unavailable", "access_denied")
 
         read_at = _parse(entry.get("read_at"))
         age = now - read_at if read_at is not None else None
         result = entry.get("result")
-        tracked_keys = {
-            parsed
-            for tracked_scope in (*self._tracked_scopes, scope)
-            if tracked_scope.hospital == Hospital.NTUH_MAIN
-            and tracked_scope.department_code == SUPPORTED_DEPARTMENT
-            and tracked_scope.session in SESSION_WINDOWS
-            and tracked_scope.visit_date == scope.visit_date
-            and (parsed := parse_clinic_key(tracked_scope.clinic_code)) is not None
-        }
-        if result is not None and "rows" in result:
-            cached_rows = result["rows"]
-            cached_coverage = result.get("coverage", [])
-            tracked_key_ids = {
-                (key.room, key.doctor, key.clinic_type) for key in tracked_keys
-            }
-            retained_coverage = [
-                item
-                for item in cached_coverage
-                if isinstance(item, list)
-                and len(item) == 3
-                and tuple(item) in tracked_key_ids
-            ]
-            result["rows"] = [
-                row
-                for row in cached_rows
-                if len(row) == 4
-                and any(_matches(ListRow(*row), key) for key in tracked_keys)
-            ]
-            result["coverage"] = retained_coverage
-            entry["result"] = result
-            if (
-                len(result["rows"]) != len(cached_rows)
-                or retained_coverage != cached_coverage
-            ):
-                await self._save(states, scope.visit_date)
-        # Visits of one tick share a read; Start may also reuse a recent good
-        # read, but never a recent failure, so it can retry once backoff allows.
+        # Start may reuse a recent good read for this clinic, never a failure.
         reuse = (
             result is not None
             and age is not None
             and timedelta(0) <= age
-            and (
-                "failure" in result
-                or _key_in_coverage(result, key)
-            )
             and (
                 age <= SAME_READ_WINDOW
                 or (for_start and age <= FRESH_MAX_AGE and "failure" not in result)
@@ -282,8 +250,10 @@ class NtuhProgressReader:
                 return _failure(entry.get("result")) or ReadFailed(
                     "unavailable", "no_observation"
                 )
-            result = await self._fetch_result(tracked_keys)
+            result = await self._fetch_result(key)
             self._record(entry, result, now)
+            if result.get("blocked"):
+                states[blocked_key] = {"blocked": True}
             read_at = now
             await self._save(states, scope.visit_date)
 
@@ -294,7 +264,7 @@ class NtuhProgressReader:
         matched = [row for row in rows if _matches(row, key)]
         if not matched:
             if now >= end:
-                entry.setdefault("ended", []).append(scope.clinic_code)
+                entry["ended"] = True
                 await self._save(states, scope.visit_date)
                 return ReadSkipped("session_ended")
             return ReadFailed("unavailable", "empty_result")
@@ -321,7 +291,7 @@ class NtuhProgressReader:
             trustworthy_current=True,
         )
 
-    async def _fetch_result(self, tracked_keys: set[ClinicKey]) -> dict[str, Any]:
+    async def _fetch_result(self, key: ClinicKey) -> dict[str, Any]:
         try:
             page = await asyncio.wait_for(
                 self._fetch(progress_list_url()), REQUEST_TIMEOUT_SECONDS
@@ -345,16 +315,11 @@ class NtuhProgressReader:
             return _failed("unavailable", "access_denied", blocked=True)
         if status != "ok":
             return _failed("invalid", "schema_drift")
+        matched = [row for row in rows if _matches(row, key)]
         return {
             "rows": [
-                [row.room, row.doctor, row.clinic_type, row.current] for row in rows
-                if any(_matches(row, key) for key in tracked_keys)
-            ],
-            "coverage": [
-                [key.room, key.doctor, key.clinic_type]
-                for key in sorted(
-                    tracked_keys, key=lambda item: (item.room, item.doctor, item.clinic_type)
-                )
+                [row.room, row.doctor, row.clinic_type, row.current]
+                for row in matched
             ],
         }
 
@@ -365,8 +330,6 @@ class NtuhProgressReader:
             entry["failures"] = 0
             entry["due_at"] = (now + MIN_READ_INTERVAL).isoformat()
             return
-        if result.get("blocked"):
-            entry["blocked"] = True
         failures = int(entry.get("failures", 0)) + 1
         entry["failures"] = failures
         delay = RETRY_BACKOFF[min(failures, len(RETRY_BACKOFF)) - 1]
@@ -390,9 +353,10 @@ class NtuhProgressReader:
 
     async def _save(self, states: dict[str, dict[str, Any]], today: date) -> None:
         kept = {
-            source: entry
-            for source, entry in states.items()
-            if source.endswith(f"|{today}")
+            entry_key: entry
+            for entry_key, entry in states.items()
+            if entry_key.endswith(f"|{today}")
+            and ("|clinic|" in entry_key or "|blocked|" in entry_key)
         }
         await self._state.put(STATE_KEY, json.dumps(kept, separators=(",", ":")))
 
@@ -402,10 +366,6 @@ def _failed(status: str, reason: str, *, blocked: bool = False) -> dict[str, Any
     if blocked:
         result["blocked"] = True
     return result
-
-
-def _key_in_coverage(result: dict[str, Any], key: ClinicKey) -> bool:
-    return [key.room, key.doctor, key.clinic_type] in result.get("coverage", [])
 
 
 def _failure(result: dict[str, Any] | None) -> ReadFailed | None:

@@ -215,27 +215,6 @@ class SystemSendGate(_DurableObjectBase):
                 await repository.set_source_read(visit_id, "invalid", "invalid_data")
                 return {"error": "observation_invalid"}
             if isinstance(reader, NtuhProgressReader):
-                tracked_scopes = [scope]
-                for row in await repository.tracked_clinic_scopes():
-                    try:
-                        tracked_scopes.append(
-                            ClinicScope(
-                                hospital=Hospital(str(row["hospital"])),
-                                visit_date=date.fromisoformat(str(row["visit_date"])),
-                                department_code=str(row["department_code"]),
-                                clinic_code=str(row["clinic_code"]),
-                                session=ClinicSession(str(row["clinic_session"])),
-                                doctor_code=str(row["doctor_code"])
-                                if row.get("doctor_code") is not None
-                                else None,
-                                room_code=str(row["room_code"])
-                                if row.get("room_code") is not None
-                                else None,
-                            )
-                        )
-                    except (ValueError, TypeError, KeyError):
-                        continue
-                reader.set_tracked_scopes(tuple(tracked_scopes))
                 observation = await reader.observe_for_start(scope, timestamp)
             else:
                 observation = await reader.observe(scope, timestamp)

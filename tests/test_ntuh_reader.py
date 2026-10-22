@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from pathlib import Path
@@ -241,21 +242,22 @@ async def test_cadence_skips_ticks_inside_two_minutes_and_reads_at_two() -> None
 
 
 @pytest.mark.asyncio
-async def test_visits_in_the_same_tick_share_one_read() -> None:
+async def test_distinct_clinics_read_independently_and_save_only_their_rows() -> None:
+    state = LocalDurableStorage()
     source = FakeSource(PAGE)
-    r = reader(source)
-    r.set_tracked_scopes(
-        (scope(), scope("07/Synthetic Doctor A/General Clinic"))
-    )
+    r = reader(source, state)
     first = await r.observe(scope(), taipei(15, 0))
     second = await r.observe(
         scope("07/Synthetic Doctor A/General Clinic"), taipei(15, 0, 1)
     )
     assert first.current_number == 25 and second.current_number == 12
-    assert len(source.urls) == 1
-    saved = await r._state.get("ntuh_reader_state")
-    assert "Synthetic Doctor B" not in saved
-    assert "Synthetic Doctor A" in saved
+    assert len(source.urls) == 2
+    saved = json.loads(await state.get("ntuh_reader_state"))
+    assert len(saved) == 2
+    serialized_results = [json.dumps(entry["result"]) for entry in saved.values()]
+    assert any("Hsiao-Sang Chu" in result for result in serialized_results)
+    assert any("Synthetic Doctor A" in result for result in serialized_results)
+    assert all("Synthetic Doctor B" not in result for result in serialized_results)
 
 
 @pytest.mark.asyncio
@@ -286,40 +288,29 @@ async def test_start_reuses_a_fresh_read_but_reads_once_it_is_older_than_two_min
 
 
 @pytest.mark.asyncio
-async def test_cached_read_does_not_classify_uncovered_clinic_as_absent() -> None:
+async def test_cadence_is_independent_for_each_clinic() -> None:
     source = FakeSource(PAGE)
     r = reader(source)
-    assert isinstance(
-        await r.observe_for_start(scope(), taipei(15, 0)), QueueObservation
-    )
     second_scope = scope("07/Synthetic Doctor A/General Clinic")
-    r.set_tracked_scopes((scope(), second_scope))
-    assert await r.observe(second_scope, taipei(15, 0, 1)) == ReadSkipped("not_due")
-    assert len(source.urls) == 1
-    result = await r.observe(second_scope, taipei(15, 2))
-    assert isinstance(result, QueueObservation)
-    assert result.current_number == 12
-    assert len(source.urls) == 2
+    assert isinstance(await r.observe(scope(), taipei(15, 0)), QueueObservation)
+    assert isinstance(await r.observe(second_scope, taipei(15, 0, 1)), QueueObservation)
+    assert await r.observe(scope(), taipei(15, 1)) == ReadSkipped("not_due")
+    assert await r.observe(second_scope, taipei(15, 1)) == ReadSkipped("not_due")
+    assert isinstance(await r.observe(scope(), taipei(15, 2)), QueueObservation)
+    assert isinstance(await r.observe(second_scope, taipei(15, 2, 1)), QueueObservation)
+    assert len(source.urls) == 4
 
 
 @pytest.mark.asyncio
-async def test_start_preserves_fresh_cache_for_other_tracked_clinics() -> None:
+async def test_start_reads_another_clinic_without_using_shared_state() -> None:
     source = FakeSource(PAGE)
     r = reader(source)
     second_scope = scope("07/Synthetic Doctor A/General Clinic")
-    r.set_tracked_scopes((scope(), second_scope))
     assert isinstance(await r.observe(scope(), taipei(15, 0)), QueueObservation)
-    assert isinstance(await r.observe(second_scope, taipei(15, 0, 1)), QueueObservation)
-
-    assert isinstance(
-        await r.observe_for_start(scope(), taipei(15, 0, 2)), QueueObservation
-    )
-    second_start = await r.observe_for_start(second_scope, taipei(15, 0, 3))
+    second_start = await r.observe_for_start(second_scope, taipei(15, 0, 1))
     assert isinstance(second_start, QueueObservation)
     assert second_start.current_number == 12
-    assert len(source.urls) == 1
-    saved = await r._state.get("ntuh_reader_state")
-    assert "Synthetic Doctor B" not in saved
+    assert len(source.urls) == 2
 
 
 @pytest.mark.asyncio
@@ -417,6 +408,9 @@ async def test_challenge_or_denial_stops_reading_the_source(page: FetchedPage) -
     r = reader(source)
     denied = ReadFailed("unavailable", "access_denied")
     assert await r.observe(scope(), taipei(15, 0)) == denied
+    assert await r.observe(
+        scope("07/Synthetic Doctor A/General Clinic"), taipei(15, 0, 1)
+    ) == denied
     for minute in (1, 3, 10, 30):
         assert await r.observe(scope(), taipei(15, minute)) == denied
         assert await r.observe_for_start(scope(), taipei(15, minute)) == denied

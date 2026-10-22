@@ -992,7 +992,11 @@ def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fie
                 draft = page.locator("#saved-drafts-list .visit-card")
                 draft.locator("[data-start]").click()
 
-                expect(draft.get_by_role("alert")).to_contain_text("提醒維持草稿")
+                expect(
+                    draft.get_by_role("alert").get_by_text(
+                        "目前沒有可用的可信院方觀察，提醒維持草稿。", exact=True
+                    )
+                ).to_be_visible()
                 expect(draft.locator("[data-start]")).to_be_enabled()
                 expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
 

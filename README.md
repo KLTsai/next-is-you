@@ -35,7 +35,7 @@ The [rehearsal guide](docs/LOCAL-REHEARSAL.md#first-time-preparation) explains t
 [Issue #18 setup and acceptance instructions](docs/HTTPS-SERVICE.md) provide the
 native Cloudflare setup, callback registration, private provisioning, and
 hold/stop and rollback steps. Production reminders stay held and the hospital
-reader remains unavailable. Deployment requires the owner inputs listed in that
+reader stays off unless `NTUH_READER_ENABLED=1` ([NTUH reader](docs/NTUH-READER.md)). Deployment requires the owner inputs listed in that
 guide; there is no deployed URL yet.
 
 ## Validation and operations

@@ -224,13 +224,13 @@ class NtuhProgressReader:
         read_at = _parse(entry.get("read_at"))
         age = now - read_at if read_at is not None else None
         result = entry.get("result")
-        tracked_scopes = () if for_start else self._tracked_scopes
         tracked_keys = {
             parsed
-            for tracked_scope in (*tracked_scopes, scope)
+            for tracked_scope in (*self._tracked_scopes, scope)
             if tracked_scope.hospital == Hospital.NTUH_MAIN
             and tracked_scope.department_code == SUPPORTED_DEPARTMENT
             and tracked_scope.session in SESSION_WINDOWS
+            and tracked_scope.visit_date == scope.visit_date
             and (parsed := parse_clinic_key(tracked_scope.clinic_code)) is not None
         }
         if result is not None and "rows" in result:

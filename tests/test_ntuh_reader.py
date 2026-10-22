@@ -303,7 +303,7 @@ async def test_cached_read_does_not_classify_uncovered_clinic_as_absent() -> Non
 
 
 @pytest.mark.asyncio
-async def test_start_pruning_removes_coverage_for_other_clinics() -> None:
+async def test_start_preserves_fresh_cache_for_other_tracked_clinics() -> None:
     source = FakeSource(PAGE)
     r = reader(source)
     second_scope = scope("07/Synthetic Doctor A/General Clinic")
@@ -314,14 +314,12 @@ async def test_start_pruning_removes_coverage_for_other_clinics() -> None:
     assert isinstance(
         await r.observe_for_start(scope(), taipei(15, 0, 2)), QueueObservation
     )
-    assert await r.observe_for_start(second_scope, taipei(15, 0, 3)) == ReadFailed(
-        "unavailable", "no_observation"
-    )
+    second_start = await r.observe_for_start(second_scope, taipei(15, 0, 3))
+    assert isinstance(second_start, QueueObservation)
+    assert second_start.current_number == 12
     assert len(source.urls) == 1
-    result = await r.observe_for_start(second_scope, taipei(15, 2))
-    assert isinstance(result, QueueObservation)
-    assert result.current_number == 12
-    assert len(source.urls) == 2
+    saved = await r._state.get("ntuh_reader_state")
+    assert "Synthetic Doctor B" not in saved
 
 
 @pytest.mark.asyncio

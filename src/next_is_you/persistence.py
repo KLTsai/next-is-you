@@ -331,6 +331,16 @@ class VisitRepository:
             )
         )
 
+    async def tracked_clinic_scopes(self) -> list[Mapping[str, Any]]:
+        """Return clinic scopes for visits that may read or start today."""
+        return await self._store.fetch_all(
+            Statement(
+                """SELECT hospital, visit_date, department_code, clinic_code,
+                    clinic_session, doctor_code, room_code
+                FROM visits WHERE state IN ('draft', 'active', 'stopping')"""
+            )
+        )
+
     async def event_kinds(self, visit_id: str) -> set[tuple[str, str]]:
         rows = await self._store.fetch_all(
             Statement(

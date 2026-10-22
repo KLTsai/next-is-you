@@ -318,8 +318,7 @@ class NtuhProgressReader:
         matched = [row for row in rows if _matches(row, key)]
         return {
             "rows": [
-                [row.room, row.doctor, row.clinic_type, row.current]
-                for row in matched
+                [row.room, row.doctor, row.clinic_type, row.current] for row in matched
             ],
         }
 

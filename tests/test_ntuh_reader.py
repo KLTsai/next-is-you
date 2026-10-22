@@ -406,9 +406,10 @@ async def test_challenge_or_denial_stops_reading_the_source(page: FetchedPage) -
     r = reader(source)
     denied = ReadFailed("unavailable", "access_denied")
     assert await r.observe(scope(), taipei(15, 0)) == denied
-    assert await r.observe(
-        scope("07/Synthetic Doctor A/General Clinic"), taipei(15, 0, 1)
-    ) == denied
+    assert (
+        await r.observe(scope("07/Synthetic Doctor A/General Clinic"), taipei(15, 0, 1))
+        == denied
+    )
     for minute in (1, 3, 10, 30):
         assert await r.observe(scope(), taipei(15, minute)) == denied
         assert await r.observe_for_start(scope(), taipei(15, minute)) == denied

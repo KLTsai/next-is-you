@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import fcntl
 import os
 import pty
 import signal
 import socket
-import struct
 import subprocess
-import termios
 import threading
 import time
 from contextlib import contextmanager
@@ -32,7 +29,6 @@ def rehearsal(tmp_path, port):
     }
     environment.pop("CI", None)
     master, terminal = pty.openpty()
-    fcntl.ioctl(terminal, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
     output = []
 
     def read_terminal():

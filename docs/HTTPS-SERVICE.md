@@ -18,10 +18,12 @@ and organizer subject, then separately authorized deployment/manual acceptance.
 These inputs are absent. There is no deployed URL or deployed persistence evidence
 yet. Publication of repository changes does not authorize deployment.
 
-Non-goals: enabling sends, implementing the hospital reader, LINE or handset
-acceptance, paid resources, domain purchase, another service/database, a storage
-rewrite, or a deployment automation layer. Full review, validation, documentation,
-lint, push, PR and CI are handed to no-mistakes after the implementation commit.
+Non-goals: enabling sends, enabling the hospital reader in production before
+the Issue #22 pilot, LINE or handset acceptance, paid resources, domain purchase,
+another service/database, a storage rewrite, or a deployment automation layer.
+The [NTUH reader guide](NTUH-READER.md) owns reader scope and behavior. Full
+review, validation, documentation, lint, push, PR and CI are handed to
+no-mistakes after the implementation commit.
 
 ## Free plan and origin decision
 

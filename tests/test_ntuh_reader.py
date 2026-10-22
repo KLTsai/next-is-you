@@ -533,7 +533,9 @@ async def test_reader_is_off_without_the_explicit_flag() -> None:
 
 
 @pytest.mark.asyncio
-async def test_production_hold_disables_start_and_reader_status_even_if_enabled() -> None:
+async def test_production_hold_disables_start_and_reader_status_even_if_enabled() -> (
+    None
+):
     source = FakeSource(PAGE)
     database = LocalD1()
     env = {

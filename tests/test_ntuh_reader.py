@@ -523,6 +523,29 @@ async def test_reader_is_off_without_the_explicit_flag() -> None:
     assert source.urls == []
 
 
+@pytest.mark.asyncio
+async def test_production_hold_disables_start_and_reader_status_even_if_enabled() -> None:
+    source = FakeSource(PAGE)
+    database = LocalD1()
+    env = {
+        "DB": database,
+        "NIY_ENVIRONMENT": "production",
+        "NTUH_READER_ENABLED": "1",
+    }
+    gate = SystemSendGate(LocalContext(LocalDurableStorage()), env)
+    gate._ntuh_fetcher = source
+    repository = await seed_ntuh(database, gate, "d1")
+
+    assert await gate.start_visit("d1", taipei(15, 0).isoformat()) == {
+        "error": "observation_unavailable"
+    }
+    assert (await repository.get_visit("d1"))["state"] == "draft"
+    assert source.urls == []
+    status = await gate.scheduler_status()
+    assert status["held"]
+    assert not status["hospital_reader_available"]
+
+
 async def active_visit(database, gate, visit_id="d1", patient=28):
     repository = await seed_ntuh(database, gate, visit_id, patient)
     assert await repository.start(visit_id, taipei(14, 59))

@@ -491,12 +491,12 @@ class SystemSendGate(_DurableObjectBase):
         return VisitRepository(CloudflareD1Store(binding))
 
     def _hospital_reader(self) -> HospitalReader | None:
-        """The NTUH reader only when explicitly enabled; else the local test reader."""
+        """Production stays without a hospital reader until the Issue #22 pilot."""
+        if not local_test_mode(self.env):
+            return None
         if str(_field(self.env, "NTUH_READER_ENABLED", "")) == "1":
             return NtuhProgressReader(self.ctx.storage, self._ntuh_fetcher)
-        if local_test_mode(self.env):
-            return _TestHospitalReader(self.ctx.storage)
-        return None
+        return _TestHospitalReader(self.ctx.storage)
 
     _ntuh_fetcher = WorkersFetcher()
 

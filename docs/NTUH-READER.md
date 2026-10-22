@@ -6,7 +6,7 @@ Supported scope: NTU Hospital main campus (branch `T0`), department ophthalmolog
 
 ## Enabling
 
-The reader is off by default. Start and scheduled checks use it only when the Worker has `NTUH_READER_ENABLED=1`; otherwise Start reports the source as unavailable, as before. The production hold is separate and unchanged: scheduled ticks stay held outside the local rehearsal. A trustworthy observation means the fetched source read is fresh, matches the configured supported scope and has one unambiguous positive current number. The source list does not label department or session, so the configured OPH afternoon scope is not confirmed by the returned row. Trust does not mean the number is accurate against the room's physical light; that accuracy is unverified. The flag is a deliberate enablement gate while live behavior remains unverified. Production stays held pending the live pilot in Issue #22.
+The reader is off by default. `NTUH_READER_ENABLED=1` enables it only in local-test/rehearsal mode. Production does not read the live hospital or activate reminders until the Issue #22 pilot; Start reports the source unavailable, scheduled ticks remain held, and scheduler status reports the reader unavailable. A trustworthy observation means the fetched source read is fresh, matches the configured supported scope and has one unambiguous positive current number. The source list does not label department or session, so the configured OPH afternoon scope is not confirmed by the returned row. Trust does not mean the number is accurate against the room's physical light; that accuracy is unverified. Live behavior remains unverified.
 
 ## Entering the clinic
 

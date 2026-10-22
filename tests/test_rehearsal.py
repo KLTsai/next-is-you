@@ -971,7 +971,11 @@ def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fie
                 )
                 page.goto(origin)
                 page.get_by_role("button", name="本機合成測試登入").click()
+                expect(page.locator("#visit-form")).to_be_visible()
                 page.locator('[data-stop="rehearsal-failure-setup"]').click()
+                expect(
+                    page.locator('[data-correct="rehearsal-failure-setup"]')
+                ).to_be_visible()
 
                 date_box = page.locator("input[name=date]").bounding_box()
                 number_box = page.locator("input[name=patient_number]").bounding_box()

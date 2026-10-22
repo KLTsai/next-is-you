@@ -156,9 +156,18 @@ async def test_current_is_never_inferred_from_neighbors_or_expected_call() -> No
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("current", ["000", "abc"])
+@pytest.mark.parametrize("current", ["000", "abc", "²"])
 async def test_zero_or_garbled_light_is_invalid_not_zero(current: str) -> None:
     result = await reader(FakeSource(page_with(current))).observe(
+        scope(), taipei(15, 0)
+    )
+    assert result == ReadFailed("invalid", "invalid_data")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["observe", "observe_for_start"])
+async def test_non_ascii_numeric_light_fails_closed_for_each_read_path(method):
+    result = await getattr(reader(FakeSource(page_with("²"))), method)(
         scope(), taipei(15, 0)
     )
     assert result == ReadFailed("invalid", "invalid_data")

@@ -257,13 +257,19 @@ class NtuhProgressReader:
         text = matched[0].current.strip()
         if not text:
             return ReadFailed("unavailable", "no_observation")
-        if not text.isdigit() or int(text) < 1:
+        if not text.isascii() or not text.isdigit():
+            return ReadFailed("invalid", "invalid_data")
+        try:
+            current_number = int(text)
+        except ValueError:
+            return ReadFailed("invalid", "invalid_data")
+        if current_number < 1:
             return ReadFailed("invalid", "invalid_data")
         assert read_at is not None
         return QueueObservation(
             scope=scope,
             observed_at=read_at.isoformat(),
-            current_number=int(text),
+            current_number=current_number,
             # This validates the read and requested scope, not the physical
             # room light. Department/session are not labeled in source rows.
             trustworthy_current=True,

@@ -1,8 +1,9 @@
 """NTU Hospital main campus ophthalmology reader for Start and scheduled checks.
 
 Scope is exactly what the Issue #17 evidence supports: the official public
-registration progress list for branch T0, department OPH, one session of the
-current day. The list shows room, doctor, clinic type and the current light.
+registration progress list for branch T0, department OPH, afternoon session
+of the current day. Morning session hours are unverified and outside scope.
+The list shows room, doctor, clinic type and the current light.
 The "Last updated" text is render time and the detail page's expected call
 number is undefined, so neither is read. Freshness is the time this reader
 fetched the page; it is never taken from the page.
@@ -39,10 +40,9 @@ from next_is_you.persistence import TAIPEI
 PROGRESS_LIST_URL = "https://reg.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo"
 BRANCH_CODE = "T0"
 SUPPORTED_DEPARTMENT = "OPH"
-# Afternoon hours come from the evidence. The morning hours are an assumption to
-# be confirmed against the official schedule.
+# Afternoon hours come from the evidence. Morning session hours are unverified
+# and outside the supported scope.
 SESSION_WINDOWS = {
-    ClinicSession.MORNING: (time(8, 30), time(12, 30)),
     ClinicSession.AFTERNOON: (time(13, 30), time(16, 30)),
 }
 WINDOW_BUFFER = timedelta(minutes=10)

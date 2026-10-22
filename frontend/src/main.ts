@@ -196,7 +196,7 @@ function formMarkup(): string {
           <option value="morning" ${formValue("session", item?.session ?? "morning") === "morning" ? "selected" : ""}>${sessionNames.morning}（morning）</option>
           <option value="afternoon" ${formValue("session", item?.session ?? "morning") === "afternoon" ? "selected" : ""}>${sessionNames.afternoon}（afternoon）</option>
           <option value="evening" ${formValue("session", item?.session ?? "morning") === "evening" ? "selected" : ""}>${sessionNames.evening}（evening）</option>
-        </select><small>這是系統目前接受的診次代碼，不代表該院、該科別或日期有開診。請先依院方資訊確認；API 尚未提供診間與日期的可選診次。</small></label>
+        </select><small>這是系統目前接受的診次代碼，不代表該院、該科別或日期有開診。臺大總院眼科目前僅支援午診讀取；早診時段未驗證且不在支援範圍。請先依院方資訊確認；API 尚未提供診間與日期的可選診次。</small></label>
       </div>
       <fieldset class="recipient-panel"><legend>通知對象</legend><div class="recipient-list">${recipientChoices(selectedRecipients, allowedRecipientIds)}</div>${allowedRecipientIds ? `<p class="recipient-note">第一次成功啟動後，不能新增通知對象；修正時只能保留或移除原有對象。</p>` : ""}</fieldset>
       <div class="action-row"><button class="primary-button" type="submit" ${formSaving ? "disabled" : ""}>${submitLabel}</button>${showCancel ? `<button class="secondary-button" id="cancel-edit" type="button" ${formSaving ? "disabled" : ""}>${cancelLabel}</button>` : ""}</div>

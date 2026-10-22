@@ -191,6 +191,18 @@ async def test_unsupported_scope_is_rejected_without_a_request(bad) -> None:
 
 
 @pytest.mark.asyncio
+async def test_morning_scope_is_unsupported_for_scheduled_and_start_reads() -> None:
+    source = FakeSource(PAGE)
+    r = reader(source)
+    morning = scope(session=ClinicSession.MORNING)
+    expected = ReadFailed("scope_mismatch", "scope_mismatch")
+
+    assert await r.observe(morning, taipei(9, 0)) == expected
+    assert await r.observe_for_start(morning, taipei(9, 0)) == expected
+    assert source.urls == []
+
+
+@pytest.mark.asyncio
 async def test_reads_only_inside_session_window_plus_buffer() -> None:
     source = FakeSource(PAGE)
     r = reader(source)

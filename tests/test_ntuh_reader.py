@@ -114,11 +114,10 @@ def test_clinic_key_requires_room_doctor_and_type() -> None:
     assert parse_clinic_key("11//Dr. Appt.") is None
 
 
-def test_request_url_is_the_observed_branch_list_without_department_or_session() -> None:
-    expected = (
-        "https://reg.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo"
-        "?vHospCode=T0"
-    )
+def test_request_url_is_the_observed_branch_list_without_department_or_session() -> (
+    None
+):
+    expected = "https://reg.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0"
     assert progress_list_url() == expected
 
 
@@ -447,7 +446,9 @@ async def seed_ntuh(database: LocalD1, gate, visit_id: str, patient: int = 28):
 
 
 @pytest.mark.asyncio
-async def test_start_does_not_trust_unverified_default_list_department_and_session() -> None:
+async def test_start_does_not_trust_unverified_default_list_department_and_session() -> (
+    None
+):
     source = FakeSource(PAGE)
     database, gate = await gate_with_visit(source)
     repository = await seed_ntuh(database, gate, "d1")

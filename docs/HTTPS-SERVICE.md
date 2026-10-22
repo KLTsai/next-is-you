@@ -6,10 +6,11 @@
 Repository preparation covers an isolated native Wrangler production template,
 fail-closed authentication and synthetic controls, a production send hold, and
 local executable regression evidence. Observable checks are same-origin assets
-and API, rejected synthetic requests, restricted organizer access, a missing
-hospital reader that cannot Start, and a recovery hold that survives a local
-Worker restart. Existing retry identity, deduplication, Stop ordering, consent,
-cutoff, and recovery tests remain the behavior seams.
+and API, rejected synthetic requests, restricted organizer access, a production
+hospital-reader hold that cannot Start, and a recovery hold that survives a
+local Worker restart. The [NTUH reader guide](NTUH-READER.md) owns reader scope
+and rehearsal behavior. Existing retry identity, deduplication, Stop ordering,
+consent, cutoff, and recovery tests remain the behavior seams.
 
 Dependencies are the owner's Cloudflare Free account/resource authorization,
 agreed fixed HTTPS origin and privacy interpretation, private LINE configuration
@@ -17,10 +18,12 @@ and organizer subject, then separately authorized deployment/manual acceptance.
 These inputs are absent. There is no deployed URL or deployed persistence evidence
 yet. Publication of repository changes does not authorize deployment.
 
-Non-goals: enabling sends, implementing the hospital reader, LINE or handset
-acceptance, paid resources, domain purchase, another service/database, a storage
-rewrite, or a deployment automation layer. Full review, validation, documentation,
-lint, push, PR and CI are handed to no-mistakes after the implementation commit.
+Non-goals: enabling sends, enabling the hospital reader in production before
+the Issue #22 pilot, LINE or handset acceptance, paid resources, domain purchase,
+another service/database, a storage rewrite, or a deployment automation layer.
+The [NTUH reader guide](NTUH-READER.md) owns reader scope and behavior. Full
+review, validation, documentation, lint, push, PR and CI are handed to
+no-mistakes after the implementation commit.
 
 ## Free plan and origin decision
 
@@ -114,8 +117,9 @@ The separate startup regression rejects synthetic controls even when the test
 flag is mistakenly set with a production environment.
 
 Fixture/mock tests additionally prove missing/invalid settings fail closed,
-allowlist enforcement, missing hospital reader, refusal to resume production,
-and no outbound event creation for an already active restored fixture.
+allowlist enforcement, production reader unavailability, refusal to resume
+production, and no outbound event creation for an already active restored
+fixture.
 Existing scheduler tests cover retry keys, deduplication, Stop ordering,
 withdrawal, cutoff and recovery reconciliation. This is genuine local integration
 with fixture identity plus fixture/mock evidence. It is not deployed integration,
@@ -242,8 +246,10 @@ Daily use needs only a browser after owner setup. Open the exact stable URL:
    requests/duration/storage and D1 rows read/written/storage and errors. Compare
    remaining account quota to the table above. Do not dump request headers or
    private payloads into logs. A local scheduled hook is not deployed Cron proof.
-   A missing hospital reader cannot Start a draft; real consented recipient and
-   Start/provider journeys remain gated by the pre-live checklist.
+   Production Start remains held and does not read the live hospital until the
+   Issue #22 pilot; the [NTUH reader guide](NTUH-READER.md) owns the reader gate.
+   Real consented recipient and Start/provider journeys remain gated by the
+   pre-live checklist.
 
 Acceptance is incomplete until these owner actions produce a recorded stable
 URL and deployed evidence. Report fixture/mock, genuine local, deployed,

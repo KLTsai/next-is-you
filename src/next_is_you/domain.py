@@ -65,3 +65,31 @@ class QueueObservation:
         if self.scope != expected or not self.trustworthy_current:
             return False
         return self.current_number is not None and self.current_number > 0
+
+
+@dataclass(frozen=True, slots=True)
+class ReadSkipped:
+    """A reader outcome where no read was attempted and no failure is counted.
+
+    `not_due` leaves the stored source status untouched. `before_session` and
+    `session_ended` describe the clinic window, never a failed read, so they
+    must not feed the unavailable alert.
+    """
+
+    reason: str
+
+    @property
+    def source_read(self) -> tuple[str, str] | None:
+        if self.reason == "before_session":
+            return "unavailable", "no_observation"
+        if self.reason == "session_ended":
+            return "unavailable", "empty_result"
+        return None
+
+
+@dataclass(frozen=True, slots=True)
+class ReadFailed:
+    """A reader outcome that is an unusable read inside the clinic window."""
+
+    status: str
+    reason: str

@@ -9,7 +9,14 @@ from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Mapping, Protocol
 
 from next_is_you.alerts import evaluate_alerts
-from next_is_you.domain import ClinicScope, ClinicSession, Hospital, QueueObservation
+from next_is_you.domain import (
+    ClinicScope,
+    ClinicSession,
+    Hospital,
+    QueueObservation,
+    ReadFailed,
+    ReadSkipped,
+)
 from next_is_you.line_messaging import LinePushResult
 from next_is_you.persistence import VisitRepository, visit_cutoff
 
@@ -23,7 +30,7 @@ _MESSAGES = {
 class HospitalReader(Protocol):
     async def observe(
         self, scope: ClinicScope, now: datetime
-    ) -> QueueObservation | None: ...
+    ) -> QueueObservation | ReadSkipped | ReadFailed | None: ...
 
 
 class LineSender(Protocol):
@@ -113,9 +120,21 @@ class OutboxScheduler:
                 observation = None
                 source_status, source_reason = "invalid", "invalid_data"
             else:
-                source_status, source_reason = _source_read_status(
-                    observation, scope, sample_time
-                )
+                if isinstance(observation, ReadSkipped):
+                    # Nothing was read: not a failed read, so no alert evaluation.
+                    if observation.source_read is not None:
+                        await self._visits.set_source_read(
+                            visit_id, *observation.source_read
+                        )
+                    continue
+                if isinstance(observation, ReadFailed):
+                    source_status = observation.status
+                    source_reason = observation.reason
+                    observation = None
+                else:
+                    source_status, source_reason = _source_read_status(
+                        observation, scope, sample_time
+                    )
             await self._visits.set_source_read(visit_id, source_status, source_reason)
             existing = await self._visits.event_kinds(visit_id)
             recipients = tuple(str(row["recipient_id"]) for row in selected_rows)

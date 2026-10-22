@@ -15,7 +15,14 @@ from next_is_you.persistence import (
     VisitRepository,
     visit_cutoff,
 )
-from next_is_you.domain import ClinicScope, ClinicSession, Hospital
+from next_is_you.domain import (
+    ClinicScope,
+    ClinicSession,
+    Hospital,
+    ReadFailed,
+    ReadSkipped,
+)
+from next_is_you.ntuh_reader import NtuhProgressReader, WorkersFetcher
 from next_is_you.scheduler import HospitalReader, OutboxScheduler, TickPlan
 
 try:
@@ -184,9 +191,8 @@ class SystemSendGate(_DurableObjectBase):
                 return {"error": "invalid_lifecycle_state"}
             if not await self._check_ledger():
                 return {"error": "scheduler_held"}
-            # No production hospital reader is configured until NIY-004 supplies a
-            # verified transport. The local reader exists only under NIY-006 test mode.
-            if not local_test_mode(self.env):
+            reader = self._hospital_reader()
+            if reader is None:
                 await repository.set_source_read(
                     visit_id, "unavailable", "no_observation"
                 )
@@ -208,9 +214,18 @@ class SystemSendGate(_DurableObjectBase):
             except (ValueError, TypeError, KeyError):
                 await repository.set_source_read(visit_id, "invalid", "invalid_data")
                 return {"error": "observation_invalid"}
-            observation = await _TestHospitalReader(self.ctx.storage).observe(
-                scope, timestamp
-            )
+            if isinstance(reader, NtuhProgressReader):
+                observation = await reader.observe_for_start(scope, timestamp)
+            else:
+                observation = await reader.observe(scope, timestamp)
+            if isinstance(observation, (ReadSkipped, ReadFailed)):
+                status, reason = (
+                    (observation.status, observation.reason)
+                    if isinstance(observation, ReadFailed)
+                    else observation.source_read or ("unavailable", "no_observation")
+                )
+                await repository.set_source_read(visit_id, status, reason)
+                return {"error": _START_ERRORS[status]}
             if observation is None:
                 await repository.set_source_read(
                     visit_id, "unavailable", "no_observation"
@@ -414,7 +429,7 @@ class SystemSendGate(_DurableObjectBase):
             "held": configuration_hold or recovery_hold,
             "configuration_hold": configuration_hold,
             "recovery_hold": recovery_hold,
-            "hospital_reader_available": local_test_mode(self.env),
+            "hospital_reader_available": self._hospital_reader() is not None,
         }
 
     async def _held(self) -> bool:
@@ -475,11 +490,19 @@ class SystemSendGate(_DurableObjectBase):
             raise RuntimeError("D1 binding is unavailable")
         return VisitRepository(CloudflareD1Store(binding))
 
+    def _hospital_reader(self) -> HospitalReader | None:
+        """Production stays without a hospital reader until the Issue #22 pilot."""
+        if not local_test_mode(self.env):
+            return None
+        if str(_field(self.env, "NTUH_READER_ENABLED", "")) == "1":
+            return NtuhProgressReader(self.ctx.storage, self._ntuh_fetcher)
+        return _TestHospitalReader(self.ctx.storage)
+
+    _ntuh_fetcher = WorkersFetcher()
+
     def _scheduler(self, clock) -> OutboxScheduler:
         test_mode = local_test_mode(self.env)
-        hospital: HospitalReader | None = (
-            _TestHospitalReader(self.ctx.storage) if test_mode else None
-        )
+        hospital = self._hospital_reader()
         if test_mode:
             line = LinePushClient(
                 "local-test-only-token",
@@ -595,6 +618,15 @@ class SystemSendGate(_DurableObjectBase):
     def _require_test_mode(self) -> None:
         if not local_test_mode(self.env):
             raise RuntimeError("local scheduler test controls are disabled")
+
+
+_START_ERRORS = {
+    "unavailable": "observation_unavailable",
+    "stale": "observation_stale",
+    "scope_mismatch": "observation_scope_mismatch",
+    "untrusted": "observation_untrusted",
+    "invalid": "observation_invalid",
+}
 
 
 class _TestHospitalReader:

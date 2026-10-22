@@ -235,14 +235,29 @@ class NtuhProgressReader:
         }
         if result is not None and "rows" in result:
             cached_rows = result["rows"]
+            cached_coverage = result.get("coverage", [])
+            tracked_key_ids = {
+                (key.room, key.doctor, key.clinic_type) for key in tracked_keys
+            }
+            retained_coverage = [
+                item
+                for item in cached_coverage
+                if isinstance(item, list)
+                and len(item) == 3
+                and tuple(item) in tracked_key_ids
+            ]
             result["rows"] = [
                 row
                 for row in cached_rows
                 if len(row) == 4
                 and any(_matches(ListRow(*row), key) for key in tracked_keys)
             ]
+            result["coverage"] = retained_coverage
             entry["result"] = result
-            if len(result["rows"]) != len(cached_rows):
+            if (
+                len(result["rows"]) != len(cached_rows)
+                or retained_coverage != cached_coverage
+            ):
                 await self._save(states, scope.visit_date)
         # Visits of one tick share a read; Start may also reuse a recent good
         # read, but never a recent failure, so it can retry once backoff allows.

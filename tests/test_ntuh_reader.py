@@ -303,6 +303,28 @@ async def test_cached_read_does_not_classify_uncovered_clinic_as_absent() -> Non
 
 
 @pytest.mark.asyncio
+async def test_start_pruning_removes_coverage_for_other_clinics() -> None:
+    source = FakeSource(PAGE)
+    r = reader(source)
+    second_scope = scope("07/Synthetic Doctor A/General Clinic")
+    r.set_tracked_scopes((scope(), second_scope))
+    assert isinstance(await r.observe(scope(), taipei(15, 0)), QueueObservation)
+    assert isinstance(await r.observe(second_scope, taipei(15, 0, 1)), QueueObservation)
+
+    assert isinstance(
+        await r.observe_for_start(scope(), taipei(15, 0, 2)), QueueObservation
+    )
+    assert await r.observe_for_start(second_scope, taipei(15, 0, 3)) == ReadFailed(
+        "unavailable", "no_observation"
+    )
+    assert len(source.urls) == 1
+    result = await r.observe_for_start(second_scope, taipei(15, 2))
+    assert isinstance(result, QueueObservation)
+    assert result.current_number == 12
+    assert len(source.urls) == 2
+
+
+@pytest.mark.asyncio
 async def test_state_survives_a_new_reader_instance() -> None:
     state = LocalDurableStorage()
     source = FakeSource(PAGE)

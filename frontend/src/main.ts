@@ -395,6 +395,7 @@ function bindActions(): void {
       if (!previous) await createVisit(input);
       else if (previous.mode === "correct") await correctVisit(previous.visit.id, input);
       else await updateVisit(previous.visit.id, input);
+      if (previous) startFailures.delete(previous.visit.id);
       editing = null;
       formValues = null;
       initialPatientNumber = null;

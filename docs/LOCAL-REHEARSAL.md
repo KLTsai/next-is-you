@@ -108,9 +108,11 @@ curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/observation \
   --data '{"current_number":null,"trustworthy":false}'
 ```
 
-Select **重新檢查並開始提醒**. Expected: pending recheck, then an unavailable reason;
-state remains **草稿**. Restore the trusted observation at `70` using the first
-control above, then Start again. Expected: **監控中** after API confirmation.
+Select **重新檢查並開始提醒**. Expected: pending recheck, then an unavailable
+reason shown as an alert on the draft card; state remains **草稿**. The alert
+clears when Start is retried or after a draft edit is saved successfully. Restore
+the trusted observation at `70` using the first control above, then Start again.
+Expected: **監控中** after API confirmation.
 The synthetic reader returns a fresh observation matching the visit scope; it
 does not prove real hospital freshness.
 

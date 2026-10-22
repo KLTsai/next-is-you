@@ -35,7 +35,7 @@ Base: `dada0a0` on `main` (includes the merged correction and draft-transition w
 1. Failed Start feedback (step 5). Regression:
    `tests/test_rehearsal.py::test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fields`
    (real Worker). The reason now renders as `role="alert"` on the draft card, is
-   cleared when Start is retried, and the draft stays 草稿.
+   cleared when Start is retried or an edit is saved, and the draft stays 草稿.
 2. Date input misalignment (step 15). Same test asserts equal height and top
    position of the date and patient-number inputs at 1280 px. Fixed with
    `align-content: start` and a fixed 48 px control height.

@@ -36,7 +36,8 @@ from next_is_you.persistence import TAIPEI
 
 # This route is derived from manual observation and is not live-verified.
 # The default list's department and session are unverified; the reader stays
-# behind NTUH_READER_ENABLED and never marks its numbers verified-accurate.
+# behind NTUH_READER_ENABLED. Trust means a fresh, exact source read, not
+# verified accuracy against the room's physical indicator.
 PROGRESS_LIST_URL = "https://reg.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo"
 BRANCH_CODE = "T0"
 SUPPORTED_DEPARTMENT = "OPH"
@@ -264,7 +265,9 @@ class NtuhProgressReader:
             scope=scope,
             observed_at=read_at.isoformat(),
             current_number=int(text),
-            trustworthy_current=False,
+            # This validates the read and requested scope, not the physical
+            # room light. Department/session are not labeled in source rows.
+            trustworthy_current=True,
         )
 
     async def _fetch_result(self) -> dict[str, Any]:

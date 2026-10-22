@@ -6,7 +6,7 @@ Supported scope: NTU Hospital main campus (branch `T0`), department ophthalmolog
 
 ## Enabling
 
-The reader is off by default. Start and scheduled checks use it only when the Worker has `NTUH_READER_ENABLED=1`; otherwise Start reports the source as unavailable, as before. The production hold is separate and unchanged: scheduled ticks stay held outside the local rehearsal. The observed default list does not expose a verified department or session, so fetched numbers are never marked trustworthy or reported as verified-accurate. The flag is a deliberate enablement gate while that source scope remains unverified.
+The reader is off by default. Start and scheduled checks use it only when the Worker has `NTUH_READER_ENABLED=1`; otherwise Start reports the source as unavailable, as before. The production hold is separate and unchanged: scheduled ticks stay held outside the local rehearsal. A trustworthy observation means the fetched source read is fresh, matches the configured supported scope and has one unambiguous positive current number. The source list does not label department or session, so the configured OPH afternoon scope is not confirmed by the returned row. Trust does not mean the number is accurate against the room's physical light; that accuracy is unverified. The flag is a deliberate enablement gate while live behavior remains unverified. Production stays held pending the live pilot in Issue #22.
 
 ## Entering the clinic
 
@@ -16,7 +16,7 @@ The reminder form has no doctor or room fields, so the NTUH clinic code carries 
 
 - Match: room, doctor and clinic type must all equal one list row. Zero rows or several rows never produce a number. The current number is never inferred from neighbors, "Expected Call Number" is never read, and the page's "Last updated" is ignored (it is render time).
 - Blank current light means no data, never zero. `0` or non-numeric text is invalid data.
-- Freshness is the time the reader fetched the page. An observation older than 2 minutes cannot start a reminder. Since the default list's department and session are unverified, its number is also marked untrusted and cannot start a reminder or be used as a verified-accurate number.
+- Freshness is the time the reader fetched the page. An observation older than 2 minutes cannot start a reminder or support a scheduled alert. A usable read is not evidence of physical-light accuracy; no accuracy claim is made.
 - Cadence: the one-minute cron only offers a chance to read. The reader skips unless 2 minutes passed since the last read of the same source, and visits in one tick share one read. Reader state lives in Durable Object storage.
 - Window: supported afternoon reads happen 13:30 to 16:30 plus 10 minutes either side. Morning hours are unverified and outside the evidenced scope, so morning requests fail with `scope_mismatch` before any read.
 - Failures: a timeout, HTTP 408/429/5xx or other transport error retries after 1, then 2, then 4 minutes (capped), honoring `Retry-After` up to 10 minutes. A challenge or CAPTCHA marker, HTTP 401/403/451, or any redirect stops reading that source for the day and shows "來源拒絕讀取". Nothing bypasses, solves or works around a challenge, and requests are plain GETs without cookies.

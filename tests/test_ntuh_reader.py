@@ -122,13 +122,13 @@ def test_request_url_is_the_observed_branch_list_without_department_or_session()
 
 
 @pytest.mark.asyncio
-async def test_exact_match_returns_fresh_untrusted_observation_stamped_with_fetch_time():
+async def test_exact_match_returns_fresh_usable_observation_stamped_with_fetch_time():
     source = FakeSource(PAGE)
     observation = await reader(source).observe(scope(), taipei(15, 0))
     assert isinstance(observation, QueueObservation)
     assert observation.current_number == 25
-    assert not observation.trustworthy_current
-    assert not observation.is_comparable_to(scope())
+    assert observation.trustworthy_current
+    assert observation.is_comparable_to(scope())
     assert observation.observed_at == taipei(15, 0).isoformat()
     assert observation.source_updated_at is None
 
@@ -446,17 +446,15 @@ async def seed_ntuh(database: LocalD1, gate, visit_id: str, patient: int = 28):
 
 
 @pytest.mark.asyncio
-async def test_start_does_not_trust_unverified_default_list_department_and_session() -> (
-    None
-):
+async def test_start_activates_on_fresh_exact_positive_read() -> None:
     source = FakeSource(PAGE)
     database, gate = await gate_with_visit(source)
     repository = await seed_ntuh(database, gate, "d1")
     started = await gate.start_visit("d1", taipei(15, 0).isoformat())
-    assert started == {"error": "observation_untrusted"}
+    assert started == {"state": "active"}
     visit = await repository.get_visit("d1")
-    assert visit["state"] == "draft"
-    assert counts(database, "d1")[:2] == ("untrusted", "untrusted_source")
+    assert visit["state"] == "active"
+    assert counts(database, "d1")[:2] == ("usable", "none")
     assert source.urls == [progress_list_url()]
 
 
@@ -525,16 +523,18 @@ async def active_visit(database, gate, visit_id="d1", patient=28):
 
 
 @pytest.mark.asyncio
-async def test_scheduled_checks_keep_default_list_numbers_untrusted() -> None:
+async def test_scheduled_checks_create_near_alert_from_fresh_exact_read() -> None:
     source = FakeSource(PAGE, page_with("026"))
     database, gate = await gate_with_visit(source)
     await active_visit(database, gate)
     result = await gate.scheduled_tick(taipei(15, 2).isoformat())
-    assert result["events_created"] == 0
+    assert result["events_created"] == 1
     again = await gate.scheduled_tick(taipei(15, 4).isoformat())
     assert again["events_created"] == 0
-    assert counts(database, "d1")[:2] == ("untrusted", "untrusted_source")
-    assert (await gate.test_snapshot())["line_requests"] == []
+    assert counts(database, "d1")[:2] == ("usable", "none")
+    snapshot = await gate.test_snapshot()
+    assert [event["event_kind"] for event in snapshot["events"]] == ["near"]
+    assert snapshot["line_requests"]
 
 
 @pytest.mark.asyncio

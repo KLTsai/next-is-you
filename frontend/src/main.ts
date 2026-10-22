@@ -191,7 +191,7 @@ function formMarkup(): string {
         <label class="field"><span>看診日期</span><input name="date" type="date" value="${escapeHtml(formValue("date", item?.date ?? ""))}" required></label>
         <label class="field"><span>掛號序號</span><input name="patient_number" type="number" min="1" max="999999" value="${escapeHtml(formValue("patient_number", initialPatientNumber ?? ""))}" required inputmode="numeric"><small>${item ? "僅供這筆提醒修正使用；已儲存草稿會顯示序號，方便辨識。" : "僅供這筆提醒使用；已儲存草稿會顯示序號，方便辨識。"}</small></label>
         <label class="field"><span>科別代碼</span><input name="department_code" maxlength="64" value="${escapeHtml(formValue("department_code", item?.department_code ?? ""))}" required autocomplete="off"></label>
-        <label class="field"><span>診間代碼</span><input name="clinic_code" maxlength="64" value="${escapeHtml(formValue("clinic_code", item?.clinic_code ?? ""))}" required autocomplete="off"><small>臺大醫院總院眼科：科別填 OPH，診間填「診間/醫師/門診別」，例如 11/Hsiao-Sang Chu/Dr. Appt.，須與院方進度頁列表一致。</small></label>
+        <label class="field"><span>診間代碼</span><input name="clinic_code" maxlength="64" value="${escapeHtml(formValue("clinic_code", item?.clinic_code ?? ""))}" required autocomplete="off"><small>臺大醫院總院眼科：科別填 OPH，診間填「診間/醫師/門診別」，例如 11/Hsiao-Sang Chu/Dr. Appt.，須與院方進度頁列表一致。來源讀取與設定範圍吻合不代表號碼已與現場燈號核實；此準確性尚未驗證。</small></label>
         <label class="field"><span>診次</span><select name="session" required>
           <option value="morning" ${formValue("session", item?.session ?? "morning") === "morning" ? "selected" : ""}>${sessionNames.morning}（morning）</option>
           <option value="afternoon" ${formValue("session", item?.session ?? "morning") === "afternoon" ? "selected" : ""}>${sessionNames.afternoon}（afternoon）</option>

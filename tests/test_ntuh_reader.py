@@ -244,12 +244,30 @@ async def test_cadence_skips_ticks_inside_two_minutes_and_reads_at_two() -> None
 async def test_visits_in_the_same_tick_share_one_read() -> None:
     source = FakeSource(PAGE)
     r = reader(source)
+    r.set_tracked_scopes(
+        (scope(), scope("07/Synthetic Doctor A/General Clinic"))
+    )
     first = await r.observe(scope(), taipei(15, 0))
     second = await r.observe(
         scope("07/Synthetic Doctor A/General Clinic"), taipei(15, 0, 1)
     )
     assert first.current_number == 25 and second.current_number == 12
     assert len(source.urls) == 1
+    saved = await r._state.get("ntuh_reader_state")
+    assert "Synthetic Doctor B" not in saved
+    assert "Synthetic Doctor A" in saved
+
+
+@pytest.mark.asyncio
+async def test_saved_read_contains_only_rows_for_tracked_clinics() -> None:
+    state = LocalDurableStorage()
+    source = FakeSource(PAGE)
+    r = reader(source, state)
+    await r.observe(scope(), taipei(15, 0))
+    saved = await state.get("ntuh_reader_state")
+    assert "Hsiao-Sang Chu" in saved
+    assert "Synthetic Doctor A" not in saved
+    assert "Synthetic Doctor B" not in saved
 
 
 @pytest.mark.asyncio

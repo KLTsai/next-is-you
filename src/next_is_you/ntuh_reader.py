@@ -178,6 +178,10 @@ class NtuhProgressReader:
     def __init__(self, state: ReaderState, fetch: Fetcher) -> None:
         self._state = state
         self._fetch = fetch
+        self._tracked_scopes: tuple[ClinicScope, ...] = ()
+
+    def set_tracked_scopes(self, scopes: tuple[ClinicScope, ...]) -> None:
+        self._tracked_scopes = scopes
 
     async def observe(
         self, scope: ClinicScope, now: datetime
@@ -220,6 +224,26 @@ class NtuhProgressReader:
         read_at = _parse(entry.get("read_at"))
         age = now - read_at if read_at is not None else None
         result = entry.get("result")
+        tracked_scopes = () if for_start else self._tracked_scopes
+        tracked_keys = {
+            parsed
+            for tracked_scope in (*tracked_scopes, scope)
+            if tracked_scope.hospital == Hospital.NTUH_MAIN
+            and tracked_scope.department_code == SUPPORTED_DEPARTMENT
+            and tracked_scope.session in SESSION_WINDOWS
+            and (parsed := parse_clinic_key(tracked_scope.clinic_code)) is not None
+        }
+        if result is not None and "rows" in result:
+            cached_rows = result["rows"]
+            result["rows"] = [
+                row
+                for row in cached_rows
+                if len(row) == 4
+                and any(_matches(ListRow(*row), key) for key in tracked_keys)
+            ]
+            entry["result"] = result
+            if len(result["rows"]) != len(cached_rows):
+                await self._save(states, scope.visit_date)
         # Visits of one tick share a read; Start may also reuse a recent good
         # read, but never a recent failure, so it can retry once backoff allows.
         reuse = (
@@ -239,7 +263,7 @@ class NtuhProgressReader:
                 return _failure(entry.get("result")) or ReadFailed(
                     "unavailable", "no_observation"
                 )
-            result = await self._fetch_result()
+            result = await self._fetch_result(tracked_keys)
             self._record(entry, result, now)
             read_at = now
             await self._save(states, scope.visit_date)
@@ -278,7 +302,7 @@ class NtuhProgressReader:
             trustworthy_current=True,
         )
 
-    async def _fetch_result(self) -> dict[str, Any]:
+    async def _fetch_result(self, tracked_keys: set[ClinicKey]) -> dict[str, Any]:
         try:
             page = await asyncio.wait_for(
                 self._fetch(progress_list_url()), REQUEST_TIMEOUT_SECONDS
@@ -305,6 +329,7 @@ class NtuhProgressReader:
         return {
             "rows": [
                 [row.room, row.doctor, row.clinic_type, row.current] for row in rows
+                if any(_matches(row, key) for key in tracked_keys)
             ]
         }
 

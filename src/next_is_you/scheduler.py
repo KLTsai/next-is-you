@@ -89,6 +89,9 @@ class OutboxScheduler:
             return TickPlan()
 
         rows = await self._visits.active_schedule_rows()
+        set_tracked_scopes = getattr(self._hospital, "set_tracked_scopes", None)
+        if set_tracked_scopes is not None:
+            set_tracked_scopes(tuple(_scope(row) for row in rows))
         by_visit: dict[str, list[Mapping[str, Any]]] = {}
         for row in rows:
             by_visit.setdefault(str(row["id"]), []).append(row)

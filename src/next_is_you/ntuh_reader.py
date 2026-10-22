@@ -251,6 +251,10 @@ class NtuhProgressReader:
             and age is not None
             and timedelta(0) <= age
             and (
+                "failure" in result
+                or _key_in_coverage(result, key)
+            )
+            and (
                 age <= SAME_READ_WINDOW
                 or (for_start and age <= FRESH_MAX_AGE and "failure" not in result)
             )
@@ -330,7 +334,13 @@ class NtuhProgressReader:
             "rows": [
                 [row.room, row.doctor, row.clinic_type, row.current] for row in rows
                 if any(_matches(row, key) for key in tracked_keys)
-            ]
+            ],
+            "coverage": [
+                [key.room, key.doctor, key.clinic_type]
+                for key in sorted(
+                    tracked_keys, key=lambda item: (item.room, item.doctor, item.clinic_type)
+                )
+            ],
         }
 
     def _record(self, entry: dict[str, Any], result: dict[str, Any], now: datetime):
@@ -377,6 +387,10 @@ def _failed(status: str, reason: str, *, blocked: bool = False) -> dict[str, Any
     if blocked:
         result["blocked"] = True
     return result
+
+
+def _key_in_coverage(result: dict[str, Any], key: ClinicKey) -> bool:
+    return [key.room, key.doctor, key.clinic_type] in result.get("coverage", [])
 
 
 def _failure(result: dict[str, Any] | None) -> ReadFailed | None:

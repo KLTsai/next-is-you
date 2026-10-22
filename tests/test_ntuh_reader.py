@@ -286,6 +286,23 @@ async def test_start_reuses_a_fresh_read_but_reads_once_it_is_older_than_two_min
 
 
 @pytest.mark.asyncio
+async def test_cached_read_does_not_classify_uncovered_clinic_as_absent() -> None:
+    source = FakeSource(PAGE)
+    r = reader(source)
+    assert isinstance(
+        await r.observe_for_start(scope(), taipei(15, 0)), QueueObservation
+    )
+    second_scope = scope("07/Synthetic Doctor A/General Clinic")
+    r.set_tracked_scopes((scope(), second_scope))
+    assert await r.observe(second_scope, taipei(15, 0, 1)) == ReadSkipped("not_due")
+    assert len(source.urls) == 1
+    result = await r.observe(second_scope, taipei(15, 2))
+    assert isinstance(result, QueueObservation)
+    assert result.current_number == 12
+    assert len(source.urls) == 2
+
+
+@pytest.mark.asyncio
 async def test_state_survives_a_new_reader_instance() -> None:
     state = LocalDurableStorage()
     source = FakeSource(PAGE)

@@ -369,6 +369,19 @@ async def test_schema_change_fails_closed(page: FetchedPage) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["observe", "observe_for_start"])
+async def test_short_row_after_session_end_is_schema_drift_not_clinic_end(method):
+    malformed = PAGE.replace(
+        "<tr><td>11</td><td>Hsiao-Sang Chu</td><td>Dr. Appt.</td><td>025</td><td>017</td></tr>",
+        "<tr><td>11</td><td>Hsiao-Sang Chu</td><td>Dr. Appt.</td></tr>",
+    )
+    source = FakeSource(malformed)
+    result = await getattr(reader(source), method)(scope(), taipei(16, 31))
+    assert result == ReadFailed("invalid", "schema_drift")
+    assert len(source.urls) == 1
+
+
+@pytest.mark.asyncio
 async def test_row_gone_inside_the_session_is_an_unusable_read_not_the_end() -> None:
     gone = PAGE.replace("Hsiao-Sang Chu", "Someone Else")
     result = await reader(FakeSource(gone)).observe(scope(), taipei(16, 29))

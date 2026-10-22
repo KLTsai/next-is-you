@@ -131,11 +131,10 @@ def parse_progress_list(html: str) -> tuple[str, list[ListRow]]:
             columns = _columns(header)
             if columns is None:
                 continue
-            rows = [
-                ListRow(*(row[columns[field]] for field in _ROW_FIELDS))
-                for row in table[index + 1 :]
-                if len(row) > max(columns.values())
-            ]
+            data_rows = table[index + 1 :]
+            if any(len(row) <= max(columns.values()) for row in data_rows):
+                return "schema", []
+            rows = [ListRow(*(row[columns[field]] for field in _ROW_FIELDS)) for row in data_rows]
             return "ok", rows
     return "schema", []
 

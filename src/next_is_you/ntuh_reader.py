@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Awaitable, Callable, Protocol
 from urllib.parse import urlencode
 
@@ -309,7 +311,12 @@ class NtuhProgressReader:
         delay = RETRY_BACKOFF[min(failures, len(RETRY_BACKOFF)) - 1]
         retry_after = result.get("retry_after")
         if isinstance(retry_after, int) and retry_after > 0:
-            delay = max(delay, min(timedelta(seconds=retry_after), RETRY_AFTER_CAP))
+            delay = max(
+                delay,
+                timedelta(
+                    seconds=min(retry_after, int(RETRY_AFTER_CAP.total_seconds()))
+                ),
+            )
         entry["due_at"] = (now + delay).isoformat()
 
     async def _load(self) -> dict[str, dict[str, Any]]:
@@ -353,6 +360,24 @@ def _parse(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo is not None else None
 
 
+def parse_retry_after(value: str | None, *, now: datetime | None = None) -> int | None:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if value.isdigit():
+        return int(value)
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    return max(0, math.ceil((retry_at - reference).total_seconds()))
+
+
 class WorkersFetcher:
     """Plain GET through the Workers runtime; never follows redirects."""
 
@@ -369,11 +394,9 @@ class WorkersFetcher:
             dict_converter=Object.fromEntries,
         )
         response = await fetch(url, options)
-        retry_after = response.headers.get("Retry-After")
+        retry_after = parse_retry_after(response.headers.get("Retry-After"))
         return FetchedPage(
             status=int(response.status),
             body=str(await response.text()) if int(response.status) == 200 else "",
-            retry_after=int(retry_after)
-            if isinstance(retry_after, str) and retry_after.isdigit()
-            else None,
+            retry_after=retry_after,
         )

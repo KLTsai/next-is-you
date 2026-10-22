@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ from next_is_you.ntuh_reader import (
     NtuhProgressReader,
     parse_clinic_key,
     parse_progress_list,
+    parse_retry_after,
     progress_list_url,
 )
 from next_is_you.persistence import CloudflareD1Store, Statement, VisitRepository
@@ -290,6 +292,22 @@ async def test_rate_limit_retry_after_extends_the_wait_within_a_cap() -> None:
     source = FakeSource(FetchedPage(429, "", retry_after=300), PAGE)
     r = reader(source)
     assert isinstance(await r.observe(scope(), taipei(15, 0)), ReadFailed)
+    assert await r.observe(scope(), taipei(15, 4, 59)) == ReadSkipped("not_due")
+    assert isinstance(await r.observe(scope(), taipei(15, 5)), QueueObservation)
+
+
+@pytest.mark.asyncio
+async def test_http_date_retry_after_extends_the_wait_within_a_cap() -> None:
+    now = taipei(15, 0)
+    assert parse_retry_after("300", now=now) == 300
+    retry_at = taipei(15, 5).astimezone(timezone.utc)
+    header = format_datetime(retry_at, usegmt=True)
+    retry_after = parse_retry_after(header, now=now)
+    assert retry_after == 300
+
+    source = FakeSource(FetchedPage(503, "", retry_after=retry_after), PAGE)
+    r = reader(source)
+    assert isinstance(await r.observe(scope(), now), ReadFailed)
     assert await r.observe(scope(), taipei(15, 4, 59)) == ReadSkipped("not_due")
     assert isinstance(await r.observe(scope(), taipei(15, 5)), QueueObservation)
 

@@ -345,9 +345,7 @@ async def test_timeout_is_transient_and_recovers_to_normal_cadence() -> None:
     assert await r.observe(scope(), taipei(15, 0)) == ReadFailed(
         "unavailable", "timeout"
     )
-    assert await r.observe(scope(), taipei(15, 0, 30)) == ReadFailed(
-        "unavailable", "timeout"
-    )
+    assert await r.observe(scope(), taipei(15, 0, 30)) == ReadSkipped("not_due")
     assert isinstance(await r.observe(scope(), taipei(15, 1)), QueueObservation)
     assert await r.observe(scope(), taipei(15, 2)) == ReadSkipped("not_due")
     assert isinstance(await r.observe(scope(), taipei(15, 3)), QueueObservation)

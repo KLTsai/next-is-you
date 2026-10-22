@@ -238,7 +238,7 @@ class NtuhProgressReader:
             and age is not None
             and timedelta(0) <= age
             and (
-                age <= SAME_READ_WINDOW
+                age < SAME_READ_WINDOW
                 or (for_start and age <= FRESH_MAX_AGE and "failure" not in result)
             )
         )

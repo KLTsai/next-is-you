@@ -127,19 +127,29 @@ curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/snapshot \
   -H 'content-type: application/json' --data '{}'
 ```
 
-Expected for this fresh journey: one `near` event, `outcome: accepted`,
+Expected for this first in-window read: one `near` event, `outcome: accepted`,
 `attempt_count: 1`, and one fake `line_requests` entry with the same `retry_key`
 and `outbox_persisted: true`. If the saved patient number changed, choose a trusted
 current number 1-3 below it. The snapshot may include earlier events when reusing
 a dataset; compare the selected visit/event rather than assuming the global
 count always starts at zero.
 
-Invoke the same hook again. Stop the process with Ctrl-C, restart with the same
-command, then invoke it again and inspect the snapshot. The same event ID,
-retry key, outcome, attempt count and request history must remain, without an
-additional request. Both D1 history and the DO fake-request log are durable;
-a blank/reset request counter is not deduplication evidence. UI refresh shows
-the saved lifecycle and notification summary.
+The near reminder repeats as the called number moves inside the window (the 3
+numbers before the patient number). Set the observation to `83`, invoke the hook,
+and snapshot again: a second `near` event is created because the number moved
+from `82` to `83`. Each move inside the window that reaches a number different
+from the previous scheduled read sends another reminder (forward, backward, or
+re-entering after leaving), up to 20 per visit and recipient; the target number
+itself and numbers past it send none. Each reminder is its own event with its own
+`retry_key`.
+
+Invoke the same hook again at the same observed number. Stop the process with
+Ctrl-C, restart with the same command, then invoke it again and inspect the
+snapshot. Reading the same number creates no further event: the existing event
+IDs, retry keys, outcomes, attempt counts and request history must remain,
+without an additional request. Both D1 history and the DO fake-request log are
+durable; a blank/reset request counter is not deduplication evidence. UI refresh
+shows the saved lifecycle and notification summary.
 
 Select **停止提醒**. Expected: pending stop, then **已停止** only after confirmation.
 The stopped reminder card keeps the same `掛號序號` row as the saved draft.

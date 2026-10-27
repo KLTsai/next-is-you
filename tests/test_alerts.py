@@ -29,18 +29,67 @@ def observation(scope: ClinicScope, current_number: int, *, trustworthy: bool = 
 
 
 @pytest.mark.parametrize("current", [82, 83, 84])
-def test_near_window_alerts_selected_recipients_once(scope, current):
+def test_near_window_alerts_every_selected_recipient_on_a_move(scope, current):
     result = evaluate_alerts(
         expected_scope=scope,
         patient_number=85,
         observation=observation(scope, current),
         selected_recipients=("family-a", "family-b"),
-        near_already_sent=frozenset({"family-a"}),
+        previous_observed_number=81,
+    )
+
+    assert result.near_recipients == ("family-a", "family-b")
+    assert result.unavailable_recipients == ()
+    assert result.consecutive_unusable_reads == 0
+
+
+def test_first_in_window_read_sends_when_no_previous_scheduled_read(scope):
+    result = evaluate_alerts(
+        expected_scope=scope,
+        patient_number=85,
+        observation=observation(scope, 82),
+        selected_recipients=("family-a",),
+        previous_observed_number=None,
+    )
+
+    assert result.near_recipients == ("family-a",)
+
+
+def test_same_number_as_previous_scheduled_read_sends_nothing(scope):
+    result = evaluate_alerts(
+        expected_scope=scope,
+        patient_number=85,
+        observation=observation(scope, 83),
+        selected_recipients=("family-a",),
+        previous_observed_number=83,
+    )
+
+    assert result.near_recipients == ()
+
+
+def test_moving_backward_inside_the_window_sends_again(scope):
+    result = evaluate_alerts(
+        expected_scope=scope,
+        patient_number=85,
+        observation=observation(scope, 83),
+        selected_recipients=("family-a",),
+        previous_observed_number=84,
+    )
+
+    assert result.near_recipients == ("family-a",)
+
+
+def test_recipient_at_the_cap_gets_no_further_reminder(scope):
+    result = evaluate_alerts(
+        expected_scope=scope,
+        patient_number=85,
+        observation=observation(scope, 83),
+        selected_recipients=("family-a", "family-b"),
+        previous_observed_number=82,
+        near_counts={"family-a": 20, "family-b": 19},
     )
 
     assert result.near_recipients == ("family-b",)
-    assert result.unavailable_recipients == ()
-    assert result.consecutive_unusable_reads == 0
 
 
 @pytest.mark.parametrize("current", [81, 85, 86])
@@ -50,6 +99,7 @@ def test_outside_near_window_never_sends_or_catches_up(scope, current):
         patient_number=85,
         observation=observation(scope, current),
         selected_recipients=("family-a",),
+        previous_observed_number=70,
     )
 
     assert result.near_recipients == ()

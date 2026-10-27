@@ -136,20 +136,23 @@ class OutboxScheduler:
                         observation, scope, sample_time
                     )
             await self._visits.set_source_read(visit_id, source_status, source_reason)
-            existing = await self._visits.event_kinds(visit_id)
             recipients = tuple(str(row["recipient_id"]) for row in selected_rows)
-            near_already = frozenset(
-                recipient for recipient, kind in existing if kind == "near"
-            )
+            existing = await self._visits.event_kinds(visit_id)
             unavailable_already = frozenset(
                 recipient for recipient, kind in existing if kind == "unavailable"
+            )
+            previous_observed_number = (
+                int(visit["near_prev_observed_number"])
+                if visit["near_prev_observed_number"] is not None
+                else None
             )
             evaluation = evaluate_alerts(
                 expected_scope=scope,
                 patient_number=int(visit["patient_number"]),
                 observation=observation,
                 selected_recipients=recipients,
-                near_already_sent=near_already,
+                previous_observed_number=previous_observed_number,
+                near_counts=await self._visits.near_counts(visit_id),
                 unavailable_already_sent=unavailable_already,
                 previous_unusable_reads=int(visit["consecutive_unusable_reads"]),
             )
@@ -158,40 +161,59 @@ class OutboxScheduler:
                 if observation is not None
                 else sample_time
             )
-            current_number = (
-                observation.current_number
-                if observation is not None and evaluation.usable_observation
-                else None
-            )
-            await self._visits.update_observation(
-                visit_id,
-                current_number=current_number,
-                observed_at=observed_at,
-                consecutive_unusable_reads=evaluation.consecutive_unusable_reads,
-            )
-            for event_kind, recipient_ids in (
-                ("near", evaluation.near_recipients),
-                ("unavailable", evaluation.unavailable_recipients),
-            ):
-                for recipient_id in recipient_ids:
+            if evaluation.usable_observation:
+                assert (
+                    observation is not None and observation.current_number is not None
+                )
+                new_events = [
+                    {
+                        "event_id": str(uuid.uuid4()),
+                        "recipient_id": recipient_id,
+                        "retry_key": str(uuid.uuid4()),
+                        "payload_json": json.dumps(
+                            {"text": _MESSAGES["near"]},
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ),
+                    }
+                    for recipient_id in evaluation.near_recipients
+                ]
+                # Advance the previously observed number and persist its near
+                # reminders in one transaction so a crash cannot lose or duplicate
+                # a reminder on the next tick.
+                created += await self._visits.commit_near_reminders(
+                    visit_id,
+                    observed_number=int(observation.current_number),
+                    observed_at=observed_at,
+                    now=sample_time,
+                    new_events=new_events,
+                )
+            else:
+                await self._visits.update_observation(
+                    visit_id,
+                    current_number=None,
+                    observed_at=observed_at,
+                    consecutive_unusable_reads=evaluation.consecutive_unusable_reads,
+                )
+                for recipient_id in evaluation.unavailable_recipients:
                     before = await self._visits.event_kinds(visit_id)
                     await self._visits.create_event_if_absent(
                         event_id=str(uuid.uuid4()),
                         visit_id=visit_id,
                         recipient_id=recipient_id,
-                        event_kind=event_kind,
+                        event_kind="unavailable",
                         retry_key=str(uuid.uuid4()),
                         payload_json=json.dumps(
-                            {"text": _MESSAGES[event_kind]},
+                            {"text": _MESSAGES["unavailable"]},
                             ensure_ascii=False,
                             separators=(",", ":"),
                         ),
                         now=sample_time,
                     )
                     after = await self._visits.event_kinds(visit_id)
-                    if (recipient_id, event_kind) not in before and (
+                    if (recipient_id, "unavailable") not in before and (
                         recipient_id,
-                        event_kind,
+                        "unavailable",
                     ) in after:
                         created += 1
             evaluated += 1

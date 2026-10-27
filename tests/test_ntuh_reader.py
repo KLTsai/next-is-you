@@ -618,17 +618,22 @@ async def active_visit(database, gate, visit_id="d1", patient=28):
 
 
 @pytest.mark.asyncio
-async def test_scheduled_checks_create_near_alert_from_fresh_exact_read() -> None:
+async def test_scheduled_checks_repeat_near_alerts_as_the_number_moves() -> None:
+    # The scripted source reads 025 first, then 026 on every later tick.
     source = FakeSource(PAGE, page_with("026"))
     database, gate = await gate_with_visit(source)
     await active_visit(database, gate)
+    # Patient 28, window 25..27: entering at 25 sends, moving to 26 sends again.
     result = await gate.scheduled_tick(taipei(15, 2).isoformat())
     assert result["events_created"] == 1
-    again = await gate.scheduled_tick(taipei(15, 4).isoformat())
+    moved = await gate.scheduled_tick(taipei(15, 4).isoformat())
+    assert moved["events_created"] == 1
+    # Reading 026 again is the same number as the last scheduled read: no reminder.
+    again = await gate.scheduled_tick(taipei(15, 6).isoformat())
     assert again["events_created"] == 0
     assert counts(database, "d1")[:2] == ("usable", "none")
     snapshot = await gate.test_snapshot()
-    assert [event["event_kind"] for event in snapshot["events"]] == ["near"]
+    assert [event["event_kind"] for event in snapshot["events"]] == ["near", "near"]
     assert snapshot["line_requests"]
 
 

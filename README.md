@@ -26,6 +26,8 @@ Honest status as of today. The GitHub tracker is the authoritative source.
 
 Nothing in this list means a real patient reminder has been delivered. The Status table is the single place that describes what works today versus what is being built; features gated behind an open issue are not claimed anywhere else in this document.
 
+The current single-hospital scope (NTU main-campus ophthalmology afternoon) is a starting point. Supporting additional hospitals is intended future work; each new source will need its own evidence record of a usable public page in the same shape as [Issue #17](https://github.com/KLTsai/next-is-you/issues/17) before it is added.
+
 ## How it works
 
 ```
@@ -127,7 +129,6 @@ Active work is tracked in [GitHub Issues](https://github.com/KLTsai/next-is-you/
 Next is you is a private family tool. It will not:
 
 - Become a public SaaS or support multi-tenant onboarding.
-- Add other hospitals, other departments, or other sessions beyond the one evidenced scope. Each additional source needs its own Issue #17-shaped evidence pass.
 - Calculate ETAs, predict the next number, or infer the queue from neighboring rows.
 - Add paid-plan features, status badges that depend on external services, or marketing surfaces.
 

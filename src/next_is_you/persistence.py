@@ -134,7 +134,7 @@ class VisitRepository:
                 v.clinic_session, v.patient_number, v.state, v.near_last_current_number, v.latest_observed_at,
                 v.latest_source_read_status, v.latest_source_read_reason,
                 vr.recipient_id, r.display_name,
-                COUNT(e.id) AS notification_count,
+                SUM(CASE WHEN e.outcome != 'superseded' THEN 1 ELSE 0 END) AS notification_count,
                 SUM(CASE WHEN e.outcome = 'accepted' THEN 1 ELSE 0 END) AS accepted_count,
                 SUM(CASE WHEN e.outcome IN ('failed', 'unknown') THEN 1 ELSE 0 END) AS issue_count
                 FROM visits AS v
@@ -275,7 +275,8 @@ class VisitRepository:
                 """SELECT id, hospital, visit_date, department_code, clinic_code,
                     clinic_session, doctor_code, room_code, patient_number, state,
                     roster_frozen, consecutive_unusable_reads, near_last_current_number,
-                    latest_observed_at, started_at, stopped_at, delete_after
+                    near_prev_observed_number, latest_observed_at, started_at,
+                    stopped_at, delete_after
                 FROM visits WHERE state != 'draft' ORDER BY id"""
             )
         )
@@ -339,6 +340,23 @@ class VisitRepository:
             )
         )
         return {(str(row["recipient_id"]), str(row["event_kind"])) for row in rows}
+
+    async def near_counts(self, visit_id: str) -> dict[str, int]:
+        """Near reminders created per recipient, counting every outcome.
+
+        Superseded reminders still count, so the 20-per-visit-and-recipient cap
+        bounds every created reminder regardless of whether it was delivered.
+        """
+        rows = await self._store.fetch_all(
+            Statement(
+                """SELECT recipient_id, COUNT(*) AS near_count
+                FROM outbound_events
+                WHERE visit_id = ? AND event_kind = 'near'
+                GROUP BY recipient_id""",
+                (visit_id,),
+            )
+        )
+        return {str(row["recipient_id"]): int(row["near_count"]) for row in rows}
 
     async def retryable_events(self, visit_id: str) -> list[Mapping[str, Any]]:
         return await self._store.fetch_all(
@@ -448,6 +466,93 @@ class VisitRepository:
             )
             == 1
         )
+
+    async def commit_near_reminders(
+        self,
+        visit_id: str,
+        *,
+        observed_number: int,
+        observed_at: datetime,
+        now: datetime,
+        new_events: Sequence[Mapping[str, str]],
+    ) -> int:
+        """Record a usable scheduled read and its near reminders atomically.
+
+        The previously observed number advances together with the near reminders
+        it triggers, in one transaction, so a crash can neither leave the number
+        advanced without its reminder (which would lose a reminder) nor leave a
+        reminder without the number advanced (which would duplicate it on the next
+        tick reading the same number). For each affected recipient an earlier
+        unsent near reminder (still pending or unknown) is superseded first, so at
+        most the latest reminder stays deliverable; accepted or in-flight
+        reminders are left untouched. ``new_events`` entries carry ``event_id``,
+        ``recipient_id``, ``retry_key`` and ``payload_json``. Returns the number
+        of near reminders inserted.
+        """
+        statements: list[Statement] = []
+        settled = iso_utc(now)
+        created_at = iso_utc(now)
+        for spec in new_events:
+            statements.append(
+                Statement(
+                    """UPDATE outbound_events SET outcome = 'superseded',
+                        settled_at = ?, error_code = 'superseded_by_newer_near'
+                    WHERE visit_id = ? AND recipient_id = ? AND event_kind = 'near'
+                        AND outcome IN ('pending', 'unknown')""",
+                    (settled, visit_id, spec["recipient_id"]),
+                )
+            )
+            statements.append(
+                Statement(
+                    """INSERT INTO outbound_events (
+                        id, visit_id, recipient_id, event_kind, retry_key,
+                        payload_json, outcome, created_at
+                    ) SELECT ?, ?, ?, 'near', ?, ?, 'pending', ?
+                    WHERE EXISTS (
+                        SELECT 1 FROM visits AS v
+                        JOIN visit_recipients AS vr ON vr.visit_id = v.id
+                        JOIN recipients AS r ON r.id = vr.recipient_id
+                        WHERE v.id = ? AND v.state = 'active'
+                            AND r.id = ? AND r.active = 1
+                            AND r.consented_at IS NOT NULL
+                            AND r.friendship_checked_at IS NOT NULL
+                    )""",
+                    (
+                        spec["event_id"],
+                        visit_id,
+                        spec["recipient_id"],
+                        spec["retry_key"],
+                        spec["payload_json"],
+                        created_at,
+                        visit_id,
+                        spec["recipient_id"],
+                    ),
+                )
+            )
+        statements.append(
+            Statement(
+                """UPDATE visits SET near_prev_observed_number = ?,
+                    near_last_current_number = ?, latest_observed_at = ?,
+                    consecutive_unusable_reads = 0
+                WHERE id = ? AND state = 'active'""",
+                (observed_number, observed_number, iso_utc(observed_at), visit_id),
+            )
+        )
+        await self._store.batch(statements)
+        if not new_events:
+            return 0
+        # Count the reminders that actually persisted from their own ids, rather
+        # than from batch change counts, whose result shape varies across the D1
+        # binding and local test doubles.
+        event_ids = [spec["event_id"] for spec in new_events]
+        placeholders = ",".join("?" for _ in event_ids)
+        persisted = await self._store.fetch_all(
+            Statement(
+                f"SELECT id FROM outbound_events WHERE id IN ({placeholders})",
+                tuple(event_ids),
+            )
+        )
+        return len(persisted)
 
     async def recover_in_flight_events(self, now: datetime) -> int:
         """After an invocation restart, fence old senders as unknown before reopening."""

@@ -23,7 +23,7 @@ Base: `dada0a0` on `main` (includes the merged correction and draft-transition w
 | 5 | Start with failing source | stays 草稿 | "正在檢查可信院方觀察…" | reason text | n/a | restore source, Start again | FAIL then fixed: reason only in a page-top banner styled as success. Now shown on the draft card as an alert |
 | 6 | Start with trusted source | same reminder becomes 監控中, leaves draft list | "重新檢查中…" | see 5 | n/a | n/a | Pass |
 | 7 | Active card | status, patient number, current number, last checked, source status, recipients, notification summary | n/a | n/a | n/a | n/a | Pass |
-| 8 | Near notice (fake send) | one accepted notice, summary "共 1 則；已接受 1 則" | n/a | n/a | n/a | duplicate tick deduplicated (covered by existing restart test) | Pass |
+| 8 | Near notice (fake send) | an accepted notice each time the called number moves inside the window (up to 20 per visit and recipient); summary counts every delivered notice, e.g. "共 1 則；已接受 1 則" after the first and "共 2 則；已接受 2 則" after a second move | n/a | n/a | n/a | a tick reading the same number creates no further event (covered by existing restart test and `test_duplicate_ticks_reading_the_same_number_create_one_near_event`) | Pass |
 | 9 | Stop | 已停止 after confirmation, no later notices | button "停止中" + 停止中 badge | error stays active | n/a | retry | Pass (in-flight ordering covered by `test_rehearsal_stop_shows_stopping_while_fake_line_request_is_in_flight`) |
 | 10 | Correct stopped reminder | same reminder returns to 草稿, recipients limited to existing | n/a | API error | cancel keeps stopped | n/a | Pass |
 | 11 | Expiry (tick after 23:59 Taipei on appointment date) | 監控中 becomes 已結束, no notice | n/a | n/a | n/a | 修正後重新啟動 returns same reminder to draft | Pass |

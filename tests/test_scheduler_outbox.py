@@ -118,31 +118,273 @@ async def tick(gate: SystemSendGate, when: str = "2026-09-27T13:00:00Z"):
     return await gate.scheduled_tick(when)
 
 
+def near_rows(database: LocalD1, visit_id: str = "v1") -> list[dict[str, Any]]:
+    return [
+        dict(row)
+        for row in database.connection.execute(
+            """SELECT * FROM outbound_events
+            WHERE visit_id = ? AND event_kind = 'near'
+            ORDER BY created_at, id""",
+            (visit_id,),
+        ).fetchall()
+    ]
+
+
+def near_count(database: LocalD1, visit_id: str = "v1") -> int:
+    return database.connection.execute(
+        "SELECT COUNT(*) FROM outbound_events WHERE visit_id = ? AND event_kind = 'near'",
+        (visit_id,),
+    ).fetchone()[0]
+
+
+def prev_observed(database: LocalD1, visit_id: str = "v1") -> int | None:
+    value = database.connection.execute(
+        "SELECT near_prev_observed_number FROM visits WHERE id = ?", (visit_id,)
+    ).fetchone()[0]
+    return None if value is None else int(value)
+
+
+async def observe_tick(gate: SystemSendGate, current: int, when: str) -> dict[str, Any]:
+    await gate.set_test_observation(current)
+    return await tick(gate, when)
+
+
 @pytest.mark.asyncio
-async def test_duplicate_ticks_and_corrected_watch_keep_one_near_event() -> None:
+async def test_duplicate_ticks_reading_the_same_number_create_one_near_event() -> None:
     database = LocalD1()
     gate = make_gate(database)
     await seed(gate)
     await gate.set_test_observation(82)
 
     first = await tick(gate)
-    await tick(gate, "2026-09-27T13:01:00Z")
+    second = await tick(gate, "2026-09-27T13:01:00Z")
     assert first["events_created"] == 1
-    assert (
-        database.connection.execute(
-            "SELECT COUNT(*) FROM outbound_events WHERE visit_id = 'v1' AND event_kind = 'near'"
-        ).fetchone()[0]
-        == 1
-    )
+    assert second["events_created"] == 0
+    assert near_count(database) == 1
+    assert prev_observed(database) == 82
     assert len((await gate.test_snapshot())["line_requests"]) == 1
 
+
+@pytest.mark.asyncio
+async def test_near_window_sequences_each_create_their_own_reminder() -> None:
+    database = LocalD1()
+    gate = make_gate(database)
+    await seed(gate, patient_number=85)
+
+    # Before the window: an in-range but earlier read, then entering the window.
+    assert (await observe_tick(gate, 51, "2026-09-27T13:00:00Z"))["events_created"] == 0
+    assert (await observe_tick(gate, 82, "2026-09-27T13:01:00Z"))["events_created"] == 1
+    # Moving forward inside the window: 82 -> 83 -> 84 give three reminders total.
+    assert (await observe_tick(gate, 83, "2026-09-27T13:02:00Z"))["events_created"] == 1
+    assert (await observe_tick(gate, 84, "2026-09-27T13:03:00Z"))["events_created"] == 1
+    # Leaving the window and re-entering at the same number sends again.
+    assert (await observe_tick(gate, 7, "2026-09-27T13:04:00Z"))["events_created"] == 0
+    assert (await observe_tick(gate, 84, "2026-09-27T13:05:00Z"))["events_created"] == 1
+    # Moving backward inside the window sends again.
+    assert (await observe_tick(gate, 83, "2026-09-27T13:06:00Z"))["events_created"] == 1
+    # The target number and numbers past it never send.
+    assert (await observe_tick(gate, 85, "2026-09-27T13:07:00Z"))["events_created"] == 0
+    assert (await observe_tick(gate, 86, "2026-09-27T13:08:00Z"))["events_created"] == 0
+
+    assert near_count(database) == 5
+    assert prev_observed(database) == 86
+
+
+@pytest.mark.asyncio
+async def test_skipped_number_still_counts_as_a_move() -> None:
+    database = LocalD1()
+    gate = make_gate(database)
+    await seed(gate, patient_number=55)
+
+    assert (await observe_tick(gate, 51, "2026-09-27T13:00:00Z"))["events_created"] == 0
+    # 51 -> 54 skips 52 and 53 but still enters the window and sends once.
+    assert (await observe_tick(gate, 54, "2026-09-27T13:01:00Z"))["events_created"] == 1
+    assert near_count(database) == 1
+
+
+@pytest.mark.asyncio
+async def test_corrected_watch_repeats_in_the_new_window() -> None:
+    database = LocalD1()
+    gate = make_gate(database)
+    await seed(gate)
+    await gate.set_test_observation(82)
+
+    assert (await tick(gate))["events_created"] == 1
+    assert near_count(database) == 1
+
     assert await gate.correct_test_watch("v1", "2026-09-27", 86, "2026-09-27T13:02:00Z")
-    await gate.set_test_observation(83)
-    await tick(gate, "2026-09-27T13:03:00Z")
+    # Patient number is now 86, so the window is 83..85 and 83 is a fresh move.
+    assert (await observe_tick(gate, 83, "2026-09-27T13:03:00Z"))["events_created"] == 1
     snapshot = await gate.test_snapshot()
-    assert len(snapshot["events"]) == 1
-    assert snapshot["events"][0]["event_kind"] == "near"
-    assert len(snapshot["line_requests"]) == 1
+    assert near_count(database) == 2
+    assert [event["event_kind"] for event in snapshot["events"]] == ["near", "near"]
+
+
+@pytest.mark.asyncio
+async def test_ui_start_observation_does_not_count_as_a_previous_scheduled_read() -> (
+    None
+):
+    database = LocalD1()
+    gate = make_gate(database)
+    # seed_test_visit starts the visit; make its observation an in-window number.
+    await gate.set_test_observation(83)
+    await seed(gate, patient_number=85)
+    assert prev_observed(database) is None
+
+    # The first scheduled read repeats that same in-window number and must send,
+    # because the Start observation is not a previous scheduled read.
+    assert (await observe_tick(gate, 83, "2026-09-27T13:01:00Z"))["events_created"] == 1
+    assert prev_observed(database) == 83
+
+
+@pytest.mark.asyncio
+async def test_unusable_reads_do_not_change_the_previous_observed_number() -> None:
+    database = LocalD1()
+    gate = make_gate(database)
+    await seed(gate, patient_number=85)
+
+    assert (await observe_tick(gate, 83, "2026-09-27T13:00:00Z"))["events_created"] == 1
+    assert prev_observed(database) == 83
+
+    # An outage: unusable reads neither create a near reminder nor move the
+    # previously observed number (the third read raises the separate unavailable
+    # warning, which is unchanged by this issue).
+    await gate.set_test_observation(None, trustworthy=False)
+    for minute in range(1, 4):
+        await tick(gate, f"2026-09-27T13:0{minute}:00Z")
+    assert prev_observed(database) == 83
+    assert near_count(database) == 1
+
+    # The same number read again after the outage creates no reminder.
+    assert (await observe_tick(gate, 83, "2026-09-27T13:05:00Z"))["events_created"] == 0
+    assert near_count(database) == 1
+
+
+@pytest.mark.asyncio
+async def test_twenty_near_cap_is_enforced_and_survives_restart() -> None:
+    database = LocalD1()
+    gate = make_gate(database)
+    await seed(gate, patient_number=1000)
+
+    # Alternate inside the window so each read is a fresh move. The window for
+    # patient 1000 is 997, 998, 999.
+    created = 0
+    for index in range(30):
+        current = 998 if index % 2 == 0 else 999
+        minute = f"2026-09-27T{13 + index // 60:02d}:{index % 60:02d}:00Z"
+        created += (await observe_tick(gate, current, minute))["events_created"]
+    assert created == 20
+    assert near_count(database) == 20
+
+    # The cap is stored, not just enforced by application code: a raw 21st insert
+    # is rejected by the database.
+    with pytest.raises(sqlite3.IntegrityError):
+        database.connection.execute(
+            """INSERT INTO outbound_events (
+                id, visit_id, recipient_id, event_kind, retry_key, payload_json,
+                outcome, created_at
+            ) VALUES ('overflow', 'v1', 'r1', 'near', 'overflow-key', '{}', 'pending',
+                '2026-09-27T14:00:00Z')"""
+        )
+
+    # The previously observed number keeps updating past the cap.
+    before = prev_observed(database)
+    other = 997 if before != 997 else 998
+    assert (await observe_tick(gate, other, "2026-09-27T15:00:00Z"))[
+        "events_created"
+    ] == 0
+    assert near_count(database) == 20
+    assert prev_observed(database) == other
+
+
+@pytest.mark.asyncio
+async def test_each_recipient_is_capped_independently() -> None:
+    database = LocalD1()
+    gate = make_gate(database)
+    await seed(gate, patient_number=85)
+    timestamp = "2026-09-27T13:00:00Z"
+    database.connection.execute(
+        """INSERT INTO recipients (
+            id, line_subject, display_name, consented_at,
+            friendship_checked_at, active, created_at
+        ) VALUES ('r2', 'U00000000000000000000000000000002', 'Family 2', ?, ?, 1, ?)""",
+        (timestamp, timestamp, timestamp),
+    )
+    database.connection.execute(
+        "INSERT INTO visit_recipients (visit_id, recipient_id, selected_at) VALUES ('v1', 'r2', ?)",
+        (timestamp,),
+    )
+    # r1 is already at the cap; r2 has room.
+    for index in range(20):
+        database.connection.execute(
+            """INSERT INTO outbound_events (
+                id, visit_id, recipient_id, event_kind, retry_key, payload_json,
+                outcome, created_at
+            ) VALUES (?, 'v1', 'r1', 'near', ?, '{}', 'accepted', '2026-09-27T12:00:00Z')""",
+            (f"r1-near-{index}", f"r1-key-{index}"),
+        )
+    # Re-align the gate's stored ledger digest with the out-of-band seed rows.
+    await gate._save_ledger()
+
+    assert (await observe_tick(gate, 83, "2026-09-27T13:01:00Z"))["events_created"] == 1
+    assert near_count_for(database, "r1") == 20
+    assert near_count_for(database, "r2") == 1
+
+
+@pytest.mark.asyncio
+async def test_newer_near_supersedes_an_unsent_earlier_one_but_not_an_accepted_one() -> (
+    None
+):
+    database = LocalD1()
+    gate = make_gate(database)
+    await seed(gate, patient_number=85)
+    await gate.set_test_line_mode("unknown")
+
+    # First reminder is attempted but its LINE outcome is unknown (unsent).
+    assert (await observe_tick(gate, 82, "2026-09-27T13:00:00Z"))["events_created"] == 1
+    first = near_rows(database)[0]
+    assert first["outcome"] == "unknown"
+
+    # A fresh move supersedes the unsent reminder and leaves only the newest
+    # pending for delivery, while the superseded row still counts toward the cap.
+    await gate.set_test_line_mode("accepted")
+    assert (await observe_tick(gate, 83, "2026-09-27T13:01:00Z"))["events_created"] == 1
+    rows = {row["id"]: row for row in near_rows(database)}
+    assert rows[first["id"]]["outcome"] == "superseded"
+    accepted = [row for row in rows.values() if row["outcome"] == "accepted"]
+    assert len(accepted) == 1
+    assert near_count(database) == 2
+    # Each reminder keeps its own event id and retry key.
+    assert accepted[0]["id"] != first["id"]
+    assert accepted[0]["retry_key"] != first["retry_key"]
+
+    # An accepted reminder is never retracted by a later move.
+    assert (await observe_tick(gate, 84, "2026-09-27T13:02:00Z"))["events_created"] == 1
+    rows = {row["id"]: row for row in near_rows(database)}
+    assert rows[accepted[0]["id"]]["outcome"] == "accepted"
+
+
+@pytest.mark.asyncio
+async def test_recovery_digest_detects_previous_observed_number_difference() -> None:
+    database = LocalD1()
+    gate = make_gate(database)
+    await seed(gate, patient_number=85)
+    await observe_tick(gate, 83, "2026-09-27T13:00:00Z")
+
+    repository = VisitRepository(CloudflareD1Store(database))
+    baseline = await repository.scheduler_ledger_digest()
+    database.connection.execute(
+        "UPDATE visits SET near_prev_observed_number = 70 WHERE id = 'v1'"
+    )
+    assert await repository.scheduler_ledger_digest() != baseline
+
+
+def near_count_for(database: LocalD1, recipient_id: str, visit_id: str = "v1") -> int:
+    return database.connection.execute(
+        """SELECT COUNT(*) FROM outbound_events
+        WHERE visit_id = ? AND recipient_id = ? AND event_kind = 'near'""",
+        (visit_id, recipient_id),
+    ).fetchone()[0]
 
 
 @pytest.mark.asyncio

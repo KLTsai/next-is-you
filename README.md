@@ -27,7 +27,7 @@ Honest status as of today. The GitHub tracker is the authoritative source. Nothi
 - [ ] Private storage recovery and operator readiness - [#21](https://github.com/KLTsai/next-is-you/issues/21)
 - [ ] Owner's handset pilot (first real reminder) - [#22](https://github.com/KLTsai/next-is-you/issues/22)
 
-**Future direction** (planned, not committed; not tracked by an issue yet)
+**Future direction** (planned, not committed)
 
 - [ ] Additional hospitals beyond NTU main-campus ophthalmology afternoon. Structural discovery (departments, doctors, consultation rooms, URL patterns) can be automated via browsing or retrieval; each new hospital still needs one in-person verification comparing the public page's current-number against the physical room-light, plus human confirmation of ambiguous field semantics and hospital reuse terms.
 - [ ] Switch the NTUH reader from its hardcoded clock window to row-presence-driven polling, keeping session-change edge cases cleaner - [#34](https://github.com/KLTsai/next-is-you/issues/34).
@@ -60,7 +60,6 @@ These are the rules the design uses once live operation is authorized by the [Is
 - **Repeat near reminders ([#33](https://github.com/KLTsai/next-is-you/issues/33), merged).** Entering the near window, moving forward or backward inside it, or re-entering after a backward move all qualify, because only equality to the previous scheduled read suppresses a reminder. The message text is identical for every repeat.
 - **Per-visit cap.** Each recipient receives at most 20 near reminders per logical visit (`NEAR_REMINDER_CAP = 20`); superseded unsent reminders still count toward that cap. A newer unsent near reminder supersedes an older unsent one for the same recipient.
 - **Deduplication and retry identity.** Each near-send event is persisted with a stable retry identity before the LINE request, so the same logical event never accepts a second send and the identity is stable across restarts.
-- **Unavailable alert.** When reads inside the clinic window are unusable, the third consecutive unusable read triggers one "source unavailable" alert per recipient; skipped ticks, time before the window, and the clinic ending are not unusable reads.
 
 ## For the owner (daily use)
 

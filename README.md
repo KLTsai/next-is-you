@@ -58,7 +58,7 @@ These are the rules the design uses once live operation is authorized by the [Is
 - **Appointment day only.** Reads happen on the appointment day inside the hardcoded supported clock window described in [docs/NTUH-READER.md](docs/NTUH-READER.md). A missing matching row inside that window is a no-data state and sends no reminder. After 23:59 Taipei time on the appointment date the reminder expires with no further notice.
 - **Trigger condition.** A near reminder is eligible when the called current number is 1 to 3 numbers before the owner's number (the near window is distance `1..3`).
 - **Repeat near reminders ([#33](https://github.com/KLTsai/next-is-you/issues/33), merged).** Entering the near window, moving forward or backward inside it, or re-entering after a backward move all qualify, because only equality to the previous scheduled read suppresses a reminder. The message text is identical for every repeat.
-- **Per-visit cap.** Each recipient receives at most 20 near reminders per logical visit (`NEAR_REMINDER_CAP = 20`); superseded unsent reminders still count toward that cap. A newer unsent near reminder supersedes an older unsent one for the same recipient.
+- **Per-visit cap.** Each recipient receives at most 20 near reminders per logical visit (`NEAR_REMINDER_CAP = 20`). Only non-superseded reminders count toward the cap; a superseded unsent reminder does not consume cap budget. A newer unsent near reminder supersedes an older unsent one for the same recipient.
 - **Deduplication and retry identity.** Each near-send event is persisted with a stable retry identity before the LINE request, so the same logical event never accepts a second send and the identity is stable across restarts.
 
 ## For the owner (daily use)

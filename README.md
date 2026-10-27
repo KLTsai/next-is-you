@@ -58,9 +58,9 @@ Daily use is browser-only. The owner's stable origin is a fixed `workers.dev` UR
 1. Open the stable URL in any browser.
 2. Create a draft for today's visit.
 3. Press **Start**.
-4. Close the browser. The service continues watching the queue on its one-minute schedule.
+4. Close the browser. Once live operation is authorized, the service will continue watching the queue on its one-minute schedule.
 
-For today's held behavior, pressing Start does **not** trigger live reminders; that remains pending the [Issue #22 pilot](https://github.com/KLTsai/next-is-you/issues/22). The flow above describes the intended behavior once the pilot authorizes live reminders.
+Today, pressing Start initiates neither live hospital queue reads nor live LINE reminder sends; both remain held pending the [Issue #22 pilot](https://github.com/KLTsai/next-is-you/issues/22). The flow above describes the intended behavior once the pilot authorizes live operation.
 
 To stop or hold:
 

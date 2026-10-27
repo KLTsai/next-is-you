@@ -6,7 +6,7 @@
 
 ## What this is
 
-Afternoon clinics at NTU Hospital's ophthalmology department can run for hours. A family member sits in the waiting room while the rest of the family stays elsewhere, hoping to arrive just in time. The light-number board moves at its own pace, so the only honest way to know when to leave is to keep refreshing the queue page by hand.
+A visit to a large hospital in Taiwan often means waiting several hours for your number to be called. A family member sits in the waiting room while the rest of the family stays elsewhere, hoping to arrive just in time. The light-number board moves at its own pace, so the only honest way to know when to leave is to keep refreshing the queue page by hand. NTU Hospital's ophthalmology afternoon session is where this problem bites first, but the shape is the same at any large hospital in Taiwan that publishes a queue page.
 
 Next is you is a small private tool that does that watching. The owner opens a stable URL in a browser, drafts today's visit (hospital, department, room, doctor, afternoon session), and presses Start. A Cloudflare Worker then reads the public registration-progress page on a schedule, matches the clinic row, and - when the current number is close - sends one LINE message to the recipients the owner has invited.
 
@@ -14,39 +14,37 @@ It is a tool for one family and the people they invite, not a public service. Re
 
 ## Status
 
-Honest status as of today. The GitHub tracker is the authoritative source.
+Honest status as of today. The GitHub tracker is the authoritative source. Nothing in this list means a real patient reminder has been delivered.
 
-| Piece | State | Issue |
-| --- | --- | --- |
-| Private HTTPS service deployed, reminders held | In place; held bootstrap only, no live sends | [#18](https://github.com/KLTsai/next-is-you/issues/18) |
-| LINE enrollment and withdrawal UI | In progress | [#19](https://github.com/KLTsai/next-is-you/issues/19) |
-| NTU ophthalmology afternoon reader | Fixture and local integration evidence; live hospital behavior unverified | [#17](https://github.com/KLTsai/next-is-you/issues/17), [#20](https://github.com/KLTsai/next-is-you/issues/20) |
-| Private storage recovery and operator readiness | Open | [#21](https://github.com/KLTsai/next-is-you/issues/21) |
-| Owner's handset pilot (first real reminder) | Not yet performed | [#22](https://github.com/KLTsai/next-is-you/issues/22) |
+**Done**
 
-Nothing in this list means a real patient reminder has been delivered. The Status table is the single place that describes what works today versus what is being built; features gated behind an open issue are not claimed anywhere else in this document.
+- [x] Private HTTPS service deployed with reminders held, held bootstrap only - [#18](https://github.com/KLTsai/next-is-you/issues/18)
 
-**Future direction:** the current single-hospital scope (NTU main-campus ophthalmology afternoon) is a starting point for intended multi-hospital support; each new source will need its own evidence record of a usable public page in the same shape as [Issue #17](https://github.com/KLTsai/next-is-you/issues/17). The current frontend ships as-is, with a redesign using a mainstream web framework such as React, Vue, or Svelte planned for the future; no framework has been chosen.
+**In progress**
+
+- [ ] LINE enrollment and withdrawal UI - [#19](https://github.com/KLTsai/next-is-you/issues/19)
+- [ ] NTU ophthalmology afternoon reader: fixture and local integration evidence in place; live hospital behavior unverified - [#17](https://github.com/KLTsai/next-is-you/issues/17), [#20](https://github.com/KLTsai/next-is-you/issues/20)
+- [ ] Private storage recovery and operator readiness - [#21](https://github.com/KLTsai/next-is-you/issues/21)
+- [ ] Owner's handset pilot (first real reminder) - [#22](https://github.com/KLTsai/next-is-you/issues/22)
+
+**Future direction** (planned, not committed; not tracked by an issue yet)
+
+- [ ] Additional hospitals beyond NTU main-campus ophthalmology afternoon. Structural discovery (departments, doctors, consultation rooms, URL patterns) can be automated via browsing or retrieval; each new hospital still needs one in-person verification comparing the public page's current-number against the physical room-light, plus human confirmation of ambiguous field semantics and hospital reuse terms.
+- [ ] Frontend UI/UX redesign using a mainstream industry web framework (examples: React, Vue, Svelte, or comparable). The current frontend ships as-is; no framework has been chosen.
+
+The Status section is the single place that describes what works today versus what is being built; features gated behind an open issue are not claimed anywhere else in this document.
 
 ## How it works
 
-```
-   owner's browser                Cloudflare Worker                     LINE
-   ----------------                -----------------                    ----
-   create draft  ─────────►   store reminder in D1
-     (hospital, room,              │
-      doctor, session)             ▼
-                              one-minute cron tick
-                                   │
-                                   ▼
-                              NTUH reader fetches the
-                              public registration-progress
-                              list, matches the clinic row
-                                   │
-                                   ▼
-                              send-gate (held) ─────────►  one message when
-                                                           the called number
-                                                           is almost up
+```mermaid
+flowchart TD
+    A[Owner's browser] --> B[Create draft:<br/>hospital, room,<br/>doctor, session]
+    B --> C[Worker stores<br/>reminder in D1]
+    C --> D[One-minute<br/>cron tick]
+    D --> E[NTUH reader<br/>fetches public<br/>queue page]
+    E --> F[Match clinic row]
+    F --> G{Send-gate<br/>held}
+    G -->|when authorized| H[LINE message<br/>when called number<br/>is close]
 ```
 
 The reader stores only the matched row's fields (room, doctor, clinic type, current number) for the clinic the owner's draft names. Raw response bodies are not retained. The send-gate is a per-environment hold: no environment emits a real LINE message until the Issue #22 pilot flips it, by design.
@@ -80,7 +78,7 @@ Prerequisites:
 - A LINE Developers account with a Login channel and a Messaging channel under the same provider; the owner's LINE subject (a stable identifier, not a display name) must be privately supplied.
 - Your own copy of this repository.
 
-Scope limit: the only hospital source this project reads today is NTU Hospital's main campus (總院區) ophthalmology (眼科) afternoon session, 13:30-16:30, matched against the Dr. appointment list rows on the official public registration-progress page. See [docs/NTUH-READER.md](docs/NTUH-READER.md) for the exact supported scope and known gaps. Any other hospital, department, or session needs its own evidence pass in the shape of [Issue #17](https://github.com/KLTsai/next-is-you/issues/17) before it can be added.
+Scope limit: the only hospital source this project reads today is NTU Hospital's main campus (總院區) ophthalmology (眼科) afternoon session, 13:30-16:30, matched against the Dr. appointment list rows on the official public registration-progress page. See [docs/NTUH-READER.md](docs/NTUH-READER.md) for the exact supported scope and known gaps. Adding another hospital is intended future work: structural discovery (departments, doctors, consultation rooms, URL patterns) can be automated via browsing or retrieval, but each new hospital still needs one in-person verification comparing the public page's current-number against the physical room-light, plus human confirmation of ambiguous field semantics and hospital reuse terms.
 
 For the end-to-end owner setup sequence (local proof, Wrangler login, D1 creation, migrations, deployment, LINE callback registration, acceptance), follow [docs/HTTPS-SERVICE.md](docs/HTTPS-SERVICE.md) in order.
 

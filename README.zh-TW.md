@@ -6,7 +6,7 @@
 
 ## 這是什麼
 
-台大醫院眼科的下午診常常一跑就是好幾個小時。家中一位成員在候診區守著進度，其他人則待在別處，希望能剛好趕到。看診號碼燈牌有自己的節奏，想真正知道何時該出門，誠實的辦法只有一條：自己手動一直重新整理進度頁。
+去台灣各家大醫院看診，光是等自己的號碼被叫到，常常就要耗上好幾個小時。家中一位成員在候診區守著進度，其他人則待在別處，希望能剛好趕到。看診號碼燈牌有自己的節奏，想真正知道何時該出門，誠實的辦法只有一條：自己手動一直重新整理進度頁。這個痛點最先在台大醫院眼科的下午診出現，但只要是會公告看診進度頁的大醫院，情境都差不多。
 
 Next is you 就是替你做這件事的小工具。擁有者在瀏覽器開啟固定網址，把當天的門診資訊建成草稿（醫院、科別、診間、醫師、下午診），按下 Start。接著一個 Cloudflare Worker 會依排程讀取公開的看診進度頁，比對該門診的那一列，當目前叫號接近時，發一則 LINE 訊息給擁有者所邀請的收件人。
 
@@ -14,38 +14,37 @@ Next is you 就是替你做這件事的小工具。擁有者在瀏覽器開啟�
 
 ## 現況
 
-以下是今日誠實的現況。權威來源是 GitHub 上的 issue tracker。
+以下是今日誠實的現況。權威來源是 GitHub 上的 issue tracker。以上任何一項都不代表已經有一則真實的病患提醒被送出。
 
-| 項目 | 狀態 | Issue |
-| --- | --- | --- |
-| 私人 HTTPS 服務已部署、提醒保留中 | 已就位；僅為保留態的 bootstrap，不會真實發送 | [#18](https://github.com/KLTsai/next-is-you/issues/18) |
-| LINE 邀請與退出 UI | 進行中 | [#19](https://github.com/KLTsai/next-is-you/issues/19) |
-| 台大眼科下午診 reader | 具備 fixture 與本地整合證據；真實醫院行為尚未驗證 | [#17](https://github.com/KLTsai/next-is-you/issues/17)、[#20](https://github.com/KLTsai/next-is-you/issues/20) |
-| 私人儲存復原與營運就緒 | 待辦 | [#21](https://github.com/KLTsai/next-is-you/issues/21) |
-| 擁有者本人手機實測（首次真實提醒） | 尚未進行 | [#22](https://github.com/KLTsai/next-is-you/issues/22) |
+**已完成**
 
-以上任何一項都不代表已經有一則真實的病患提醒被送出。此現況表是本文件中唯一描述「今日可用」與「仍在建置」差異的地方；任何仍受未結 issue 把關的功能，不會在本文件其他段落被誇張宣稱。
+- [x] 私人 HTTPS 服務已部署、提醒保留中，僅為保留態 bootstrap - [#18](https://github.com/KLTsai/next-is-you/issues/18)
 
-**未來方向：** 目前的單一醫院範圍（台大總院區眼科下午診）是未來支援多家醫院的起點；每新增一個來源，都要先累積一份與 [Issue #17](https://github.com/KLTsai/next-is-you/issues/17) 同樣形式的、證明該公開頁可用的證據。目前的前端照現況提供使用，未來規劃以 React、Vue、Svelte 等主流 web framework 重新設計；尚未選定框架。
+**進行中**
+
+- [ ] LINE 邀請與退出 UI - [#19](https://github.com/KLTsai/next-is-you/issues/19)
+- [ ] 台大眼科下午診 reader：已具備 fixture 與本地整合證據；真實醫院行為尚未驗證 - [#17](https://github.com/KLTsai/next-is-you/issues/17)、[#20](https://github.com/KLTsai/next-is-you/issues/20)
+- [ ] 私人儲存復原與營運就緒 - [#21](https://github.com/KLTsai/next-is-you/issues/21)
+- [ ] 擁有者本人手機實測（首次真實提醒） - [#22](https://github.com/KLTsai/next-is-you/issues/22)
+
+**未來方向**（規劃中，尚未承諾，也尚未開 issue 追蹤）
+
+- [ ] 支援台大總院區眼科下午診之外的其他醫院。結構面的盤點（科別、醫師、診間、URL 格式）可用瀏覽或檢索方式自動化；但每新增一間醫院，仍需現場親自驗證一次，比對公開頁面上的目前叫號與診間實體燈號是否一致，並由人工確認含糊的欄位語意，以及該醫院對相關術語的使用方式。
+- [ ] 以主流業界 web framework（例如 React、Vue、Svelte 或同等級框架）重新設計前端 UI/UX。目前前端照現況提供使用，尚未選定框架。
+
+此現況區段是本文件中唯一描述「今日可用」與「仍在建置」差異的地方；任何仍受未結 issue 把關的功能，不會在本文件其他段落被誇張宣稱。
 
 ## 運作方式
 
-```
-   擁有者的瀏覽器             Cloudflare Worker                     LINE
-   --------------             -----------------                    ----
-   建立草稿  ─────────►   把 reminder 存入 D1
-     （醫院、診間、                 │
-      醫師、時段）                   ▼
-                              每分鐘 cron tick
-                                   │
-                                   ▼
-                              NTUH reader 擷取公開的
-                              看診進度列表，比對該門診的
-                              那一列
-                                   │
-                                   ▼
-                              send-gate（保留中） ──────►  當叫號接近時
-                                                           發一則訊息
+```mermaid
+flowchart TD
+    A[Owner's browser] --> B[Create draft:<br/>hospital, room,<br/>doctor, session]
+    B --> C[Worker stores<br/>reminder in D1]
+    C --> D[One-minute<br/>cron tick]
+    D --> E[NTUH reader<br/>fetches public<br/>queue page]
+    E --> F[Match clinic row]
+    F --> G{Send-gate<br/>held}
+    G -->|when authorized| H[LINE message<br/>when called number<br/>is close]
 ```
 
 Reader 只會保留它實際比對到的欄位（診間、醫師、clinic type、目前叫號）給擁有者草稿指定的那一間門診，不會留存原始 response body。Send-gate 是依環境獨立的保留開關：在 Issue #22 實測明確翻轉它之前，任何環境都不會真的發出 LINE 訊息，這是刻意的設計。
@@ -79,7 +78,7 @@ Reader 只會保留它實際比對到的欄位（診間、醫師、clinic type�
 - 一個 LINE Developers 帳號，於同一個 provider 底下擁有一個 Login channel 與一個 Messaging channel；擁有者的 LINE subject（一個穩定識別碼，不是顯示名稱）必須私下提供。
 - 你自己 fork 的這個 repository。
 
-範圍限制：目前這個專案唯一讀取的醫院來源是台大醫院總院區眼科下午診（13:30-16:30），並比對官方公開看診進度頁上 Dr. appointment 列表的那一列。確切支援範圍與已知落差見 [docs/NTUH-READER.md](docs/NTUH-READER.md)。任何其他醫院、科別或時段，都需要以 [Issue #17](https://github.com/KLTsai/next-is-you/issues/17) 的形式先做自己的證據蒐集，才能加入。
+範圍限制：目前這個專案唯一讀取的醫院來源是台大醫院總院區眼科下午診（13:30-16:30），並比對官方公開看診進度頁上 Dr. appointment 列表的那一列。確切支援範圍與已知落差見 [docs/NTUH-READER.md](docs/NTUH-READER.md)。新增一間醫院屬於預期中的後續工作：結構面的盤點（科別、醫師、診間、URL 格式）可用瀏覽或檢索方式自動化，但每新增一間醫院，仍需現場親自驗證一次，比對公開頁面上的目前叫號與診間實體燈號是否一致，並由人工確認含糊的欄位語意，以及該醫院對相關術語的使用方式。
 
 完整的擁有者設定流程（本地驗證、Wrangler login、建立 D1、apply migrations、部署、LINE callback 註冊、驗收），請依序照 [docs/HTTPS-SERVICE.md](docs/HTTPS-SERVICE.md) 執行。
 

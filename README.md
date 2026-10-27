@@ -49,6 +49,18 @@ flowchart TD
 
 The reader stores only the matched row's fields (room, doctor, clinic type, current number) for the clinic the owner's draft names. Raw response bodies are not retained. The send-gate is a per-environment hold: no environment emits a real LINE message until the Issue #22 pilot flips it, by design.
 
+### Notification rules
+
+These are the rules the design uses once live operation is authorized by the [Issue #22 pilot](https://github.com/KLTsai/next-is-you/issues/22). Today the service does not poll the live hospital or send real LINE messages; the rules describe the intended behavior. Authoritative detail lives in [docs/NTUH-READER.md](docs/NTUH-READER.md) and [docs/HTTPS-SERVICE.md](docs/HTTPS-SERVICE.md).
+
+- **Polling cadence.** A one-minute cron offers the reader a chance to check; each clinic reads the official progress list at most once every 2 minutes (the owner-approved cadence in the NTUH reader guide is 2-3 minutes). An observation is considered fresh for up to 2 minutes. Transient failures retry at 1, 2, then 4 minutes; a server `Retry-After` is honored up to a 10-minute cap.
+- **Appointment day only.** Reads happen within the supported session window (NTU main-campus ophthalmology afternoon: 13:30-16:30, plus 10 minutes either side). No polling before the window; a blank number with the doctor's row still present is temporary no-data; once the row disappears after the session, the clinic is marked ended and reading stops. After 23:59 Taipei time on the appointment date the reminder expires with no further notice.
+- **Trigger condition.** A near reminder is eligible when the called current number is 1 to 3 numbers before the owner's number (the near window is distance `1..3`).
+- **Repeat near reminders ([#33](https://github.com/KLTsai/next-is-you/issues/33), merged).** Entering the near window, moving forward or backward inside it, or re-entering after a backward move all qualify, because only equality to the previous scheduled read suppresses a reminder. The message text is identical for every repeat.
+- **Per-visit cap.** Each recipient receives at most 20 near reminders per logical visit (`NEAR_REMINDER_CAP = 20`); superseded unsent reminders still count toward that cap. A newer unsent near reminder supersedes an older unsent one for the same recipient.
+- **Deduplication and retry identity.** Each near-send event is persisted with a stable retry identity before the LINE request, so the same logical event never accepts a second send and the identity is stable across restarts.
+- **Unavailable alert.** When reads inside the clinic window are unusable, the third consecutive unusable read triggers one "source unavailable" alert per recipient; skipped ticks, time before the window, and the clinic ending are not unusable reads.
+
 ## For the owner (daily use)
 
 Daily use is browser-only. The owner's stable origin is a fixed `workers.dev` URL set up during the first-time deployment; use the bookmark saved during that setup.

@@ -86,7 +86,7 @@ Keep the Worker name and account subdomain fixed; renaming either changes the UR
 
 ## Local proof before any remote action
 
-Install the locked dependencies using [README](../README.md#local-development-entrypoints).
+Install the locked dependencies using the [README developer guidance](../README.md#for-developers).
 These commands change only local build/test state:
 
 ```sh

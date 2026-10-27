@@ -45,8 +45,8 @@ dependencies, seed recipients, or reset data. uv uses the existing locked enviro
 when dependencies are unchanged.
 
 The rehearsal does not load the repository-root `.env`; see the [README's
-configuration guidance](../README.md#optional-private-local-development) for
-environment ownership and the separate credentialed shell path.
+developer guidance](../README.md#for-developers) for the current local
+development entrypoints.
 
 For an explicitly separate empty fixture dataset or a busy port, native settings
 can be selected before starting:

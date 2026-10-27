@@ -26,7 +26,7 @@ Honest status as of today. The GitHub tracker is the authoritative source.
 
 Nothing in this list means a real patient reminder has been delivered. The Status table is the single place that describes what works today versus what is being built; features gated behind an open issue are not claimed anywhere else in this document.
 
-The current single-hospital scope (NTU main-campus ophthalmology afternoon) is a starting point. Supporting additional hospitals is intended future work; each new source will need its own evidence record of a usable public page in the same shape as [Issue #17](https://github.com/KLTsai/next-is-you/issues/17) before it is added.
+**Future direction:** the current single-hospital scope (NTU main-campus ophthalmology afternoon) is a starting point for intended multi-hospital support; each new source will need its own evidence record of a usable public page in the same shape as [Issue #17](https://github.com/KLTsai/next-is-you/issues/17). The current frontend ships as-is, with a redesign using a mainstream web framework such as React, Vue, or Svelte planned for the future; no framework has been chosen.
 
 ## How it works
 
@@ -59,6 +59,8 @@ Daily use is browser-only. The owner's stable origin is a fixed `workers.dev` UR
 2. Create a draft for today's visit.
 3. Press **Start**.
 4. Close the browser. The service continues watching the queue on its one-minute schedule.
+
+For today's held behavior, pressing Start does **not** trigger live reminders; that remains pending the [Issue #22 pilot](https://github.com/KLTsai/next-is-you/issues/22). The flow above describes the intended behavior once the pilot authorizes live reminders.
 
 To stop or hold:
 

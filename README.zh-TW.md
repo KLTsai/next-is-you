@@ -78,7 +78,7 @@ Reader 只會保留它實際比對到的欄位（診間、醫師、clinic type�
 - 一個 LINE Developers 帳號，於同一個 provider 底下擁有一個 Login channel 與一個 Messaging channel；擁有者的 LINE subject（一個穩定識別碼，不是顯示名稱）必須私下提供。
 - 你自己 fork 的這個 repository。
 
-範圍限制：目前這個專案唯一讀取的醫院來源是台大醫院總院區眼科下午診（13:30-16:30），並比對官方公開看診進度頁上 Dr. appointment 列表的那一列。確切支援範圍與已知落差見 [docs/NTUH-READER.md](docs/NTUH-READER.md)。新增一間醫院屬於預期中的後續工作：結構面的盤點（科別、醫師、診間、URL 格式）可用瀏覽或檢索方式自動化，但每新增一間醫院，仍需現場親自驗證一次，比對公開頁面上的目前叫號與診間實體燈號是否一致，並由人工確認含糊的欄位語意，以及該醫院對相關術語的使用方式。
+範圍限制：目前本專案唯一支援的醫院來源是台大醫院總院區眼科下午診（13:30-16:30），比對官方公開看診進度頁上 Dr. appointment 列表的那一列。正式環境仍待 Issue #22 手機實測授權後才會讀取。確切支援範圍與已知落差見 [docs/NTUH-READER.md](docs/NTUH-READER.md)。新增一間醫院屬於預期中的後續工作：結構面的盤點（科別、醫師、診間、URL 格式）可用瀏覽或檢索方式自動化，但每新增一間醫院，仍需現場親自驗證一次，比對公開頁面上的目前叫號與診間實體燈號是否一致，並由人工確認含糊的欄位語意，以及該醫院對相關術語的使用方式。
 
 完整的擁有者設定流程（本地驗證、Wrangler login、建立 D1、apply migrations、部署、LINE callback 註冊、驗收），請依序照 [docs/HTTPS-SERVICE.md](docs/HTTPS-SERVICE.md) 執行。
 

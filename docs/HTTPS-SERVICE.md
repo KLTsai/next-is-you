@@ -15,8 +15,10 @@ consent, cutoff, and recovery tests remain the behavior seams.
 Dependencies are the owner's Cloudflare Free account/resource authorization,
 agreed fixed HTTPS origin and privacy interpretation, private LINE configuration
 and organizer subject, then separately authorized deployment/manual acceptance.
-These inputs are absent. There is no deployed URL or deployed persistence evidence
-yet. Publication of repository changes does not authorize deployment.
+The held bootstrap is deployed; see the [README status](../README.md#status) for
+the current user-facing state. Deployment does not authorize live reads or
+reminder sends, and publication of repository changes does not authorize a new
+deployment.
 
 Non-goals: enabling sends, enabling the hospital reader in production before
 the Issue #22 pilot, LINE or handset acceptance, paid resources, domain purchase,

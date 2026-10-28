@@ -15,10 +15,10 @@ consent, cutoff, and recovery tests remain the behavior seams.
 Dependencies are the owner's Cloudflare Free account/resource authorization,
 agreed fixed HTTPS origin and privacy interpretation, private LINE configuration
 and organizer subject, then separately authorized deployment/manual acceptance.
-The held bootstrap is deployed; see the [README status](../README.md#status) for
-the current user-facing state. Deployment does not authorize live reads or
-reminder sends, and publication of repository changes does not authorize a new
-deployment.
+The held bootstrap was deployed as recorded in the owner evidence below; see
+the [README status](../README.md#status) for the current user-facing state.
+Deployment does not authorize live reads or reminder sends, and publication of
+repository changes does not authorize a new deployment.
 
 Non-goals: enabling sends, enabling the hospital reader in production before
 the Issue #22 pilot, LINE or handset acceptance, paid resources, domain purchase,
@@ -127,7 +127,7 @@ withdrawal, cutoff and recovery reconciliation. This is genuine local integratio
 with fixture identity plus fixture/mock evidence. It is not deployed integration,
 LINE provider acceptance or handset evidence.
 
-## Owner setup (completed and verified 2026-10-27/28)
+## Owner setup (recorded completed 2026-10-27/28)
 
 These steps were completed with the owner's explicit authorization of the selected
 account, new D1 database and Worker/DO resources, the fixed origin/privacy meaning,
@@ -138,8 +138,9 @@ identity. No private account data was inspected during preparation or this
 verification pass.
 
 Deployment history confirms an initial 2026-10-23 deploy, three "Secret Change"
-events on 2026-10-27 matching the three required secrets, and a current live
-version also from 2026-10-27. `wrangler secret list` confirmed
+events on 2026-10-27 matching the three required secrets, and that the version
+reported as live during the 2026-10-27/28 verification was from 2026-10-27.
+`wrangler secret list` confirmed
 `LINE_LOGIN_CHANNEL_SECRET`, `ORGANIZER_LINE_SUBJECTS`, and `SESSION_SIGNING_SECRET`
 are all provisioned (names only; values were never read). Steps 1-5 below are
 confirmed done on this evidence.
@@ -263,10 +264,11 @@ to the extent noted per step below:
 
    Record the count before/after redeploying the same approved config/commit
    to repeat that stronger comparison. Reload the same URL and check recovery
-   hold is still true. This proves D1 rows and the named SQLite DO's hold
-   survive a deployment, not restored-backup consistency or live notification
-   deduplication. Do not rename the Worker, DO class, binding or singleton, or
-   replace D1.
+   hold is still true. The recorded query confirms invitation rows were stored
+   in remote D1; the hold was reported by the status endpoint on 2026-10-27.
+   Neither check establishes survival across a deployment. This pass did not
+   establish restored-backup consistency or live notification deduplication.
+   Do not rename the Worker, DO class, binding or singleton, or replace D1.
 5. **Deferred - not run in this pass**, consistent with this issue's acceptance
    wording of deferring full live workload measurements to ticket 08. Confirm
    Cron is configured and observe a successful held scheduled invocation

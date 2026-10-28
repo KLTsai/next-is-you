@@ -186,13 +186,14 @@ def create_app(
                     status_code=503,
                 )
             transaction = issue_login_transaction(config.session_secret, now=now)
+        scope = "openid profile" if transaction.flow == "recipient" else "openid"
         query = urlencode(
             {
                 "response_type": "code",
                 "client_id": config.channel_id,
                 "redirect_uri": config.redirect_uri,
                 "state": transaction.state,
-                "scope": "openid",
+                "scope": scope,
                 "nonce": transaction.nonce,
             }
         )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from dataclasses import fields
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -141,7 +142,7 @@ def test_invitation_enrollment_checks_friendship_then_requires_explicit_consent(
         ) as http:
             start = await http.get("/auth/line", params={"invite": invite.token})
             params = parse_qs(urlparse(start.headers["location"]).query)
-            assert params["scope"] == ["openid"]
+            assert params["scope"] == ["openid profile"]
             callback = await http.get(
                 "/auth/line/callback",
                 params={"code": "local-code", "state": params["state"][0]},
@@ -218,6 +219,42 @@ def test_failed_or_unknown_friendship_check_does_not_consume_invitation():
                 ]
                 == 0
             )
+
+    run(scenario())
+
+
+def test_recipient_flow_requests_profile_scope_while_organizer_flow_is_unchanged():
+    async def scenario():
+        store = SQLiteStore()
+        friendship = FakeFriendship(True)
+        identity_repo = IdentityRepository(store)
+        invite = await identity_repo.create_invitation(
+            "line-organizer", "媽媽", datetime.fromtimestamp(1_000, timezone.utc)
+        )
+        app = make_app(store, friendship)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="https://family.example"
+        ) as http:
+            recipient_start = await http.get(
+                "/auth/line", params={"invite": invite.token}
+            )
+            recipient_params = parse_qs(
+                urlparse(recipient_start.headers["location"]).query
+            )
+            assert recipient_params["scope"] == ["openid profile"]
+
+            organizer_start = await http.get("/auth/line")
+            organizer_params = parse_qs(
+                urlparse(organizer_start.headers["location"]).query
+            )
+            assert organizer_params["scope"] == ["openid"]
+
+        assert not hasattr(VerifiedLineIdentity, "display_name")
+        assert not hasattr(VerifiedLineIdentity, "picture_url")
+        assert {f.name for f in fields(VerifiedLineIdentity)} == {
+            "subject",
+            "user_access_token",
+        }
 
     run(scenario())
 

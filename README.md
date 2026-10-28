@@ -2,7 +2,7 @@
 
 > Watches a hospital queue page and sends a LINE reminder when your number is almost up.
 
-[English (current)] · [繁體中文](README.zh-TW.md)
+[English](README.md) · [繁體中文](README.zh-TW.md)
 
 ## What this is
 

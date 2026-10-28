@@ -61,6 +61,17 @@ These are the rules the design uses once live operation is authorized by the [Is
 - **Per-visit cap.** Each recipient receives at most 20 near reminders per logical visit (`NEAR_REMINDER_CAP = 20`). Only non-superseded reminders count toward the cap; a superseded unsent reminder does not consume cap budget. A newer unsent near reminder supersedes an older unsent one for the same recipient.
 - **Deduplication and retry identity.** Each near-send event is persisted with a stable retry identity before the LINE request, so the same logical event never accepts a second send and the identity is stable across restarts.
 
+### Known limitations
+
+This is a convenience reminder, not a safety-critical system. The clinic room's physical light indicator remains authoritative. Read these edges before relying on the service.
+
+- **The hospital page can change at any time.** NTUH may alter the queue page's layout without notice, and the reader may stop producing usable data until the owner adapts it. The service does not identify layout changes specifically; after three consecutive unusable reads, it sends the existing generic unavailable reminder.
+- **Not for emergency or safety-critical reminders.** LINE outages, home or carrier network loss, Cloudflare incidents, or a halted Worker all fail silently. There is no out-of-band alarm when sends stop.
+- **A late reminder can arrive for a passed number.** If a clinic session ends earlier than usual, the service may send one last reminder for a number that has already been called.
+- **No per-recipient tuning.** Every recipient in a family receives the same message. There are no custom time windows, no quiet hours, and no priority ordering between recipients.
+- **The room's physical light is authoritative.** The hospital page value may lag the room by minutes. Arrive early enough to confirm by the clinic room's own display; the project's reader doc records that NTUH itself states the physical indicator is authoritative (see [docs/NTUH-READER.md](docs/NTUH-READER.md)).
+- **A reminder is a "get moving" signal, not proof the number has been called.** The reminder exists so the family does not have to keep refreshing the page or watching the phone; it means the called number is close and it is time to head toward the clinic. On arrival, the room's own display shows exactly which number is up - the brief, natural check anyone makes walking into a clinic.
+
 ## For the owner (daily use)
 
 Daily use is browser-only. The owner's stable origin is a fixed `workers.dev` URL set up during the first-time deployment; use the bookmark saved during that setup.

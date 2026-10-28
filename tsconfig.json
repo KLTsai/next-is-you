@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "types": ["vite/client"]
   },
-  "include": ["frontend/src/main.ts", "frontend/src/**/*.d.ts"]
+  "include": ["frontend/src/main.ts", "frontend/src/recipient-consent.ts", "frontend/src/**/*.d.ts"]
 }

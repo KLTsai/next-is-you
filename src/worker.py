@@ -192,7 +192,7 @@ def create_app(
                 "client_id": config.channel_id,
                 "redirect_uri": config.redirect_uri,
                 "state": transaction.state,
-                "scope": "openid profile" if invitation else "openid",
+                "scope": "openid",
                 "nonce": transaction.nonce,
             }
         )
@@ -282,7 +282,6 @@ def create_app(
             accepted = await repository.accept_invitation(
                 token_hash=transaction.invitation_hash,
                 line_subject=identity.subject,
-                display_name="LINE recipient",
                 now=enrolled_at,
                 friendship_checked_at=enrolled_at,
             )
@@ -355,7 +354,23 @@ def create_app(
             return JSONResponse(
                 {"detail": "Invitations are unavailable"}, status_code=503
             )
-        invitation = await repository.create_invitation(claims.subject, _now(request))
+        try:
+            payload = await request.json()
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return JSONResponse(
+                {"detail": "Invitation request must be valid JSON"}, status_code=422
+            )
+        member_label = (
+            payload.get("member_label", "") if isinstance(payload, dict) else None
+        )
+        if not isinstance(member_label, str) or len(member_label.strip()) > 40:
+            return JSONResponse(
+                {"detail": "Member label must be 40 characters or fewer"},
+                status_code=422,
+            )
+        invitation = await repository.create_invitation(
+            claims.subject, member_label.strip(), _now(request)
+        )
         parsed_redirect = urlsplit(_login_settings(request).redirect_uri)
         origin = f"{parsed_redirect.scheme}://{parsed_redirect.netloc}"
         return JSONResponse(
@@ -376,6 +391,23 @@ def create_app(
             return _api_error("service_unavailable", 503)
         rows = await repository.eligible_recipients()
         return JSONResponse({"recipients": [dict(row) for row in rows]})
+
+    @app.post("/api/organizer/recipients/{recipient_id}/withdraw")
+    async def organizer_withdraw_recipient(
+        recipient_id: str, request: Request
+    ) -> Response:
+        _, denied = await _authorized(request, "organizer", csrf=True)
+        if denied:
+            return denied
+        gate = _send_gate(request)
+        if gate is None:
+            return JSONResponse(
+                {"detail": "Recipient send ordering is unavailable"}, status_code=503
+            )
+        withdrawn = await gate.withdraw_recipient(recipient_id, iso_utc(_now(request)))
+        if not withdrawn:
+            return JSONResponse({"detail": "Recipient was not active"}, status_code=404)
+        return Response(status_code=204)
 
     @app.get("/api/organizer/visits")
     async def organizer_visits(request: Request) -> Response:
@@ -824,28 +856,36 @@ def create_app(
             return JSONResponse({"restored": await gate.restore_test_state()})
         return Response(status_code=404)
 
+    @app.get("/recipient/consent", name="recipient_consent_page")
+    async def recipient_consent_page(request: Request) -> Response:
+        """Serve the recipient consent landing page built by the UI build."""
+        return await _serve_named_asset(request, "recipient-consent.html")
+
     @app.get("/{path:path}")
     async def serve_static_asset(path: str, request: Request) -> Response:
         """Proxy non-API requests to Workers Static Assets after the UI build."""
-        env = request.scope.get("env")
-        if env is None:
-            asset_path = (STATIC_ASSET_ROOT / (path or "index.html")).resolve()
-            if (
-                not asset_path.is_relative_to(STATIC_ASSET_ROOT.resolve())
-                or not asset_path.is_file()
-            ):
-                return Response(status_code=404)
-            return FileResponse(asset_path)
-
-        asset_path = path or "index.html"
-        asset_response = await env.ASSETS.fetch(f"https://assets.local/{asset_path}")
-        return Response(
-            content=await asset_response.bytes(),
-            status_code=asset_response.status,
-            headers=asset_response.headers,
-        )
+        return await _serve_named_asset(request, path or "index.html")
 
     return app
+
+
+async def _serve_named_asset(request: Request, asset_path: str) -> Response:
+    env = request.scope.get("env")
+    if env is None:
+        resolved = (STATIC_ASSET_ROOT / asset_path).resolve()
+        if (
+            not resolved.is_relative_to(STATIC_ASSET_ROOT.resolve())
+            or not resolved.is_file()
+        ):
+            return Response(status_code=404)
+        return FileResponse(resolved)
+
+    asset_response = await env.ASSETS.fetch(f"https://assets.local/{asset_path}")
+    return Response(
+        content=await asset_response.bytes(),
+        status_code=asset_response.status,
+        headers=asset_response.headers,
+    )
 
 
 def _login_settings(request: Request) -> LineLoginSettings:

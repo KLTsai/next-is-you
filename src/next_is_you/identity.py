@@ -27,13 +27,21 @@ class IdentityRepository:
     def __init__(self, store: SqlStore) -> None:
         self._store = store
 
-    async def create_invitation(self, organizer: str, now: datetime) -> Invitation:
+    async def create_invitation(
+        self, organizer: str, member_label: str, now: datetime
+    ) -> Invitation:
         token = secrets.token_urlsafe(32)
         expires_at = now + INVITATION_TTL
         await self._store.execute(
             Statement(
-                "INSERT INTO invitations (token_hash, expires_at, created_by, created_at) VALUES (?, ?, ?, ?)",
-                (hash_invitation(token), iso_utc(expires_at), organizer, iso_utc(now)),
+                "INSERT INTO invitations (token_hash, expires_at, created_by, created_at, member_label) VALUES (?, ?, ?, ?, ?)",
+                (
+                    hash_invitation(token),
+                    iso_utc(expires_at),
+                    organizer,
+                    iso_utc(now),
+                    member_label,
+                ),
             )
         )
         return Invitation(token, expires_at)
@@ -52,7 +60,6 @@ class IdentityRepository:
         *,
         token_hash: str,
         line_subject: str,
-        display_name: str,
         now: datetime,
         friendship_checked_at: datetime,
     ) -> bool:
@@ -80,13 +87,12 @@ class IdentityRepository:
                     """INSERT INTO recipients (
                         id, line_subject, display_name, consented_at,
                         friendship_checked_at, active, created_at
-                    ) SELECT ?, ?, ?, NULL, ?, 0, ? FROM invitations
+                    ) SELECT ?, ?, member_label, NULL, ?, 0, ? FROM invitations
                     WHERE token_hash = ? AND used_at = ?
                     AND NOT EXISTS (SELECT 1 FROM recipients WHERE line_subject = ?)""",
                     (
                         recipient_id,
                         line_subject,
-                        display_name,
                         iso_utc(friendship_checked_at),
                         iso_utc(now),
                         token_digest,

@@ -354,7 +354,12 @@ def create_app(
             return JSONResponse(
                 {"detail": "Invitations are unavailable"}, status_code=503
             )
-        payload = await request.json()
+        try:
+            payload = await request.json()
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return JSONResponse(
+                {"detail": "Invitation request must be valid JSON"}, status_code=422
+            )
         member_label = (
             payload.get("member_label", "") if isinstance(payload, dict) else None
         )

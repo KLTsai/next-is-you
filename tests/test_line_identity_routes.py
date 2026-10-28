@@ -316,6 +316,14 @@ def test_organizer_allowlist_and_csrf_are_rechecked_for_each_mutation():
             set_session(client, "line-organizer", "organizer")
             missing_csrf = await client.post("/api/organizer/invitations")
             assert missing_csrf.status_code == 403
+            empty_body = await client.post(
+                "/api/organizer/invitations", headers=csrf(client)
+            )
+            malformed_body = await client.post(
+                "/api/organizer/invitations", headers=csrf(client), content=b"{"
+            )
+            assert empty_body.status_code == 422
+            assert malformed_body.status_code == 422
             created = await client.post(
                 "/api/organizer/invitations",
                 headers=csrf(client),

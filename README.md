@@ -87,7 +87,7 @@ Today, pressing Start initiates neither live hospital queue reads nor live LINE 
 To stop or hold:
 
 - **Stop a reminder**: in the UI, open the active reminder and confirm **停止提醒**. A notification already in flight may settle before Stop confirms. See the [stop and recovery notes in the HTTPS service doc](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback).
-- **Hold the whole service** (when the system is misbehaving): the owner, signed in, sets recovery hold through the authorized status API. The exact console snippet lives in the [HTTPS service manual acceptance section](docs/HTTPS-SERVICE.md#manual-deployed-acceptance-unrun). Recovery hold survives Worker restarts and must be set before any restore or code rollback.
+- **Hold the whole service** (when the system is misbehaving): the owner, signed in, sets recovery hold through the authorized status API. The exact console snippet lives in the [HTTPS service manual acceptance section](docs/HTTPS-SERVICE.md#manual-deployed-acceptance). Recovery hold survives Worker restarts and must be set before any restore or code rollback.
 - **Rollback the deployment**: use the native Wrangler rollback procedure in the [stop, failure recovery and rollback section](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback). Only roll back to a version compatible with the current schema and preserved SQLite class; this README deliberately does not restate the exact commands.
 
 First-time deployment (secrets, Login channel registration, provisioning) is a separate owner setup; see [docs/HTTPS-SERVICE.md](docs/HTTPS-SERVICE.md).

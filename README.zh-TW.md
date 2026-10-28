@@ -22,7 +22,7 @@ Next is you 就是替你做這件事的小工具。擁有者在瀏覽器開啟�
 
 **進行中**
 
-- [ ] LINE 邀請與退出 UI - [#19](https://github.com/KLTsai/next-is-you/issues/19)
+- [ ] 管理者主導的 LINE 邀請與移除 UI - [#19](https://github.com/KLTsai/next-is-you/issues/19)
 - [ ] 台大眼科下午診 reader：已具備 fixture 與本地整合證據；真實醫院行為尚未驗證 - [#17](https://github.com/KLTsai/next-is-you/issues/17)、[#20](https://github.com/KLTsai/next-is-you/issues/20)
 - [ ] 私人儲存復原與營運就緒 - [#21](https://github.com/KLTsai/next-is-you/issues/21)
 - [ ] 擁有者本人手機實測（首次真實提醒） - [#22](https://github.com/KLTsai/next-is-you/issues/22)
@@ -165,7 +165,7 @@ Next is you 的設計是盡量少留東西：
 - **會儲存什麼：** 邀請紀錄、同意紀錄，以及用於排程與去重複的 outbox events。不會留存任何原始醫院 response body；reader 只保留比對到的欄位（診間、醫師、clinic type、目前叫號）給擁有者草稿指定的那一間門診。
 - **當天截止：** 看診日當天台北時間 23:59 之後，active reminders 會過期，不再送出任何通知。
 - **active-data 清理：** drafts 與過期的 reminders 會在台北 23:59 截止後 48 小時內清掉；停止的 reminders 會在 Stop 後 48 小時內清掉。
-- **退出：** 收件人退出時，其紀錄即被刪除。
+- **移除：** 由管理者直接移除成員；本階段沒有收件人自助退出功能。成員被移除後，其紀錄即被刪除。
 - **備份：** 備份保留期與 active-data 清理分開管理；相關部署儲存與備份 gate 詳見 [pre-live checklist](docs/PRE-LIVE-CHECKLIST.md)。
 
 確切機制存在於儲存與生命週期文件中；本段只用平白話描述它們。擁有者的穩定來源是一個公開的 `workers.dev` URL，其靜態 shell 與 `/api/healthz` endpoint 對任何人都可觸及；organizer 資料與寫入操作則需要在 allowlist 中的 LINE session 與 CSRF。

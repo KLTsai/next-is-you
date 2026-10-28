@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   OrganizerApiError,
   correctVisit,
+  createInvitation,
   createVisit,
   getVisitCorrection,
   listRecipients,
@@ -11,6 +12,7 @@ import {
   startVisit,
   stopVisit,
   updateVisit,
+  withdrawMember,
 } from "../src/organizer-api.js";
 
 const draftInput = {
@@ -109,6 +111,35 @@ test("draft create, edit, correct, Start, and Stop use approved routes and CSRF"
   for (const [, options] of calls) assert.equal(options.headers["x-csrf-token"], "csrf-local");
   assert.deepEqual(JSON.parse(calls[0][1].body), draftInput);
   assert.equal(calls[2][1].body, undefined);
+});
+
+test("invitation creation uses the approved route with CSRF", async () => {
+  let call;
+  const result = await createInvitation({
+    fetcher: async (path, options) => {
+      call = [path, options];
+      return response({ invitation_url: "https://family.example/auth/line?invite=t", expires_at: "2026-09-29T00:00:00Z" }, 201);
+    },
+    csrfToken: "csrf-local",
+  });
+  assert.deepEqual(result, { invitation_url: "https://family.example/auth/line?invite=t", expires_at: "2026-09-29T00:00:00Z" });
+  assert.equal(call[0], "/api/organizer/invitations");
+  assert.equal(call[1].method, "POST");
+  assert.equal(call[1].headers["x-csrf-token"], "csrf-local");
+});
+
+test("member withdrawal uses the organizer removal route with CSRF", async () => {
+  let call;
+  await withdrawMember("recipient one", {
+    fetcher: async (path, options) => {
+      call = [path, options];
+      return response(null, 204);
+    },
+    csrfToken: "csrf-local",
+  });
+  assert.equal(call[0], "/api/organizer/recipients/recipient%20one/withdraw");
+  assert.equal(call[1].method, "POST");
+  assert.equal(call[1].headers["x-csrf-token"], "csrf-local");
 });
 
 test("typed API failures expose only the approved error code", async () => {

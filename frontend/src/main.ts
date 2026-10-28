@@ -2,6 +2,7 @@ import "./style.css";
 import {
   OrganizerApiError,
   correctVisit,
+  createInvitation,
   createVisit,
   getVisitCorrection,
   listRecipients,
@@ -10,6 +11,7 @@ import {
   startVisit,
   stopVisit,
   updateVisit,
+  withdrawMember,
 } from "./organizer-api.js";
 import type { Hospital, OrganizerVisit, Recipient, VisitInput } from "./organizer-api.js";
 import { canRequestStart, formatSourceStatus, formatVisitState, visitStatusKey } from "./visit-state.js";
@@ -59,6 +61,11 @@ const startFailures = new Map<string, string>();
 const pendingRecipientRemovals = new Set<string>();
 let stoppingRefreshTimer: number | null = null;
 let draftsCollapsed = true;
+let invitationUrl: string | null = null;
+let invitationCreating = false;
+let invitationError = "";
+let copyFeedback = "";
+const pendingMemberWithdrawals = new Set<string>();
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] || char);
@@ -254,6 +261,20 @@ function visitCard(item: OrganizerVisit): string {
   </article>`;
 }
 
+function membersPanel(): string {
+  return `<section class="panel members-panel" aria-labelledby="members-heading">
+    <div class="panel-heading"><div><p class="eyebrow">成員管理</p><h2 id="members-heading">家庭成員</h2></div><button class="primary-button" id="invite-member" type="button" ${invitationCreating ? "disabled" : ""}>${invitationCreating ? "建立邀請中…" : "邀請新成員"}</button></div>
+    ${invitationError ? `<p class="message message-warning" role="alert">${escapeHtml(invitationError)}</p>` : ""}
+    ${invitationUrl ? `<div class="invitation-link"><label for="invitation-url-input">邀請連結（限一次使用）</label><div class="invitation-link-row"><input id="invitation-url-input" type="text" readonly value="${escapeHtml(invitationUrl)}"><button class="secondary-button" id="copy-invitation" type="button">${copyFeedback || "複製連結"}</button></div><p class="gate-note">請自行透過你的 LINE 將這個連結傳送給家人；連結限一次使用，使用後即失效。</p></div>` : ""}
+    ${recipients.length
+      ? `<ul class="member-list">${recipients.map((recipient) => {
+        const pending = pendingMemberWithdrawals.has(recipient.id);
+        return `<li><span>${escapeHtml(recipient.display_name)}</span><button class="recipient-remove-button" type="button" data-withdraw-member="${escapeHtml(recipient.id)}" aria-label="移除成員 ${escapeHtml(recipient.display_name)}" ${pending ? "disabled" : ""}>${pending ? "移除中…" : "移除"}</button></li>`;
+      }).join("")}</ul>`
+      : `<p class="empty-inline">目前沒有已加入的成員。</p>`}
+  </section>`;
+}
+
 function renderDashboard(preserveCurrentForm = true): void {
   if (!app) return;
   if (preserveCurrentForm && !discardFormOnNextRender) rememberFormValues();
@@ -267,6 +288,7 @@ function renderDashboard(preserveCurrentForm = true): void {
   app.innerHTML = `<div class="dashboard-top"><div><p class="eyebrow">安全的提醒管理</p><h1>看診提醒</h1></div><button class="secondary-button refresh-button" id="refresh" type="button" ${loading ? "disabled" : ""}>重新整理</button></div>
     ${message ? `<p class="message" role="status">${escapeHtml(message)}</p>` : ""}
     ${refreshWarning ? `<p class="message message-warning" role="status">${escapeHtml(refreshWarning)}</p>` : ""}
+    ${membersPanel()}
     ${formMarkup()}
     <section class="visits saved-drafts" aria-labelledby="drafts-heading"><div class="section-heading"><div><p class="eyebrow">提醒設定</p><h2 id="drafts-heading">已儲存草稿 <span class="draft-count">${drafts.length}</span></h2></div><button class="secondary-button drafts-toggle" type="button" data-drafts-toggle aria-expanded="${!draftsCollapsed}" aria-controls="saved-drafts-list">${draftsCollapsed ? "展開草稿" : "收合草稿"}</button></div><div id="saved-drafts-list" class="draft-list" ${draftsCollapsed ? "hidden" : ""}>${drafts.length ? drafts.map(visitCard).join("") : `<div class="empty-state"><h3>尚無已儲存草稿</h3><p>建立草稿後，會顯示在這裡。</p></div>`}</div></section>
     <section class="visits" aria-labelledby="visits-heading"><div class="section-heading"><div><p class="eyebrow">狀態與控制</p><h2 id="visits-heading">提醒清單 <span class="draft-count">${reminderCount}</span></h2></div></div>${reminders.length ? reminders.map(visitCard).join("") : `<div class="empty-state"><h3>尚無提醒狀態</h3><p>執行中、已停止或已結束的提醒會顯示在這裡。</p></div>`}</section>`;
@@ -357,6 +379,51 @@ function readForm(form: HTMLFormElement): VisitInput | null {
 }
 
 function bindActions(): void {
+  document.querySelector<HTMLButtonElement>("#invite-member")?.addEventListener("click", async () => {
+    if (invitationCreating) return;
+    invitationCreating = true;
+    invitationError = "";
+    renderDashboard();
+    try {
+      const result = await createInvitation();
+      invitationUrl = result.invitation_url;
+    } catch (error) {
+      invitationError = errorText(error);
+    } finally {
+      invitationCreating = false;
+      renderDashboard();
+    }
+  });
+  document.querySelector<HTMLButtonElement>("#copy-invitation")?.addEventListener("click", async () => {
+    if (!invitationUrl) return;
+    try {
+      await navigator.clipboard.writeText(invitationUrl);
+      copyFeedback = "已複製";
+    } catch {
+      copyFeedback = "複製失敗，請手動選取連結文字";
+    }
+    renderDashboard();
+    window.setTimeout(() => {
+      copyFeedback = "";
+      renderDashboard();
+    }, 2000);
+  });
+  document.querySelectorAll<HTMLButtonElement>("[data-withdraw-member]").forEach((button) => button.addEventListener("click", async () => {
+    const id = button.dataset.withdrawMember;
+    if (!id || pendingMemberWithdrawals.has(id)) return;
+    pendingMemberWithdrawals.add(id);
+    message = "";
+    renderDashboard();
+    try {
+      await withdrawMember(id);
+      message = "已移除成員。";
+    } catch (error) {
+      message = errorText(error);
+    } finally {
+      pendingMemberWithdrawals.delete(id);
+      await loadDashboard();
+    }
+  }));
   document.querySelector<HTMLButtonElement>("[data-drafts-toggle]")?.addEventListener("click", () => {
     draftsCollapsed = !draftsCollapsed;
     renderDashboard();

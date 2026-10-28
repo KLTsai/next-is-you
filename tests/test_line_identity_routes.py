@@ -421,6 +421,83 @@ def test_withdrawal_revokes_recipient_session_authority():
     run(scenario())
 
 
+def test_organizer_can_withdraw_recipient_from_roster_and_block_future_sends():
+    async def scenario():
+        store = SQLiteStore()
+        app = make_app(store, FakeFriendship())
+        identity_repo = IdentityRepository(store)
+        invitation = await identity_repo.create_invitation(
+            "line-organizer", datetime.fromtimestamp(900, timezone.utc)
+        )
+        await identity_repo.accept_invitation(
+            token_hash=invite_hash(invitation.token),
+            line_subject="line-recipient",
+            display_name="Family",
+            now=datetime.fromtimestamp(900, timezone.utc),
+            friendship_checked_at=datetime.fromtimestamp(900, timezone.utc),
+        )
+        await identity_repo.opt_in(
+            "line-recipient", datetime.fromtimestamp(1_000, timezone.utc)
+        )
+        recipient_id = await identity_repo.recipient_id("line-recipient")
+        assert recipient_id
+        visits = VisitRepository(store)
+        await visits.create_draft(
+            visit_id="visit-1",
+            hospital="ntuh-main",
+            visit_day=date(2026, 9, 28),
+            department_code="MED",
+            clinic_code="MED-A",
+            clinic_session="morning",
+            patient_number=45,
+            now=datetime.fromtimestamp(1_000, timezone.utc),
+        )
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="https://family.example"
+        ) as client:
+            set_session(client, "not-allowlisted", "organizer")
+            denied = await client.post(
+                f"/api/organizer/recipients/{recipient_id}/withdraw",
+                headers=csrf(client),
+            )
+            assert denied.status_code == 403
+
+            set_session(client, "line-organizer", "organizer")
+            missing_csrf = await client.post(
+                f"/api/organizer/recipients/{recipient_id}/withdraw"
+            )
+            assert missing_csrf.status_code == 403
+
+            withdrawn = await client.post(
+                f"/api/organizer/recipients/{recipient_id}/withdraw",
+                headers=csrf(client),
+            )
+            assert withdrawn.status_code == 204
+
+            already_withdrawn = await client.post(
+                f"/api/organizer/recipients/{recipient_id}/withdraw",
+                headers=csrf(client),
+            )
+            assert already_withdrawn.status_code == 404
+
+            roster = await client.get("/api/organizer/recipients")
+            assert roster.json() == {"recipients": []}
+
+            blocked = await client.post(
+                f"/api/visits/visit-1/recipients/{recipient_id}",
+                headers=csrf(client),
+            )
+            assert blocked.status_code == 409
+
+        assert (
+            store.connection.execute("SELECT COUNT(*) FROM recipients").fetchone()[0]
+            == 0
+        )
+
+    run(scenario())
+
+
 def invite_hash(token: str) -> str:
     from next_is_you.identity import hash_invitation
 

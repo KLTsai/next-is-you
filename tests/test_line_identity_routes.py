@@ -332,9 +332,9 @@ def test_organizer_allowlist_and_csrf_are_rechecked_for_each_mutation():
 
         assert created.status_code == 201
         assert (
-            store.connection.execute(
-                "SELECT member_label FROM invitations"
-            ).fetchone()[0]
+            store.connection.execute("SELECT member_label FROM invitations").fetchone()[
+                0
+            ]
             == "爸爸"
         )
         assert created.json()["invitation_url"].startswith(

@@ -70,7 +70,7 @@ This is a convenience reminder, not a safety-critical system. The clinic room's 
 - **A late reminder can arrive for a passed number.** If a clinic session ends earlier than usual, the service may send one last reminder for a number that has already been called.
 - **No per-recipient tuning.** Every recipient in a family receives the same message. There are no custom time windows, no quiet hours, and no priority ordering between recipients.
 - **The room's physical light is authoritative.** The hospital page value may lag the room by minutes. Arrive early enough to confirm by the clinic room's own display; the project's reader doc records that NTUH itself states the physical indicator is authoritative (see [docs/NTUH-READER.md](docs/NTUH-READER.md)).
-- **A reminder is not proof the number has been called.** Receiving a near reminder means the called number is close, not that it has reached the owner. Watch the room light after arriving at the clinic area.
+- **A reminder is a "get moving" signal, not proof the number has been called.** The reminder exists so the family does not have to keep refreshing the page or watching the phone; it means the called number is close and it is time to head toward the clinic. On arrival, the room's own display shows exactly which number is up - the brief, natural check anyone makes walking into a clinic.
 
 ## For the owner (daily use)
 

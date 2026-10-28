@@ -48,5 +48,5 @@ export function startVisit(id: string, options?: object): Promise<{ state: "acti
 export function stopVisit(id: string, options?: object): Promise<{ state: "stopping" | "stopped" }>;
 export function removeVisitRecipient(visitId: string, recipientId: string, options?: object): Promise<null>;
 export function correctVisit(id: string, input: VisitInput, options?: object): Promise<{ id: string; state: "draft" }>;
-export function createInvitation(options?: object): Promise<{ invitation_url: string; expires_at: string }>;
+export function createInvitation(memberLabel: string, options?: object): Promise<{ invitation_url: string; expires_at: string }>;
 export function withdrawMember(recipientId: string, options?: object): Promise<null>;

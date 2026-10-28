@@ -75,6 +75,11 @@ function text(value: string | number | null | undefined): string {
   return value === null || value === undefined || value === "" ? "尚無資料" : String(value);
 }
 
+function recipientLabel(recipient: Recipient): string {
+  const label = recipient.display_name.trim();
+  return label || `成員 · ${recipient.id.slice(0, 6)}`;
+}
+
 function formatCheckedAt(value: string | null | undefined): string {
   if (value === null || value === undefined || value === "") return "尚無資料";
   const checkedAt = new Date(value);
@@ -126,7 +131,7 @@ function recipientChoices(selected: string[], allowedRecipientIds?: Set<string>)
     ? recipients.filter((recipient) => allowedRecipientIds.has(recipient.id))
     : recipients;
   if (!choices.length) return `<p class="empty-inline">目前沒有已同意且可用的通知對象。</p>`;
-  return choices.map((recipient) => `<label class="recipient-choice"><input type="checkbox" name="recipient_ids" value="${escapeHtml(recipient.id)}" ${selected.includes(recipient.id) ? "checked" : ""}><span>${escapeHtml(recipient.display_name)}</span></label>`).join("");
+  return choices.map((recipient) => `<label class="recipient-choice"><input type="checkbox" name="recipient_ids" value="${escapeHtml(recipient.id)}" ${selected.includes(recipient.id) ? "checked" : ""}><span>${escapeHtml(recipientLabel(recipient))}</span></label>`).join("");
 }
 
 function rememberFormValues(): void {
@@ -225,7 +230,8 @@ function visitCard(item: OrganizerVisit): string {
     ? `<div><ul class="recipient-summary">${item.recipients.map((recipient) => {
       const removalKey = `${item.id}\u0000${recipient.id}`;
       const pendingRemoval = pendingRecipientRemovals.has(removalKey);
-      return `<li><span>${escapeHtml(recipient.display_name)}</span>${canRemoveRecipients ? `<button class="recipient-remove-button" type="button" data-remove-visit="${escapeHtml(item.id)}" data-remove-recipient="${escapeHtml(recipient.id)}" aria-label="移除通知對象 ${escapeHtml(recipient.display_name)}" ${pendingStop || pendingRemoval || cannotRemoveLastRecipient ? "disabled" : ""}>${pendingRemoval ? "移除中…" : "移除"}</button>` : ""}</li>`;
+      const label = recipientLabel(recipient);
+      return `<li><span>${escapeHtml(label)}</span>${canRemoveRecipients ? `<button class="recipient-remove-button" type="button" data-remove-visit="${escapeHtml(item.id)}" data-remove-recipient="${escapeHtml(recipient.id)}" aria-label="移除通知對象 ${escapeHtml(label)}" ${pendingStop || pendingRemoval || cannotRemoveLastRecipient ? "disabled" : ""}>${pendingRemoval ? "移除中…" : "移除"}</button>` : ""}</li>`;
     }).join("")}</ul>${cannotRemoveLastRecipient ? `<p class="gate-note">至少保留一位通知對象，才能繼續提醒或日後重新啟動。</p>` : ""}</div>`
     : "沒有選取通知對象";
   const notification = item.notification;
@@ -263,13 +269,14 @@ function visitCard(item: OrganizerVisit): string {
 
 function membersPanel(): string {
   return `<section class="panel members-panel" aria-labelledby="members-heading">
-    <div class="panel-heading"><div><p class="eyebrow">成員管理</p><h2 id="members-heading">家庭成員</h2></div><button class="primary-button" id="invite-member" type="button" ${invitationCreating ? "disabled" : ""}>${invitationCreating ? "建立邀請中…" : "邀請新成員"}</button></div>
+    <div class="panel-heading"><div><p class="eyebrow">成員管理</p><h2 id="members-heading">家庭成員</h2></div><div class="invite-controls"><label class="invite-label" for="member-label">成員稱呼</label><input id="member-label" type="text" maxlength="40" placeholder="例如：媽媽"><button class="primary-button" id="invite-member" type="button" ${invitationCreating ? "disabled" : ""}>${invitationCreating ? "建立邀請中…" : "邀請新成員"}</button></div></div>
     ${invitationError ? `<p class="message message-warning" role="alert">${escapeHtml(invitationError)}</p>` : ""}
     ${invitationUrl ? `<div class="invitation-link"><label for="invitation-url-input">邀請連結（限一次使用）</label><div class="invitation-link-row"><input id="invitation-url-input" type="text" readonly value="${escapeHtml(invitationUrl)}"><button class="secondary-button" id="copy-invitation" type="button">${copyFeedback || "複製連結"}</button></div><p class="gate-note">請自行透過你的 LINE 將這個連結傳送給家人；連結限一次使用，使用後即失效。</p></div>` : ""}
     ${recipients.length
       ? `<ul class="member-list">${recipients.map((recipient) => {
         const pending = pendingMemberWithdrawals.has(recipient.id);
-        return `<li><span>${escapeHtml(recipient.display_name)}</span><button class="recipient-remove-button" type="button" data-withdraw-member="${escapeHtml(recipient.id)}" aria-label="移除成員 ${escapeHtml(recipient.display_name)}" ${pending ? "disabled" : ""}>${pending ? "移除中…" : "移除"}</button></li>`;
+        const label = recipientLabel(recipient);
+        return `<li><span>${escapeHtml(label)}</span><button class="recipient-remove-button" type="button" data-withdraw-member="${escapeHtml(recipient.id)}" aria-label="移除成員 ${escapeHtml(label)}" ${pending ? "disabled" : ""}>${pending ? "移除中…" : "移除"}</button></li>`;
       }).join("")}</ul>`
       : `<p class="empty-inline">目前沒有已加入的成員。</p>`}
   </section>`;
@@ -381,11 +388,12 @@ function readForm(form: HTMLFormElement): VisitInput | null {
 function bindActions(): void {
   document.querySelector<HTMLButtonElement>("#invite-member")?.addEventListener("click", async () => {
     if (invitationCreating) return;
+    const memberLabel = document.querySelector<HTMLInputElement>("#member-label")?.value.trim() ?? "";
     invitationCreating = true;
     invitationError = "";
     renderDashboard();
     try {
-      const result = await createInvitation();
+      const result = await createInvitation(memberLabel);
       invitationUrl = result.invitation_url;
     } catch (error) {
       invitationError = errorText(error);

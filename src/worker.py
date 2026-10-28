@@ -192,7 +192,7 @@ def create_app(
                 "client_id": config.channel_id,
                 "redirect_uri": config.redirect_uri,
                 "state": transaction.state,
-                "scope": "openid profile" if invitation else "openid",
+                "scope": "openid",
                 "nonce": transaction.nonce,
             }
         )
@@ -282,7 +282,6 @@ def create_app(
             accepted = await repository.accept_invitation(
                 token_hash=transaction.invitation_hash,
                 line_subject=identity.subject,
-                display_name="LINE recipient",
                 now=enrolled_at,
                 friendship_checked_at=enrolled_at,
             )
@@ -355,7 +354,18 @@ def create_app(
             return JSONResponse(
                 {"detail": "Invitations are unavailable"}, status_code=503
             )
-        invitation = await repository.create_invitation(claims.subject, _now(request))
+        payload = await request.json()
+        member_label = (
+            payload.get("member_label", "") if isinstance(payload, dict) else None
+        )
+        if not isinstance(member_label, str) or len(member_label.strip()) > 40:
+            return JSONResponse(
+                {"detail": "Member label must be 40 characters or fewer"},
+                status_code=422,
+            )
+        invitation = await repository.create_invitation(
+            claims.subject, member_label.strip(), _now(request)
+        )
         parsed_redirect = urlsplit(_login_settings(request).redirect_uri)
         origin = f"{parsed_redirect.scheme}://{parsed_redirect.netloc}"
         return JSONResponse(

@@ -115,7 +115,7 @@ test("draft create, edit, correct, Start, and Stop use approved routes and CSRF"
 
 test("invitation creation uses the approved route with CSRF", async () => {
   let call;
-  const result = await createInvitation({
+  const result = await createInvitation("媽媽", {
     fetcher: async (path, options) => {
       call = [path, options];
       return response({ invitation_url: "https://family.example/auth/line?invite=t", expires_at: "2026-09-29T00:00:00Z" }, 201);
@@ -126,6 +126,7 @@ test("invitation creation uses the approved route with CSRF", async () => {
   assert.equal(call[0], "/api/organizer/invitations");
   assert.equal(call[1].method, "POST");
   assert.equal(call[1].headers["x-csrf-token"], "csrf-local");
+  assert.deepEqual(JSON.parse(call[1].body), { member_label: "媽媽" });
 });
 
 test("member withdrawal uses the organizer removal route with CSRF", async () => {

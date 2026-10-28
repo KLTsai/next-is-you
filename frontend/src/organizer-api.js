@@ -72,8 +72,8 @@ export function correctVisit(id, input, options = {}) {
   return request(`/api/organizer/visits/${encodeURIComponent(id)}/correct`, { ...options, method: "POST", body: input });
 }
 
-export function createInvitation(options = {}) {
-  return request("/api/organizer/invitations", { ...options, method: "POST" });
+export function createInvitation(memberLabel, options = {}) {
+  return request("/api/organizer/invitations", { ...options, method: "POST", body: { member_label: memberLabel } });
 }
 
 export function withdrawMember(recipientId, options = {}) {

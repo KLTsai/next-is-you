@@ -133,7 +133,7 @@ def test_invitation_enrollment_checks_friendship_then_requires_explicit_consent(
         friendship = FakeFriendship(True)
         identity_repo = IdentityRepository(store)
         invite = await identity_repo.create_invitation(
-            "line-organizer", datetime.fromtimestamp(1_000, timezone.utc)
+            "line-organizer", "媽媽", datetime.fromtimestamp(1_000, timezone.utc)
         )
         app = make_app(store, friendship)
         async with AsyncClient(
@@ -141,7 +141,7 @@ def test_invitation_enrollment_checks_friendship_then_requires_explicit_consent(
         ) as http:
             start = await http.get("/auth/line", params={"invite": invite.token})
             params = parse_qs(urlparse(start.headers["location"]).query)
-            assert params["scope"] == ["openid profile"]
+            assert params["scope"] == ["openid"]
             callback = await http.get(
                 "/auth/line/callback",
                 params={"code": "local-code", "state": params["state"][0]},
@@ -153,6 +153,7 @@ def test_invitation_enrollment_checks_friendship_then_requires_explicit_consent(
             assert callback.headers["location"] == "/recipient/consent"
             assert friendship.tokens == ["transient-user-token"]
             assert row["active"] == 0
+            assert row["display_name"] == "媽媽"
             assert row["consented_at"] is None
             assert row["friendship_checked_at"] is not None
             assert "transient-user-token" not in repr(dict(row))
@@ -189,6 +190,7 @@ def test_failed_or_unknown_friendship_check_does_not_consume_invitation():
             identity_repo = IdentityRepository(store)
             invitation = await identity_repo.create_invitation(
                 "line-organizer",
+                "",
                 datetime.fromtimestamp(1_000, timezone.utc),
             )
             friendship = FakeFriendship(status)
@@ -227,12 +229,11 @@ def test_server_side_roles_and_selection_require_active_enrollment_and_consent()
         app = make_app(store, friendship)
         identity_repo = IdentityRepository(store)
         invitation = await identity_repo.create_invitation(
-            "line-organizer", datetime.fromtimestamp(900, timezone.utc)
+            "line-organizer", "Family", datetime.fromtimestamp(900, timezone.utc)
         )
         await identity_repo.accept_invitation(
             token_hash=invite_hash(invitation.token),
             line_subject="line-recipient",
-            display_name="Family",
             now=datetime.fromtimestamp(900, timezone.utc),
             friendship_checked_at=datetime.fromtimestamp(900, timezone.utc),
         )
@@ -316,10 +317,18 @@ def test_organizer_allowlist_and_csrf_are_rechecked_for_each_mutation():
             missing_csrf = await client.post("/api/organizer/invitations")
             assert missing_csrf.status_code == 403
             created = await client.post(
-                "/api/organizer/invitations", headers=csrf(client)
+                "/api/organizer/invitations",
+                headers=csrf(client),
+                json={"member_label": "爸爸"},
             )
 
         assert created.status_code == 201
+        assert (
+            store.connection.execute(
+                "SELECT member_label FROM invitations"
+            ).fetchone()[0]
+            == "爸爸"
+        )
         assert created.json()["invitation_url"].startswith(
             "https://family.example/auth/line?invite="
         )
@@ -389,12 +398,11 @@ def test_withdrawal_revokes_recipient_session_authority():
         app = make_app(store, FakeFriendship())
         identity_repo = IdentityRepository(store)
         invitation = await identity_repo.create_invitation(
-            "line-organizer", datetime.fromtimestamp(900, timezone.utc)
+            "line-organizer", "Family", datetime.fromtimestamp(900, timezone.utc)
         )
         await identity_repo.accept_invitation(
             token_hash=invite_hash(invitation.token),
             line_subject="line-recipient",
-            display_name="Family",
             now=datetime.fromtimestamp(900, timezone.utc),
             friendship_checked_at=datetime.fromtimestamp(900, timezone.utc),
         )
@@ -427,12 +435,11 @@ def test_organizer_can_withdraw_recipient_from_roster_and_block_future_sends():
         app = make_app(store, FakeFriendship())
         identity_repo = IdentityRepository(store)
         invitation = await identity_repo.create_invitation(
-            "line-organizer", datetime.fromtimestamp(900, timezone.utc)
+            "line-organizer", "Family", datetime.fromtimestamp(900, timezone.utc)
         )
         await identity_repo.accept_invitation(
             token_hash=invite_hash(invitation.token),
             line_subject="line-recipient",
-            display_name="Family",
             now=datetime.fromtimestamp(900, timezone.utc),
             friendship_checked_at=datetime.fromtimestamp(900, timezone.utc),
         )

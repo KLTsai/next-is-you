@@ -209,20 +209,19 @@ to the extent noted per step below:
 
 1. **Confirmed on 2026-10-27/28.** Current UI and JS/CSS load over HTTPS from
    this same origin. `/api/healthz` returns `{"status":"ok","mode":"held-service"}`.
-   Logged-out organizer APIs return `401` when auth is configured; missing/invalid
-   config returns `503`. Synthetic controls such as POST
-   `/__niy006_test/organizer-session`, `/seed` and `/snapshot` return `404`,
-   even if a stray test flag exists. The synthetic login button's absence was
-   not independently re-checked in this pass; it remains presumed true by the
-   same code gate that previously verified it, but was not freshly confirmed.
+   An unauthenticated `POST /api/organizer/invitations` returned `401`. Other
+   logged-out organizer API responses and the `503` response for missing or
+   invalid configuration were not exercised in this pass. The synthetic
+   `/__niy006_test/organizer-session` route returned `404`; the `/seed` and
+   `/snapshot` routes and synthetic login button were not independently
+   checked in this pass.
 2. **Confirmed on 2026-10-27: the owner completed a real LINE login and reached
-   organizer access.** The exact callback returned to this origin, and only
-   the approved subject gained organizer access. The two edge-case checks - an
-   unauthorized second test account outside the allowlist getting `403`, and a
-   callback with missing state/code returning `401` - were not exercised in
-   this pass and remain unverified. Do not add an unauthorized account to the
-   allowlist. Do not capture callback codes, cookies, provider tokens or
-   patient information in evidence.
+   organizer access.** The exact callback returned to this origin. The two
+   edge-case checks - an unauthorized second test account outside the allowlist
+   getting `403`, and a callback with missing state/code returning `401` - were
+   not exercised in this pass and remain unverified. Do not add an unauthorized
+   account to the allowlist. Do not capture callback codes, cookies, provider
+   tokens or patient information in evidence.
 3. **Confirmed on 2026-10-27:** the owner set recovery hold through the
    authorized status API and the status endpoint reported the values below;
    this was not freshly re-checked after that date. In the signed-in browser

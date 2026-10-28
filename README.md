@@ -65,7 +65,7 @@ These are the rules the design uses once live operation is authorized by the [Is
 
 This is a convenience reminder, not a safety-critical system. The clinic room's physical light indicator remains authoritative. Read these edges before relying on the service.
 
-- **The hospital page can change at any time.** NTUH may alter the queue page's layout without notice; such a change can silently break the reader until the owner adapts it. The service does not auto-detect this failure.
+- **The hospital page can change at any time.** NTUH may alter the queue page's layout without notice, and the reader may stop producing usable data until the owner adapts it. The service does not identify layout changes specifically; after three consecutive unusable reads, it sends the existing generic unavailable reminder.
 - **Not for emergency or safety-critical reminders.** LINE outages, home or carrier network loss, Cloudflare incidents, or a halted Worker all fail silently. There is no out-of-band alarm when sends stop.
 - **A late reminder can arrive for a passed number.** If a clinic session ends earlier than usual, the service may send one last reminder for a number that has already been called.
 - **No per-recipient tuning.** Every recipient in a family receives the same message. There are no custom time windows, no quiet hours, and no priority ordering between recipients.

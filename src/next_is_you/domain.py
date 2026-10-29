@@ -69,20 +69,20 @@ class QueueObservation:
 
 @dataclass(frozen=True, slots=True)
 class ReadSkipped:
-    """A reader outcome where no read was attempted and no failure is counted.
+    """A reader outcome that is not a failed read and counts as no failure.
 
-    `not_due` leaves the stored source status untouched. `before_session` and
-    `session_ended` describe the clinic window, never a failed read, so they
-    must not feed the unavailable alert.
+    `not_due` leaves the stored source status untouched. `clinic_not_started`
+    and `clinic_ended` describe where the clinic is in its own day, never a
+    failed read, so they must not feed the unavailable alert.
     """
 
     reason: str
 
     @property
     def source_read(self) -> tuple[str, str] | None:
-        if self.reason == "before_session":
+        if self.reason == "clinic_not_started":
             return "unavailable", "no_observation"
-        if self.reason == "session_ended":
+        if self.reason == "clinic_ended":
             return "unavailable", "empty_result"
         return None
 

@@ -16,12 +16,14 @@ from next_is_you.persistence import (
     visit_cutoff,
 )
 from next_is_you.domain import (
+    ClinicRoster,
     ClinicScope,
     ClinicSession,
     Hospital,
     HospitalReader,
     ReadFailed,
     ReadSkipped,
+    RosterQuery,
 )
 from next_is_you.hospital_registry import ReaderDeps, RegistryHospitalReader
 from next_is_you.ntuh_reader import WorkersFetcher
@@ -499,6 +501,45 @@ class SystemSendGate(_DurableObjectBase):
             )
         return _TestHospitalReader(self.ctx.storage)
 
+    async def list_clinics(
+        self, hospital: str, department_code: str, visit_date: str, now: str
+    ) -> dict[str, Any]:
+        """Serve the setup picker a department's clinics for a day, or why not.
+
+        Held the same way reads are: with no reader (production before the Issue
+        #22 pilot) the roster is simply unavailable, so the picker degrades to
+        manual entry. Arguments and the result stay JSON-friendly for the gate's
+        RPC boundary.
+        """
+        reader = self._hospital_reader()
+        lister = getattr(reader, "list_clinics", None)
+        if lister is None:
+            return {"available": False, "reason": "no_observation", "clinics": []}
+        try:
+            query = RosterQuery(
+                hospital=Hospital(hospital),
+                department_code=department_code,
+                visit_date=date.fromisoformat(visit_date),
+            )
+            when = _datetime(now)
+        except (ValueError, TypeError):
+            return {"available": False, "reason": "invalid_data", "clinics": []}
+        roster: ClinicRoster = await lister(query, when)
+        return {
+            "available": roster.available,
+            "reason": roster.reason,
+            "clinics": [
+                {
+                    "session": option.session.value,
+                    "room": option.room,
+                    "doctor": option.doctor,
+                    "clinic_type": option.clinic_type,
+                    "clinic_code": option.clinic_code,
+                }
+                for option in roster.clinics
+            ],
+        }
+
     _ntuh_fetcher = WorkersFetcher()
 
     def _scheduler(self, clock) -> OutboxScheduler:
@@ -651,6 +692,10 @@ class _TestHospitalReader:
     async def observe_for_start(self, scope, now):
         # The test reader makes no distinction between Start and scheduled reads.
         return await self.observe(scope, now)
+
+    async def list_clinics(self, query, now):
+        # The stub has no schedule, so the picker falls back to manual entry.
+        return ClinicRoster(False, (), "no_observation")
 
 
 class _TestLineTransport:

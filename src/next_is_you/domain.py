@@ -113,6 +113,51 @@ class ReadFailed:
     reason: str
 
 
+@dataclass(frozen=True, slots=True)
+class RosterQuery:
+    """What the setup UI asks a hospital: who is consulting a department that day.
+
+    No clinic, doctor, room or session: those are what the roster answers with,
+    so the owner picks them instead of typing them.
+    """
+
+    hospital: Hospital
+    department_code: str
+    visit_date: date
+
+
+@dataclass(frozen=True, slots=True)
+class ClinicOption:
+    """One consulting clinic the owner can pick, carrying its own identity.
+
+    `clinic_code` is the exact value a draft stores and the reader matches on;
+    `session` is derived from the chosen clinic, not typed. `room`, `doctor` and
+    `clinic_type` are for display. Listing a clinic says it is scheduled, never
+    that its number is verified against the room's physical light.
+    """
+
+    session: ClinicSession
+    room: str
+    doctor: str
+    clinic_type: str
+    clinic_code: str
+
+
+@dataclass(frozen=True, slots=True)
+class ClinicRoster:
+    """A hospital's consulting clinics for a department and day, or why not.
+
+    `available` is false and `clinics` empty when the roster cannot be offered -
+    the hospital exposes no schedule, reads are held, the day is not today for a
+    source that only shows today, or a read failed. `reason` names which, so the
+    UI can fall back to manual entry instead of showing a broken picker.
+    """
+
+    available: bool
+    clinics: tuple[ClinicOption, ...]
+    reason: str
+
+
 class HospitalReader(Protocol):
     """The single interface the rest of the system reads a hospital through.
 
@@ -131,3 +176,14 @@ class HospitalReader(Protocol):
     async def observe_for_start(
         self, scope: ClinicScope, now: datetime
     ) -> QueueObservation | ReadSkipped | ReadFailed | None: ...
+
+
+class ScheduleReader(Protocol):
+    """A capability a FULL_SCHEDULE hospital adds: list a department's clinics.
+
+    Only hospitals whose source exposes the day's roster implement this; the
+    rest are read through `HospitalReader` alone. It always answers with a
+    `ClinicRoster`, available or not, and never raises for an absent schedule.
+    """
+
+    async def list_clinics(self, query: RosterQuery, now: datetime) -> ClinicRoster: ...

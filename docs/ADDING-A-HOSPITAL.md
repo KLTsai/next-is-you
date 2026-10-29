@@ -23,6 +23,16 @@ through one interface and one dispatcher:
   its URLs, request contract, the language its pages are pinned to, how its
   markup is parsed, how a clinic is matched, and how the watch is bounded. A new
   hospital is a new module of this shape (for example `shin_kong_reader.py`).
+- **The setup endpoints** - `GET /api/organizer/hospitals` returns the catalog
+  (each hospital's `display_name` and `capability`) straight from the registry,
+  and `GET /api/organizer/hospitals/{hospital}/clinics?department=&date=`
+  returns that day's roster through the gate. The frontend reads hospitals and
+  clinics from these, so it holds no hospital names, URLs or source assumptions.
+- **`ScheduleReader` (`domain`)** - the capability a `FULL_SCHEDULE` hospital
+  adds on top of `HospitalReader`: `list_clinics(RosterQuery) -> ClinicRoster`,
+  the day's consulting doctors and rooms for the picker. `RegistryHospitalReader`
+  offers a roster only for `FULL_SCHEDULE` hospitals; everything else degrades to
+  manual entry.
 - **`source_samples.py`** - offline parsers that turn a *captured* response
   sample into a normalized observation, with no transport. This is a
   source-verification tool (see Issue #44), **not** the live adapter layer. Do
@@ -68,17 +78,20 @@ still being evidenced; reads for it fail closed and it is offered to no one.
    transport.
 2. **Add the `Hospital` value** in `domain.py` if it is not already there.
 3. **Write the reader module**, for example `shin_kong_reader.py`, implementing
-   `HospitalReader` (`observe` and `observe_for_start`). Keep every hospital
-   specific inside it. Honor the invariants below.
-4. **Register it** in `HOSPITAL_REGISTRY` with its `SourceCapability` and a
-   factory `lambda deps: ShinKongReader(deps.storage, deps.fetch)`.
+   `HospitalReader` (`observe` and `observe_for_start`). For a `FULL_SCHEDULE`
+   source also implement `ScheduleReader.list_clinics` so the picker can offer a
+   doctor/room dropdown. Keep every hospital specific inside it. Honor the
+   invariants below.
+4. **Register it** in `HOSPITAL_REGISTRY` with its `display_name`,
+   `SourceCapability` and a factory
+   `lambda deps: ShinKongReader(deps.storage, deps.fetch)`.
 5. **Add fixture-driven tests** for the reader, and a registry test that the new
    hospital dispatches and reports the right capability. Make no live request in
    tests.
 
-The frontend needs no change to read a newly registered hospital once the setup
-UI consumes the registry (tracked in #47); until then the hospital list is still
-frontend-side.
+The catalog and roster endpoints already serve a newly registered hospital from
+the backend; wiring the setup UI to consume them (the cascading picker and
+graceful degradation) is tracked in #47.
 
 ## Invariants every reader must honor
 

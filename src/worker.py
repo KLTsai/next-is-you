@@ -30,6 +30,7 @@ from next_is_you.auth import (
 )
 from next_is_you.identity import IdentityRepository, hash_invitation
 from next_is_you.domain import ClinicSession, Hospital
+from next_is_you.hospital_registry import HOSPITAL_REGISTRY
 from next_is_you.progress_links import progress_link
 from next_is_you.line_login import LineOAuthClient, WorkersLineOAuthClient
 from next_is_you.line_messaging import (
@@ -461,6 +462,46 @@ def create_app(
                     }
                 )
         return JSONResponse({"visits": list(grouped.values())})
+
+    @app.get("/api/organizer/hospitals")
+    async def organizer_hospitals(request: Request) -> Response:
+        _, denied = await _authorized(request, "organizer", csrf=False)
+        if denied:
+            return denied
+        return JSONResponse(
+            {
+                "hospitals": [
+                    {
+                        "hospital": hospital.value,
+                        "display_name": entry.display_name,
+                        "capability": entry.capability.value,
+                    }
+                    for hospital, entry in HOSPITAL_REGISTRY.items()
+                ]
+            }
+        )
+
+    @app.get("/api/organizer/hospitals/{hospital}/clinics")
+    async def organizer_hospital_clinics(hospital: str, request: Request) -> Response:
+        _, denied = await _authorized(request, "organizer", csrf=False)
+        if denied:
+            return denied
+        department = request.query_params.get("department")
+        day = request.query_params.get("date")
+        if not department or len(department) > 64 or not day:
+            return _api_error("invalid_request", 400)
+        try:
+            Hospital(hospital)
+            date.fromisoformat(day)
+        except (ValueError, TypeError):
+            return _api_error("invalid_request", 400)
+        gate = _send_gate(request)
+        if gate is None:
+            return _api_error("service_unavailable", 503)
+        roster = await gate.list_clinics(
+            hospital, department, day, iso_utc(_now(request))
+        )
+        return JSONResponse(roster)
 
     @app.post("/api/organizer/visits", status_code=201)
     async def create_organizer_visit(request: Request) -> Response:

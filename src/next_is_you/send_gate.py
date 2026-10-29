@@ -19,11 +19,13 @@ from next_is_you.domain import (
     ClinicScope,
     ClinicSession,
     Hospital,
+    HospitalReader,
     ReadFailed,
     ReadSkipped,
 )
-from next_is_you.ntuh_reader import NtuhProgressReader, WorkersFetcher
-from next_is_you.scheduler import HospitalReader, OutboxScheduler, TickPlan
+from next_is_you.hospital_registry import ReaderDeps, RegistryHospitalReader
+from next_is_you.ntuh_reader import WorkersFetcher
+from next_is_you.scheduler import OutboxScheduler, TickPlan
 
 try:
     from workers import DurableObject as _DurableObjectBase
@@ -214,10 +216,7 @@ class SystemSendGate(_DurableObjectBase):
             except (ValueError, TypeError, KeyError):
                 await repository.set_source_read(visit_id, "invalid", "invalid_data")
                 return {"error": "observation_invalid"}
-            if isinstance(reader, NtuhProgressReader):
-                observation = await reader.observe_for_start(scope, timestamp)
-            else:
-                observation = await reader.observe(scope, timestamp)
+            observation = await reader.observe_for_start(scope, timestamp)
             if isinstance(observation, (ReadSkipped, ReadFailed)):
                 status, reason = (
                     (observation.status, observation.reason)
@@ -495,7 +494,9 @@ class SystemSendGate(_DurableObjectBase):
         if not local_test_mode(self.env):
             return None
         if str(_field(self.env, "NTUH_READER_ENABLED", "")) == "1":
-            return NtuhProgressReader(self.ctx.storage, self._ntuh_fetcher)
+            return RegistryHospitalReader(
+                ReaderDeps(storage=self.ctx.storage, fetch=self._ntuh_fetcher)
+            )
         return _TestHospitalReader(self.ctx.storage)
 
     _ntuh_fetcher = WorkersFetcher()
@@ -646,6 +647,10 @@ class _TestHospitalReader:
             current_number=int(current_number),
             trustworthy_current=trustworthy is True,
         )
+
+    async def observe_for_start(self, scope, now):
+        # The test reader makes no distinction between Start and scheduled reads.
+        return await self.observe(scope, now)
 
 
 class _TestLineTransport:

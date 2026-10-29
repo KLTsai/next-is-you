@@ -13,7 +13,7 @@ from next_is_you.domain import (
     ClinicScope,
     ClinicSession,
     Hospital,
-    QueueObservation,
+    HospitalReader,
     ReadFailed,
     ReadSkipped,
 )
@@ -25,12 +25,6 @@ _MESSAGES = {
     "near": "候診進度已接近您的號碼，請留意現場叫號。",
     "unavailable": "目前無法取得診間候診進度，請留意現場叫號。",
 }
-
-
-class HospitalReader(Protocol):
-    async def observe(
-        self, scope: ClinicScope, now: datetime
-    ) -> QueueObservation | ReadSkipped | ReadFailed | None: ...
 
 
 class LineSender(Protocol):

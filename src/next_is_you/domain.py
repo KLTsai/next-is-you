@@ -3,13 +3,31 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
+from typing import Protocol
 
 
 class Hospital(StrEnum):
     NTUH_MAIN = "ntuh-main"
     SHIN_KONG_TAIPEI = "shin-kong-taipei"
+
+
+class SourceCapability(StrEnum):
+    """How much a hospital's public source exposes, for graceful degradation.
+
+    FULL_SCHEDULE: the source lists the day's roster for a department and
+    session (doctors and rooms consulting) plus the current called number, so a
+    cascading picker can be offered. CURRENT_NUMBER_ONLY: only the current
+    number is readable, so manual entry with pre-submit validation is the
+    fallback. UNSUPPORTED: nothing usable is exposed; the hospital is not
+    offered for automatic monitoring. The descriptor is the contract the setup
+    UI reads; it never implies the numbers are verified against a physical light.
+    """
+
+    FULL_SCHEDULE = "full_schedule"
+    CURRENT_NUMBER_ONLY = "current_number_only"
+    UNSUPPORTED = "unsupported"
 
 
 class ClinicSession(StrEnum):
@@ -93,3 +111,23 @@ class ReadFailed:
 
     status: str
     reason: str
+
+
+class HospitalReader(Protocol):
+    """The single interface the rest of the system reads a hospital through.
+
+    Every hospital is reached as one of these; no caller names a concrete
+    hospital class. `observe` is the scheduled read and `observe_for_start` is
+    the Start read, which may reuse a recent good read. Both are part of the
+    contract so Start never has to branch on which hospital it is talking to.
+    Implementations fail closed: an unusable read is a `ReadFailed`, a read that
+    did not happen is a `ReadSkipped`, and `None` means no observation.
+    """
+
+    async def observe(
+        self, scope: ClinicScope, now: datetime
+    ) -> QueueObservation | ReadSkipped | ReadFailed | None: ...
+
+    async def observe_for_start(
+        self, scope: ClinicScope, now: datetime
+    ) -> QueueObservation | ReadSkipped | ReadFailed | None: ...

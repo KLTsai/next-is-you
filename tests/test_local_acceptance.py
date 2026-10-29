@@ -16,7 +16,7 @@ import uvicorn
 
 from next_is_you.auth import CSRF_COOKIE_NAME
 from next_is_you.domain import ClinicScope, ClinicSession, Hospital
-from next_is_you.hospital_adapters import ParseStatus, parse_ntuh_fragment
+from next_is_you.source_samples import ParseStatus, parse_ntuh_fragment
 from next_is_you.identity import IdentityRepository
 from next_is_you.persistence import Statement, VisitRepository
 from next_is_you.send_gate import SystemSendGate

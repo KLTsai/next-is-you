@@ -1,12 +1,22 @@
 """NTU Hospital main campus ophthalmology reader for Start and scheduled checks.
 
-Scope is exactly what the Issue #17 evidence supports: the official public
-registration progress list for branch T0, department OPH, afternoon session
-of the current day. Morning session hours are unverified and outside scope.
-The list shows room, doctor, clinic type and the current light.
-The "Last updated" text is render time and the detail page's expected call
-number is undefined, so neither is read. Freshness is the time this reader
-fetched the page; it is never taken from the page.
+The source is the official public registration progress list for branch T0,
+read the way the site's own page reads it: a GET of the selector page for an
+anti-forgery token and its cookies, then a POST to `DeptLightTable` carrying
+the department and the session. The POST answers with an HTML fragment of
+clinic cards holding room, doctor, clinic type and the current light.
+
+The request contract and the fragment's markup were captured on 2026-10-29
+(`research/private/source-evidence/ntuh-oph-clinic-end-2026-10-29.md`). The
+same evidence shows the list is that session's schedule rather than the set of
+clinics consulting right now, so row presence says a clinic is scheduled and
+nothing more, and the current light is the number most recently called rather
+than a queue position. Supported scope stays department OPH, afternoon session,
+as Issue #20 set it.
+
+The fragment's "Last updated" text is render time and the detail page's
+expected call number is undefined, so neither is read. Freshness is the time
+this reader fetched the page; it is never taken from the page.
 
 Live hospital behavior is unverified. Tests drive this module with fixture
 pages and an injected fetcher and never contact the hospital.
@@ -22,7 +32,8 @@ import math
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, Awaitable, Callable, Protocol
+from html.parser import HTMLParser
+from typing import Any, Awaitable, Callable, Mapping, Protocol
 from urllib.parse import urlencode
 
 from next_is_you.domain import (
@@ -33,16 +44,29 @@ from next_is_you.domain import (
     ReadFailed,
     ReadSkipped,
 )
-from next_is_you.hospital_adapters import _page_status, _TableCollector
+from next_is_you.hospital_adapters import _page_status
 from next_is_you.persistence import TAIPEI
 
-# This route is derived from manual observation and is not live-verified.
-# The default list's department and session are unverified; the reader stays
-# behind NTUH_READER_ENABLED. Trust means a fresh, exact source read, not
-# verified accuracy against the room's physical indicator.
-PROGRESS_LIST_URL = "https://reg.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo"
+# Both hosts serve the same application; this one is what the owner opens and
+# what the organizer progress link already points at. The reader stays behind
+# NTUH_READER_ENABLED. Trust means a fresh, exact source read, not verified
+# accuracy against the room's physical indicator.
+WEBREG_BASE = "https://registration.ntuh.gov.tw/WebReg/WebReg"
+SELECTOR_PATH = f"{WEBREG_BASE}/ClinicCurrentLightNo"
+LIGHT_TABLE_URL = f"{WEBREG_BASE}/DeptLightTable"
 BRANCH_CODE = "T0"
 SUPPORTED_DEPARTMENT = "OPH"
+# The site negotiates its language, and the rendering decides whether rows read
+# "11 診 / 合成醫師丙" or "Room 11 / ...". The owner enters the clinic from a
+# Traditional Chinese registration slip, so the reader pins that rendering.
+UI_LANGUAGE = "zh-TW"
+LANGUAGE_COOKIE = "Localization.CurrentUICulture"
+# `DropDownAMPM` option values on the selector page.
+AMPM_CODES = {
+    ClinicSession.MORNING: "1",
+    ClinicSession.AFTERNOON: "2",
+    ClinicSession.EVENING: "3",
+}
 # Afternoon hours come from the evidence. Morning session hours are unverified
 # and outside the supported scope.
 SESSION_WINDOWS = {
@@ -64,14 +88,29 @@ MAX_BODY_CHARS = 2_000_000
 STATE_KEY = "ntuh_reader_state"
 USER_AGENT = "next-is-you/1.0 (family-internal, non-commercial; one read per 2-3 min)"
 
-_ROW_FIELDS = {
-    "room": {"room", "診間"},
-    "doctor": {"doctor", "醫師"},
-    "clinic_type": {"clinic type", "type", "門診別"},
-    "current": {"current light", "current light indicator", "目前燈號"},
+# Clinic card classes in the `DeptLightTable` fragment.
+_ROW_CLASSES = {
+    "room-number": "room",
+    "clinic-doc-name": "doctor",
+    "clinic-type": "clinic_type",
+    "number": "current",
+    "according-to-order": "check_in_order",
 }
+_REQUIRED_ROW_FIELDS = ("room", "doctor", "clinic_type", "current")
+_VOID_ELEMENTS = frozenset(
+    "area base br col embed hr img input link meta param source track wbr".split()
+)
+_TOKEN_FIELD = "__RequestVerificationToken"
 _TRANSIENT_STATUSES = {408, 429}
 _DENIED_STATUSES = {401, 403, 451}
+
+
+@dataclass(frozen=True, slots=True)
+class PageRequest:
+    url: str
+    method: str = "GET"
+    headers: tuple[tuple[str, str], ...] = ()
+    body: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,9 +118,11 @@ class FetchedPage:
     status: int
     body: str
     retry_after: int | None = None
+    # `name=value` pairs taken from the response's Set-Cookie headers.
+    cookies: tuple[str, ...] = ()
 
 
-Fetcher = Callable[[str], Awaitable[FetchedPage]]
+Fetcher = Callable[[PageRequest], Awaitable[FetchedPage]]
 
 
 class ReaderState(Protocol):
@@ -103,6 +144,9 @@ class ListRow:
     doctor: str
     clinic_type: str
     current: str
+    # Non-empty when the card says the clinic calls by check-in order, in which
+    # case the light number is not a called number.
+    check_in_order: str = ""
 
 
 def parse_clinic_key(clinic_code: str) -> ClinicKey | None:
@@ -113,13 +157,67 @@ def parse_clinic_key(clinic_code: str) -> ClinicKey | None:
     return ClinicKey(*parts)
 
 
-def progress_list_url() -> str:
-    return f"{PROGRESS_LIST_URL}?{urlencode({'vHospCode': BRANCH_CODE})}"
+def selector_page_url() -> str:
+    """The page whose GET carries the anti-forgery token and the session cookies."""
+    return f"{SELECTOR_PATH}?{urlencode({'vHospCode': BRANCH_CODE})}"
 
 
-def parse_progress_list(html: str) -> tuple[str, list[ListRow]]:
+class _LightTableCollector(HTMLParser):
+    """Collect the fragment's clinic cards, each an `open-link` anchor."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.cards: list[dict[str, str]] = []
+        self.text: list[str] = []
+        self._card: dict[str, str] | None = None
+        self._card_depth = 0
+        self._field: str | None = None
+        self._field_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in _VOID_ELEMENTS:
+            return
+        classes = set()
+        for name, value in attrs:
+            if name == "class" and value:
+                classes = set(value.split())
+        if self._card is None:
+            if tag == "a" and "open-link" in classes:
+                self._card = {}
+                self._card_depth = 1
+            return
+        self._card_depth += 1
+        if self._field is not None:
+            self._field_depth += 1
+            return
+        for css, field in _ROW_CLASSES.items():
+            if css in classes:
+                self._field = field
+                self._field_depth = 1
+                self._card.setdefault(field, "")
+                return
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _VOID_ELEMENTS or self._card is None:
+            return
+        if self._field is not None:
+            self._field_depth -= 1
+            if self._field_depth == 0:
+                self._field = None
+        self._card_depth -= 1
+        if self._card_depth == 0:
+            self.cards.append(self._card)
+            self._card = None
+
+    def handle_data(self, data: str) -> None:
+        self.text.append(data)
+        if self._card is not None and self._field is not None:
+            self._card[self._field] = (self._card[self._field] + data).strip()
+
+
+def parse_light_table(html: str) -> tuple[str, list[ListRow]]:
     """Return ("ok", rows) or a page-level failure ("challenge", "denied", "schema")."""
-    collector = _TableCollector()
+    collector = _LightTableCollector()
     try:
         collector.feed(html)
         collector.close()
@@ -128,30 +226,49 @@ def parse_progress_list(html: str) -> tuple[str, list[ListRow]]:
     marker = _page_status(" ".join(collector.text).casefold())
     if marker is not None:
         return marker.value, []
-    for table in collector.tables:
-        for index, header in enumerate(table):
-            columns = _columns(header)
-            if columns is None:
-                continue
-            data_rows = table[index + 1 :]
-            if any(len(row) <= max(columns.values()) for row in data_rows):
-                return "schema", []
-            rows = [
-                ListRow(*(row[columns[field]] for field in _ROW_FIELDS))
-                for row in data_rows
-            ]
-            return "ok", rows
-    return "schema", []
+    if not collector.cards:
+        return "schema", []
+    rows = []
+    for card in collector.cards:
+        if any(field not in card for field in _REQUIRED_ROW_FIELDS):
+            return "schema", []
+        if not all(card[field] for field in ("room", "doctor", "clinic_type")):
+            return "schema", []
+        rows.append(
+            ListRow(
+                card["room"],
+                card["doctor"],
+                card["clinic_type"],
+                card["current"],
+                card.get("check_in_order", ""),
+            )
+        )
+    return "ok", rows
 
 
-def _columns(header: list[str]) -> dict[str, int] | None:
-    columns: dict[str, int] = {}
-    for index, value in enumerate(header):
-        label = value.strip().casefold()
-        for field, aliases in _ROW_FIELDS.items():
-            if label in aliases:
-                columns.setdefault(field, index)
-    return columns if set(columns) == set(_ROW_FIELDS) else None
+class _TokenCollector(HTMLParser):
+    """Read the first anti-forgery token the selector page renders."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.token: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "input" or self.token is not None:
+            return
+        values = dict(attrs)
+        if values.get("name") == _TOKEN_FIELD and values.get("value"):
+            self.token = values["value"]
+
+
+def parse_request_token(html: str) -> str | None:
+    collector = _TokenCollector()
+    try:
+        collector.feed(html)
+        collector.close()
+    except (ValueError, AssertionError):
+        return None
+    return collector.token
 
 
 def _norm(text: str) -> str:
@@ -250,7 +367,7 @@ class NtuhProgressReader:
                 return _failure(entry.get("result")) or ReadFailed(
                     "unavailable", "no_observation"
                 )
-            result = await self._fetch_result(key)
+            result = await self._fetch_result(key, scope)
             self._record(entry, result, now)
             if result.get("blocked"):
                 states[blocked_key] = {"blocked": True}
@@ -270,6 +387,10 @@ class NtuhProgressReader:
             return ReadFailed("unavailable", "empty_result")
         if len(matched) > 1:
             return ReadFailed("invalid", "ambiguous_match")
+        if matched[0].check_in_order:
+            # The card says this clinic calls by check-in order, so its light
+            # number is not a called number.
+            return ReadFailed("unavailable", "no_observation")
         text = matched[0].current.strip()
         if not text:
             return ReadFailed("unavailable", "no_observation")
@@ -291,26 +412,62 @@ class NtuhProgressReader:
             trustworthy_current=True,
         )
 
-    async def _fetch_result(self, key: ClinicKey) -> dict[str, Any]:
+    async def _fetch_result(self, key: ClinicKey, scope: ClinicScope) -> dict[str, Any]:
+        """One read: GET the selector page for a token, then POST for the rows."""
         try:
-            page = await asyncio.wait_for(
-                self._fetch(progress_list_url()), REQUEST_TIMEOUT_SECONDS
+            return await asyncio.wait_for(
+                self._read_light_table(key, scope), REQUEST_TIMEOUT_SECONDS
             )
         except TimeoutError:
             return _failed("unavailable", "timeout")
         except Exception:
             return _failed("unavailable", "no_observation")
-        if page.status in _DENIED_STATUSES or 300 <= page.status < 400:
-            return _failed("unavailable", "access_denied", blocked=True)
-        if page.status in _TRANSIENT_STATUSES or page.status >= 500:
-            result = _failed(
-                "unavailable", "timeout" if page.status == 408 else "no_observation"
+
+    async def _read_light_table(
+        self, key: ClinicKey, scope: ClinicScope
+    ) -> dict[str, Any]:
+        selector = await self._fetch(
+            PageRequest(
+                selector_page_url(),
+                headers=_headers({"Cookie": f"{LANGUAGE_COOKIE}={UI_LANGUAGE}"}),
             )
-            result["retry_after"] = page.retry_after
-            return result
-        if page.status != 200 or len(page.body) > MAX_BODY_CHARS:
+        )
+        failure = _transport_failure(selector)
+        if failure is not None:
+            return failure
+        token = parse_request_token(selector.body)
+        if token is None:
             return _failed("invalid", "schema_drift")
-        status, rows = parse_progress_list(page.body)
+
+        page = await self._fetch(
+            PageRequest(
+                LIGHT_TABLE_URL,
+                method="POST",
+                headers=_headers(
+                    {
+                        "Content-Type": (
+                            "application/x-www-form-urlencoded; charset=UTF-8"
+                        ),
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Referer": selector_page_url(),
+                        "Cookie": _cookie_header(selector.cookies),
+                    }
+                ),
+                body=urlencode(
+                    {
+                        _TOKEN_FIELD: token,
+                        "vHospitalCode": BRANCH_CODE,
+                        "DeptCode": scope.department_code,
+                        "RegionCode": "",
+                        "AmpmCode": AMPM_CODES[scope.session],
+                    }
+                ),
+            )
+        )
+        failure = _transport_failure(page)
+        if failure is not None:
+            return failure
+        status, rows = parse_light_table(page.body)
         if status in {"challenge", "denied"}:
             return _failed("unavailable", "access_denied", blocked=True)
         if status != "ok":
@@ -318,7 +475,8 @@ class NtuhProgressReader:
         matched = [row for row in rows if _matches(row, key)]
         return {
             "rows": [
-                [row.room, row.doctor, row.clinic_type, row.current] for row in matched
+                [row.room, row.doctor, row.clinic_type, row.current, row.check_in_order]
+                for row in matched
             ],
         }
 
@@ -358,6 +516,39 @@ class NtuhProgressReader:
             and ("|clinic|" in entry_key or "|blocked|" in entry_key)
         }
         await self._state.put(STATE_KEY, json.dumps(kept, separators=(",", ":")))
+
+
+def _headers(extra: Mapping[str, str]) -> tuple[tuple[str, str], ...]:
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "text/html",
+        "Accept-Language": UI_LANGUAGE,
+        **extra,
+    }
+    return tuple(headers.items())
+
+
+def _cookie_header(cookies: tuple[str, ...]) -> str:
+    """Send back the session's own cookies, with the language kept pinned."""
+    pairs = [
+        cookie for cookie in cookies if not cookie.startswith(f"{LANGUAGE_COOKIE}=")
+    ]
+    pairs.append(f"{LANGUAGE_COOKIE}={UI_LANGUAGE}")
+    return "; ".join(pairs)
+
+
+def _transport_failure(page: FetchedPage) -> dict[str, Any] | None:
+    if page.status in _DENIED_STATUSES or 300 <= page.status < 400:
+        return _failed("unavailable", "access_denied", blocked=True)
+    if page.status in _TRANSIENT_STATUSES or page.status >= 500:
+        result = _failed(
+            "unavailable", "timeout" if page.status == 408 else "no_observation"
+        )
+        result["retry_after"] = page.retry_after
+        return result
+    if page.status != 200 or len(page.body) > MAX_BODY_CHARS:
+        return _failed("invalid", "schema_drift")
+    return None
 
 
 def _failed(status: str, reason: str, *, blocked: bool = False) -> dict[str, Any]:
@@ -403,24 +594,38 @@ def parse_retry_after(value: str | None, *, now: datetime | None = None) -> int 
 
 
 class WorkersFetcher:
-    """Plain GET through the Workers runtime; never follows redirects."""
+    """One request through the Workers runtime; never follows redirects."""
 
-    async def __call__(self, url: str) -> FetchedPage:
+    async def __call__(self, request: PageRequest) -> FetchedPage:
         from js import Object, fetch
         from pyodide.ffi import to_js
 
-        options = to_js(
-            {
-                "method": "GET",
-                "redirect": "manual",
-                "headers": {"User-Agent": USER_AGENT, "Accept": "text/html"},
-            },
-            dict_converter=Object.fromEntries,
+        options: dict[str, Any] = {
+            "method": request.method,
+            "redirect": "manual",
+            "headers": dict(request.headers),
+        }
+        if request.body is not None:
+            options["body"] = request.body
+        response = await fetch(
+            request.url, to_js(options, dict_converter=Object.fromEntries)
         )
-        response = await fetch(url, options)
         retry_after = parse_retry_after(response.headers.get("Retry-After"))
         return FetchedPage(
             status=int(response.status),
             body=str(await response.text()) if int(response.status) == 200 else "",
             retry_after=retry_after,
+            cookies=_set_cookies(response.headers),
         )
+
+
+def _set_cookies(headers: Any) -> tuple[str, ...]:
+    """Read every Set-Cookie header, keeping only each cookie's name=value."""
+    try:
+        raw = list(headers.getSetCookie())
+    except (AttributeError, TypeError):
+        single = headers.get("Set-Cookie")
+        raw = [single] if single else []
+    return tuple(
+        str(value).split(";", 1)[0].strip() for value in raw if str(value).strip()
+    )

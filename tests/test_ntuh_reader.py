@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from pathlib import Path
+from urllib.parse import parse_qsl
 
 import pytest
 
@@ -18,12 +20,16 @@ from next_is_you.domain import (
     ReadSkipped,
 )
 from next_is_you.ntuh_reader import (
+    AMPM_CODES,
+    LIGHT_TABLE_URL,
     FetchedPage,
     NtuhProgressReader,
+    PageRequest,
     parse_clinic_key,
-    parse_progress_list,
+    parse_light_table,
+    parse_request_token,
     parse_retry_after,
-    progress_list_url,
+    selector_page_url,
 )
 from next_is_you.persistence import CloudflareD1Store, Statement, VisitRepository
 from test_scheduler_outbox import (
@@ -33,11 +39,14 @@ from test_scheduler_outbox import (
 )
 from next_is_you.send_gate import SystemSendGate
 
-PAGE = (
-    Path(__file__).parent / "fixtures" / "hospitals" / "ntuh_oph_progress_list.html"
-).read_text(encoding="utf-8")
+FIXTURES = Path(__file__).parent / "fixtures" / "hospitals"
+PAGE = (FIXTURES / "ntuh_oph_light_table.html").read_text(encoding="utf-8")
+SELECTOR = (FIXTURES / "ntuh_webreg_selector.html").read_text(encoding="utf-8")
 DAY = datetime(2026, 10, 22).date()
-CLINIC = "11/Hsiao-Sang Chu/Dr. Appt."
+CLINIC = "11診/合成醫師丙/醫師約診"
+OTHER_CLINIC = "07診/合成醫師甲/普通門診"
+BLANK_CLINIC = "08診/合成醫師乙/普通門診"
+CHECK_IN_ORDER_CLINIC = "99診/合成醫師戊/檢查門診"
 
 
 def taipei(hour: int, minute: int, second: int = 0) -> datetime:
@@ -57,48 +66,87 @@ def scope(
 
 
 def page_with(current: str) -> str:
-    return PAGE.replace("<td>025</td>", f"<td>{current}</td>")
+    return PAGE.replace("025", current)
+
+
+def _page(item) -> FetchedPage:
+    if isinstance(item, Exception):
+        raise item
+    return item if isinstance(item, FetchedPage) else FetchedPage(200, item)
 
 
 class FakeSource:
-    """Scripted fetcher; an exception instance in the script is raised."""
+    """Scripted two-step source.
 
-    def __init__(self, *script) -> None:
+    One read is a GET of the selector page followed by a POST for the clinic
+    cards, so the script holds one entry per read and `urls` counts the POSTs.
+    An exception instance in a script is raised.
+    """
+
+    SESSION_COOKIES = ("ASP.NET_SessionId=synthetic", "__RequestVerificationToken_X=t")
+
+    def __init__(self, *script, selector=SELECTOR) -> None:
         self.script = list(script)
-        self.urls: list[str] = []
+        self.selector = selector
+        self.requests: list[PageRequest] = []
 
-    async def __call__(self, url: str) -> FetchedPage:
-        self.urls.append(url)
+    @property
+    def urls(self) -> list[str]:
+        return [
+            request.url for request in self.requests if request.url == LIGHT_TABLE_URL
+        ]
+
+    def last_body(self) -> dict[str, str]:
+        posts = [r for r in self.requests if r.method == "POST"]
+        return dict(parse_qsl(posts[-1].body or "", keep_blank_values=True))
+
+    def headers_of(self, request: PageRequest) -> dict[str, str]:
+        return dict(request.headers)
+
+    async def __call__(self, request: PageRequest) -> FetchedPage:
+        self.requests.append(request)
+        if request.method == "GET":
+            page = _page(self.selector)
+            return replace(page, cookies=self.SESSION_COOKIES)
         item = self.script.pop(0) if len(self.script) > 1 else self.script[0]
-        if isinstance(item, Exception):
-            raise item
-        return item if isinstance(item, FetchedPage) else FetchedPage(200, item)
+        return _page(item)
 
 
 def reader(source: FakeSource, state: LocalDurableStorage | None = None):
     return NtuhProgressReader(state or LocalDurableStorage(), source)
 
 
-def test_parser_reads_rows_and_ignores_expected_call_number_and_page_time() -> None:
-    status, rows = parse_progress_list(PAGE)
+def test_parser_reads_cards_and_ignores_the_fragment_render_time() -> None:
+    status, rows = parse_light_table(PAGE)
     assert status == "ok"
-    target = [row for row in rows if row.doctor == "Hsiao-Sang Chu"]
+    target = [row for row in rows if row.doctor == "合成醫師丙"]
     assert [(r.room, r.clinic_type, r.current) for r in target] == [
-        ("11", "Dr. Appt.", "025")
+        ("11 診", "醫師約診", "025")
     ]
-    assert not hasattr(target[0], "expected")
+    assert not hasattr(target[0], "updated_at")
+
+
+def test_parser_keeps_a_blank_light_and_a_check_in_order_card_apart() -> None:
+    rows = {row.room: row for row in parse_light_table(PAGE)[1]}
+    assert rows["08 診"].current == "" and rows["08 診"].check_in_order == ""
+    assert rows["99 診"].current == "" and rows["99 診"].check_in_order == "依報到順序"
 
 
 @pytest.mark.parametrize(
     "html",
     [
         "<html><body>maintenance</body></html>",
-        "<table><tr><th>Room</th><th>Doctor</th></tr></table>",
-        "<table><tr><th>Room</th><th>Doctor</th><th>Clinic Type</th></tr></table>",
+        "<div class='main-container'></div>",
+        # An anchor whose card lost the doctor, and one that lost the number.
+        '<a class="open-link"><div class="room-number">11 診</div>'
+        '<div class="clinic-type">醫師約診</div><div class="number">025</div></a>',
+        '<a class="open-link"><div class="room-number">11 診</div>'
+        '<div class="clinic-doc-name">合成醫師丙</div>'
+        '<div class="clinic-type">醫師約診</div></a>',
     ],
 )
 def test_parser_fails_closed_on_unrecognized_pages(html: str) -> None:
-    assert parse_progress_list(html) == ("schema", [])
+    assert parse_light_table(html) == ("schema", [])
 
 
 @pytest.mark.parametrize(
@@ -106,20 +154,79 @@ def test_parser_fails_closed_on_unrecognized_pages(html: str) -> None:
     [("<p>Please complete the CAPTCHA</p>", "challenge"), ("Access Denied", "denied")],
 )
 def test_parser_detects_challenge_and_denial(html: str, status: str) -> None:
-    assert parse_progress_list(html)[0] == status
+    assert parse_light_table(html)[0] == status
+
+
+def test_token_is_read_from_the_selector_page_and_absent_elsewhere() -> None:
+    assert parse_request_token(SELECTOR) == "synthetic-token-value"
+    assert parse_request_token(PAGE) is None
+    assert parse_request_token("<html><body>moved</body></html>") is None
 
 
 def test_clinic_key_requires_room_doctor_and_type() -> None:
     assert parse_clinic_key(CLINIC) is not None
-    assert parse_clinic_key("11/Hsiao-Sang Chu") is None
-    assert parse_clinic_key("11//Dr. Appt.") is None
+    assert parse_clinic_key("11診/合成醫師丙") is None
+    assert parse_clinic_key("11診//醫師約診") is None
 
 
-def test_request_url_is_the_observed_branch_list_without_department_or_session() -> (
-    None
-):
-    expected = "https://reg.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0"
-    assert progress_list_url() == expected
+def test_selector_url_is_the_branch_page_the_owner_opens() -> None:
+    expected = (
+        "https://registration.ntuh.gov.tw/WebReg/WebReg/"
+        "ClinicCurrentLightNo?vHospCode=T0"
+    )
+    assert selector_page_url() == expected
+
+
+@pytest.mark.asyncio
+async def test_a_read_posts_the_token_branch_department_and_session() -> None:
+    source = FakeSource(PAGE)
+    assert isinstance(
+        await reader(source).observe(scope(), taipei(15, 0)), QueueObservation
+    )
+
+    get_request, post_request = source.requests
+    assert get_request.url == selector_page_url() and get_request.method == "GET"
+    assert post_request.url == LIGHT_TABLE_URL and post_request.method == "POST"
+    assert source.last_body() == {
+        "__RequestVerificationToken": "synthetic-token-value",
+        "vHospitalCode": "T0",
+        "DeptCode": "OPH",
+        "RegionCode": "",
+        "AmpmCode": AMPM_CODES[ClinicSession.AFTERNOON],
+    }
+
+    headers = source.headers_of(post_request)
+    assert headers["X-Requested-With"] == "XMLHttpRequest"
+    assert headers["Accept-Language"] == "zh-TW"
+    # The session's own cookies go back, and the language stays pinned.
+    for cookie in FakeSource.SESSION_COOKIES:
+        assert cookie in headers["Cookie"]
+    assert headers["Cookie"].count("Localization.CurrentUICulture=zh-TW") == 1
+
+
+@pytest.mark.asyncio
+async def test_a_missing_token_fails_closed_without_posting() -> None:
+    source = FakeSource(PAGE, selector="<html><body>moved</body></html>")
+    result = await reader(source).observe(scope(), taipei(15, 0))
+    assert result == ReadFailed("invalid", "schema_drift")
+    assert source.urls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("selector", "expected"),
+    [
+        (FetchedPage(403, ""), ReadFailed("unavailable", "access_denied")),
+        (FetchedPage(503, ""), ReadFailed("unavailable", "no_observation")),
+        (TimeoutError(), ReadFailed("unavailable", "timeout")),
+    ],
+)
+async def test_a_failed_selector_read_never_reaches_the_post(
+    selector, expected
+) -> None:
+    source = FakeSource(PAGE, selector=selector)
+    assert await reader(source).observe(scope(), taipei(15, 0)) == expected
+    assert source.urls == []
 
 
 @pytest.mark.asyncio
@@ -138,9 +245,9 @@ async def test_exact_match_returns_fresh_usable_observation_stamped_with_fetch_t
 @pytest.mark.parametrize(
     "clinic",
     [
-        "11/Synthetic Doctor C/Dr. Appt.",
-        "12/Hsiao-Sang Chu/Dr. Appt.",
-        "11/Hsiao-Sang Chu/General Clinic",
+        "11診/合成醫師丁/醫師約診",
+        "12診/合成醫師丙/醫師約診",
+        "11診/合成醫師丙/普通門診",
     ],
 )
 async def test_any_identity_field_mismatch_never_matches(clinic: str) -> None:
@@ -149,9 +256,15 @@ async def test_any_identity_field_mismatch_never_matches(clinic: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_current_is_never_inferred_from_neighbors_or_expected_call() -> None:
+async def test_current_is_never_inferred_from_neighbors() -> None:
+    result = await reader(FakeSource(PAGE)).observe(scope(BLANK_CLINIC), taipei(15, 0))
+    assert result == ReadFailed("unavailable", "no_observation")
+
+
+@pytest.mark.asyncio
+async def test_a_check_in_order_clinic_reports_no_number() -> None:
     result = await reader(FakeSource(PAGE)).observe(
-        scope("08/Synthetic Doctor B/General Clinic"), taipei(15, 0)
+        scope(CHECK_IN_ORDER_CLINIC), taipei(15, 0)
     )
     assert result == ReadFailed("unavailable", "no_observation")
 
@@ -176,9 +289,14 @@ async def test_non_ascii_numeric_light_fails_closed_for_each_read_path(method):
 
 @pytest.mark.asyncio
 async def test_duplicate_exact_rows_are_ambiguous() -> None:
-    row = "<tr><td>11</td><td>Hsiao-Sang Chu</td><td>Dr. Appt.</td><td>026</td><td></td></tr>"
-    page = PAGE.replace("</table>", row + "</table>")
-    result = await reader(FakeSource(page)).observe(scope(), taipei(15, 0))
+    card = (
+        '<a class="open-link"><div class="room-number">11 診</div>'
+        '<div class="clinic-doc-name">合成醫師丙</div>'
+        '<div class="clinic-type">醫師約診</div>'
+        '<div class="number">026</div>'
+        '<div class="according-to-order"></div></a>'
+    )
+    result = await reader(FakeSource(PAGE + card)).observe(scope(), taipei(15, 0))
     assert result == ReadFailed("invalid", "ambiguous_match")
 
 
@@ -247,17 +365,17 @@ async def test_distinct_clinics_read_independently_and_save_only_their_rows() ->
     source = FakeSource(PAGE)
     r = reader(source, state)
     first = await r.observe(scope(), taipei(15, 0))
-    second = await r.observe(
-        scope("07/Synthetic Doctor A/General Clinic"), taipei(15, 0, 1)
-    )
+    second = await r.observe(scope(OTHER_CLINIC), taipei(15, 0, 1))
     assert first.current_number == 25 and second.current_number == 12
     assert len(source.urls) == 2
     saved = json.loads(await state.get("ntuh_reader_state"))
     assert len(saved) == 2
-    serialized_results = [json.dumps(entry["result"]) for entry in saved.values()]
-    assert any("Hsiao-Sang Chu" in result for result in serialized_results)
-    assert any("Synthetic Doctor A" in result for result in serialized_results)
-    assert all("Synthetic Doctor B" not in result for result in serialized_results)
+    serialized_results = [
+        json.dumps(entry["result"], ensure_ascii=False) for entry in saved.values()
+    ]
+    assert any("合成醫師丙" in result for result in serialized_results)
+    assert any("合成醫師甲" in result for result in serialized_results)
+    assert all("合成醫師乙" not in result for result in serialized_results)
 
 
 @pytest.mark.asyncio
@@ -266,10 +384,12 @@ async def test_saved_read_contains_only_rows_for_tracked_clinics() -> None:
     source = FakeSource(PAGE)
     r = reader(source, state)
     await r.observe(scope(), taipei(15, 0))
-    saved = await state.get("ntuh_reader_state")
-    assert "Hsiao-Sang Chu" in saved
-    assert "Synthetic Doctor A" not in saved
-    assert "Synthetic Doctor B" not in saved
+    saved = json.dumps(
+        json.loads(await state.get("ntuh_reader_state")), ensure_ascii=False
+    )
+    assert "合成醫師丙" in saved
+    assert "合成醫師甲" not in saved
+    assert "合成醫師乙" not in saved
 
 
 @pytest.mark.asyncio
@@ -291,7 +411,7 @@ async def test_start_reuses_a_fresh_read_but_reads_once_it_is_older_than_two_min
 async def test_cadence_is_independent_for_each_clinic() -> None:
     source = FakeSource(PAGE)
     r = reader(source)
-    second_scope = scope("07/Synthetic Doctor A/General Clinic")
+    second_scope = scope(OTHER_CLINIC)
     assert isinstance(await r.observe(scope(), taipei(15, 0)), QueueObservation)
     assert isinstance(await r.observe(second_scope, taipei(15, 0, 1)), QueueObservation)
     assert await r.observe(scope(), taipei(15, 1)) == ReadSkipped("not_due")
@@ -305,7 +425,7 @@ async def test_cadence_is_independent_for_each_clinic() -> None:
 async def test_start_reads_another_clinic_without_using_shared_state() -> None:
     source = FakeSource(PAGE)
     r = reader(source)
-    second_scope = scope("07/Synthetic Doctor A/General Clinic")
+    second_scope = scope(OTHER_CLINIC)
     assert isinstance(await r.observe(scope(), taipei(15, 0)), QueueObservation)
     second_start = await r.observe_for_start(second_scope, taipei(15, 0, 1))
     assert isinstance(second_start, QueueObservation)
@@ -406,10 +526,7 @@ async def test_challenge_or_denial_stops_reading_the_source(page: FetchedPage) -
     r = reader(source)
     denied = ReadFailed("unavailable", "access_denied")
     assert await r.observe(scope(), taipei(15, 0)) == denied
-    assert (
-        await r.observe(scope("07/Synthetic Doctor A/General Clinic"), taipei(15, 0, 1))
-        == denied
-    )
+    assert await r.observe(scope(OTHER_CLINIC), taipei(15, 0, 1)) == denied
     for minute in (1, 3, 10, 30):
         assert await r.observe(scope(), taipei(15, minute)) == denied
         assert await r.observe_for_start(scope(), taipei(15, minute)) == denied
@@ -427,10 +544,11 @@ async def test_schema_change_fails_closed(page: FetchedPage) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("method", ["observe", "observe_for_start"])
-async def test_short_row_after_session_end_is_schema_drift_not_clinic_end(method):
-    malformed = PAGE.replace(
-        "<tr><td>11</td><td>Hsiao-Sang Chu</td><td>Dr. Appt.</td><td>025</td><td>017</td></tr>",
-        "<tr><td>11</td><td>Hsiao-Sang Chu</td><td>Dr. Appt.</td></tr>",
+async def test_card_missing_its_number_after_session_end_is_schema_drift(method):
+    malformed = (
+        '<a class="open-link"><div class="room-number">11 診</div>'
+        '<div class="clinic-doc-name">合成醫師丙</div>'
+        '<div class="clinic-type">醫師約診</div></a>'
     )
     source = FakeSource(malformed)
     result = await getattr(reader(source), method)(scope(), taipei(16, 31))
@@ -440,14 +558,14 @@ async def test_short_row_after_session_end_is_schema_drift_not_clinic_end(method
 
 @pytest.mark.asyncio
 async def test_row_gone_inside_the_session_is_an_unusable_read_not_the_end() -> None:
-    gone = PAGE.replace("Hsiao-Sang Chu", "Someone Else")
+    gone = PAGE.replace("合成醫師丙", "其他醫師")
     result = await reader(FakeSource(gone)).observe(scope(), taipei(16, 29))
     assert result == ReadFailed("unavailable", "empty_result")
 
 
 @pytest.mark.asyncio
 async def test_row_gone_after_session_end_stops_reading_for_good() -> None:
-    gone = PAGE.replace("Hsiao-Sang Chu", "Someone Else")
+    gone = PAGE.replace("合成醫師丙", "其他醫師")
     source = FakeSource(gone)
     r = reader(source)
     assert await r.observe(scope(), taipei(16, 31)) == ReadSkipped("session_ended")
@@ -525,7 +643,7 @@ async def test_start_activates_on_fresh_exact_positive_read() -> None:
     visit = await repository.get_visit("d1")
     assert visit["state"] == "active"
     assert counts(database, "d1")[:2] == ("usable", "none")
-    assert source.urls == [progress_list_url()]
+    assert source.urls == [LIGHT_TABLE_URL]
 
 
 @pytest.mark.asyncio
@@ -667,7 +785,7 @@ async def test_three_failed_reads_inside_the_window_send_the_existing_unavailabl
 
 @pytest.mark.asyncio
 async def test_clinic_end_stops_reads_and_sends_no_unavailable_alert() -> None:
-    gone = PAGE.replace("Hsiao-Sang Chu", "Someone Else")
+    gone = PAGE.replace("合成醫師丙", "其他醫師")
     source = FakeSource(gone)
     database, gate = await gate_with_visit(source)
     await active_visit(database, gate)

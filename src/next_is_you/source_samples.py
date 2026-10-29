@@ -1,8 +1,14 @@
-"""Read-only normalization of synthetic hospital response samples.
+"""Offline parsers for captured hospital source samples (source verification).
 
-This module intentionally contains no transport code. Neither parser can make a
-request, and observations remain untrusted until source freshness semantics
-have been verified independently.
+This is NOT the live adapter layer. The live layer the rest of the system reads
+a hospital through is the `HospitalReader` interface (`domain`), the
+`hospital_registry` that dispatches by hospital, and the per-hospital reader
+modules it builds (for example `ntuh_reader`). This module instead turns a
+captured response sample into a normalized `QueueObservation` with no transport
+code, which is what pre-reader source verification (for example Issue #44's
+evidence for a new hospital) runs against. Neither parser can make a request,
+and observations stay untrusted until source freshness semantics are verified
+independently.
 """
 
 from __future__ import annotations

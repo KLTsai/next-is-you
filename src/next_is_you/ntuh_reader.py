@@ -44,7 +44,7 @@ from next_is_you.domain import (
     ReadFailed,
     ReadSkipped,
 )
-from next_is_you.hospital_adapters import _page_status
+from next_is_you.source_samples import _page_status
 from next_is_you.persistence import TAIPEI
 
 # Both hosts serve the same application; this one is what the owner opens and

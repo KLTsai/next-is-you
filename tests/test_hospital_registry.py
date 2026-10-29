@@ -1,0 +1,113 @@
+from datetime import date, datetime, timezone
+
+import pytest
+
+from next_is_you import hospital_registry
+from next_is_you.domain import (
+    ClinicScope,
+    ClinicSession,
+    Hospital,
+    QueueObservation,
+    ReadFailed,
+    SourceCapability,
+)
+from next_is_you.hospital_registry import (
+    HospitalEntry,
+    ReaderDeps,
+    RegistryHospitalReader,
+    capability_of,
+)
+
+NOW = datetime(2026, 9, 27, 6, 0, tzinfo=timezone.utc)
+
+
+def _scope(hospital: Hospital = Hospital.NTUH_MAIN) -> ClinicScope:
+    return ClinicScope(
+        hospital=hospital,
+        visit_date=date(2026, 9, 27),
+        department_code="OPH",
+        clinic_code="11/Wang/Dr. Appt.",
+        session=ClinicSession.AFTERNOON,
+        doctor_code="Wang",
+        room_code="11",
+    )
+
+
+class _RecordingReader:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, Hospital]] = []
+
+    async def observe(self, scope, now):
+        self.calls.append(("observe", scope.hospital))
+        return QueueObservation(scope, now.isoformat(), 7, trustworthy_current=True)
+
+    async def observe_for_start(self, scope, now):
+        self.calls.append(("start", scope.hospital))
+        return QueueObservation(scope, now.isoformat(), 9, trustworthy_current=True)
+
+
+def test_capability_reflects_the_registered_tier() -> None:
+    assert capability_of(Hospital.NTUH_MAIN) is SourceCapability.FULL_SCHEDULE
+    # No reader exists until #44 evidences a source.
+    assert capability_of(Hospital.SHIN_KONG_TAIPEI) is SourceCapability.UNSUPPORTED
+
+
+@pytest.mark.asyncio
+async def test_dispatches_by_hospital_and_builds_the_reader_once(monkeypatch) -> None:
+    built: list[ReaderDeps] = []
+    reader = _RecordingReader()
+
+    def build(deps: ReaderDeps):
+        built.append(deps)
+        return reader
+
+    monkeypatch.setattr(
+        hospital_registry,
+        "HOSPITAL_REGISTRY",
+        {Hospital.NTUH_MAIN: HospitalEntry(SourceCapability.FULL_SCHEDULE, build)},
+    )
+    dispatcher = RegistryHospitalReader(ReaderDeps(storage=object(), fetch=object()))
+
+    observed = await dispatcher.observe(_scope(), NOW)
+    started = await dispatcher.observe_for_start(_scope(), NOW)
+
+    assert isinstance(observed, QueueObservation) and observed.current_number == 7
+    assert isinstance(started, QueueObservation) and started.current_number == 9
+    # Start reaches the reader's Start method, not its scheduled one.
+    assert reader.calls == [
+        ("observe", Hospital.NTUH_MAIN),
+        ("start", Hospital.NTUH_MAIN),
+    ]
+    # One adapter is built and reused across reads, not rebuilt each call.
+    assert len(built) == 1
+
+
+@pytest.mark.asyncio
+async def test_unsupported_hospital_fails_closed() -> None:
+    dispatcher = RegistryHospitalReader(ReaderDeps(storage=object(), fetch=object()))
+    scope = _scope(Hospital.SHIN_KONG_TAIPEI)
+    unavailable = ReadFailed("unavailable", "no_observation")
+    assert await dispatcher.observe(scope, NOW) == unavailable
+    assert await dispatcher.observe_for_start(scope, NOW) == unavailable
+
+
+@pytest.mark.asyncio
+async def test_current_number_only_tier_still_reads(monkeypatch) -> None:
+    # A hospital that exposes only the current number still produces a read; the
+    # setup UI uses the capability tier (#47) to fall back to manual entry.
+    reader = _RecordingReader()
+    monkeypatch.setattr(
+        hospital_registry,
+        "HOSPITAL_REGISTRY",
+        {
+            Hospital.SHIN_KONG_TAIPEI: HospitalEntry(
+                SourceCapability.CURRENT_NUMBER_ONLY, lambda _deps: reader
+            )
+        },
+    )
+    assert (
+        capability_of(Hospital.SHIN_KONG_TAIPEI) is SourceCapability.CURRENT_NUMBER_ONLY
+    )
+    dispatcher = RegistryHospitalReader(ReaderDeps(storage=object(), fetch=object()))
+    observed = await dispatcher.observe(_scope(Hospital.SHIN_KONG_TAIPEI), NOW)
+    assert isinstance(observed, QueueObservation)

@@ -969,6 +969,9 @@ async def test_start_gate_requires_fresh_exact_trusted_observation_and_freezes_r
                 wrong, now.isoformat(), 70, trustworthy_current=True
             )
 
+        async def observe_for_start(self, expected, now):
+            return await self.observe(expected, now)
+
     monkeypatch.setattr(
         send_gate, "_TestHospitalReader", lambda _storage: MismatchedReader()
     )
@@ -996,6 +999,9 @@ async def test_start_gate_requires_fresh_exact_trusted_observation_and_freezes_r
                 70,
                 trustworthy_current=True,
             )
+
+        async def observe_for_start(self, expected, now):
+            return await self.observe(expected, now)
 
     monkeypatch.setattr(
         send_gate, "_TestHospitalReader", lambda _storage: StaleReader()

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from next_is_you.domain import ClinicScope, ClinicSession, Hospital
-from next_is_you.hospital_adapters import (
+from next_is_you.source_samples import (
     ParseStatus,
     parse_ntuh_fragment,
     parse_shin_kong_payload,

@@ -252,13 +252,13 @@ async def test_exact_match_returns_fresh_usable_observation_stamped_with_fetch_t
 )
 async def test_any_identity_field_mismatch_never_matches(clinic: str) -> None:
     result = await reader(FakeSource(PAGE)).observe(scope(clinic), taipei(15, 0))
-    assert result == ReadFailed("unavailable", "empty_result")
+    assert result == ReadSkipped("clinic_not_started")
 
 
 @pytest.mark.asyncio
 async def test_current_is_never_inferred_from_neighbors() -> None:
     result = await reader(FakeSource(PAGE)).observe(scope(BLANK_CLINIC), taipei(15, 0))
-    assert result == ReadFailed("unavailable", "no_observation")
+    assert result == ReadSkipped("clinic_not_started")
 
 
 @pytest.mark.asyncio
@@ -266,7 +266,7 @@ async def test_a_check_in_order_clinic_reports_no_number() -> None:
     result = await reader(FakeSource(PAGE)).observe(
         scope(CHECK_IN_ORDER_CLINIC), taipei(15, 0)
     )
-    assert result == ReadFailed("unavailable", "no_observation")
+    assert result == ReadSkipped("clinic_not_started")
 
 
 @pytest.mark.asyncio
@@ -305,7 +305,6 @@ async def test_duplicate_exact_rows_are_ambiguous() -> None:
     "bad",
     [
         scope(department="MED"),
-        scope(session=ClinicSession.EVENING),
         scope(hospital=Hospital.SHIN_KONG_TAIPEI),
         scope("not-a-composite-code"),
     ],
@@ -318,25 +317,34 @@ async def test_unsupported_scope_is_rejected_without_a_request(bad) -> None:
 
 
 @pytest.mark.asyncio
-async def test_morning_scope_is_unsupported_for_scheduled_and_start_reads() -> None:
+@pytest.mark.parametrize(
+    "session",
+    [ClinicSession.MORNING, ClinicSession.AFTERNOON, ClinicSession.EVENING],
+)
+@pytest.mark.parametrize("hour", [9, 15, 20])
+async def test_every_session_is_read_at_any_hour_of_the_entered_day(session, hour):
     source = FakeSource(PAGE)
-    r = reader(source)
-    morning = scope(session=ClinicSession.MORNING)
-    expected = ReadFailed("scope_mismatch", "scope_mismatch")
-
-    assert await r.observe(morning, taipei(9, 0)) == expected
-    assert await r.observe_for_start(morning, taipei(9, 0)) == expected
-    assert source.urls == []
+    observation = await reader(source).observe(scope(session=session), taipei(hour, 0))
+    assert isinstance(observation, QueueObservation)
+    assert observation.current_number == 25
+    assert source.last_body()["AmpmCode"] == AMPM_CODES[session]
 
 
 @pytest.mark.asyncio
-async def test_reads_only_inside_session_window_plus_buffer() -> None:
+async def test_no_wall_clock_session_boundary_exists() -> None:
     source = FakeSource(PAGE)
     r = reader(source)
-    assert await r.observe(scope(), taipei(13, 19)) == ReadSkipped("before_session")
-    assert source.urls == []
-    assert isinstance(await r.observe(scope(), taipei(13, 20)), QueueObservation)
-    assert await r.observe(scope(), taipei(16, 40)) == ReadSkipped("session_ended")
+    # The old reader refused 13:19 and 16:40; both are ordinary reads now.
+    for hour, minute in ((0, 1), (13, 19), (16, 40), (23, 58)):
+        assert isinstance(
+            await r.observe(scope(), taipei(hour, minute)), QueueObservation
+        )
+    assert len(source.urls) == 4
+
+
+@pytest.mark.asyncio
+async def test_reads_happen_only_on_the_day_the_owner_entered() -> None:
+    source = FakeSource(PAGE)
     other_day = ClinicScope(
         Hospital.NTUH_MAIN,
         DAY + timedelta(days=1),
@@ -344,8 +352,9 @@ async def test_reads_only_inside_session_window_plus_buffer() -> None:
         CLINIC,
         ClinicSession.AFTERNOON,
     )
-    assert await r.observe(other_day, taipei(15, 0)) == ReadSkipped("before_session")
-    assert len(source.urls) == 1
+    skipped = ReadSkipped("clinic_not_started")
+    assert await reader(source).observe(other_day, taipei(15, 0)) == skipped
+    assert source.urls == []
 
 
 @pytest.mark.asyncio
@@ -544,7 +553,7 @@ async def test_schema_change_fails_closed(page: FetchedPage) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("method", ["observe", "observe_for_start"])
-async def test_card_missing_its_number_after_session_end_is_schema_drift(method):
+async def test_card_missing_its_number_is_schema_drift_not_a_clinic_end(method):
     malformed = (
         '<a class="open-link"><div class="room-number">11 診</div>'
         '<div class="clinic-doc-name">合成醫師丙</div>'
@@ -557,28 +566,68 @@ async def test_card_missing_its_number_after_session_end_is_schema_drift(method)
 
 
 @pytest.mark.asyncio
-async def test_row_gone_inside_the_session_is_an_unusable_read_not_the_end() -> None:
-    gone = PAGE.replace("合成醫師丙", "其他醫師")
-    result = await reader(FakeSource(gone)).observe(scope(), taipei(16, 29))
-    assert result == ReadFailed("unavailable", "empty_result")
-
-
-@pytest.mark.asyncio
-async def test_row_gone_after_session_end_stops_reading_for_good() -> None:
-    gone = PAGE.replace("合成醫師丙", "其他醫師")
-    source = FakeSource(gone)
+@pytest.mark.parametrize(
+    "absent",
+    [
+        pytest.param(page_with(""), id="number-goes-blank"),
+        pytest.param(PAGE.replace("合成醫師丙", "其他醫師"), id="card-disappears"),
+    ],
+)
+async def test_the_watch_ends_once_the_number_is_gone_for_two_reads(absent) -> None:
+    source = FakeSource(PAGE, absent)
     r = reader(source)
-    assert await r.observe(scope(), taipei(16, 31)) == ReadSkipped("session_ended")
-    assert await r.observe(scope(), taipei(16, 33)) == ReadSkipped("session_ended")
-    assert len(source.urls) == 1
+    # A number opens the watch.
+    assert isinstance(await r.observe(scope(), taipei(15, 0)), QueueObservation)
+    # One read without it is an unusable read, not the end: the source may yet
+    # come back, and a single blank must not stop the watch for good.
+    assert await r.observe(scope(), taipei(15, 2)) == ReadFailed(
+        "unavailable", "empty_result"
+    )
+    assert await r.observe(scope(), taipei(15, 4)) == ReadSkipped("clinic_ended")
+    # Ended means ended: no further reads that day.
+    assert await r.observe(scope(), taipei(15, 6)) == ReadSkipped("clinic_ended")
+    assert await r.observe_for_start(scope(), taipei(15, 8)) == ReadSkipped(
+        "clinic_ended"
+    )
+    assert len(source.urls) == 3
 
 
 @pytest.mark.asyncio
-async def test_blank_number_with_row_present_after_end_is_not_the_end_of_clinic():
-    blank = page_with("")
-    source = FakeSource(blank)
-    result = await reader(source).observe(scope(), taipei(16, 31))
-    assert result == ReadFailed("unavailable", "no_observation")
+async def test_a_number_returning_clears_the_blank_run() -> None:
+    source = FakeSource(PAGE, page_with(""), PAGE, PAGE)
+    r = reader(source)
+    assert isinstance(await r.observe(scope(), taipei(15, 0)), QueueObservation)
+    assert await r.observe(scope(), taipei(15, 2)) == ReadFailed(
+        "unavailable", "empty_result"
+    )
+    assert isinstance(await r.observe(scope(), taipei(15, 4)), QueueObservation)
+    # The run restarts, so one later blank is again not the end.
+    assert isinstance(await r.observe(scope(), taipei(15, 6)), QueueObservation)
+
+
+@pytest.mark.asyncio
+async def test_a_clinic_that_never_called_is_checked_sparsely_and_never_ends() -> None:
+    source = FakeSource(page_with(""))
+    r = reader(source)
+    not_started = ReadSkipped("clinic_not_started")
+    assert await r.observe(scope(), taipei(9, 0)) == not_started
+    assert await r.observe(scope(), taipei(9, 2)) == ReadSkipped("not_due")
+    assert await r.observe(scope(), taipei(9, 4, 59)) == ReadSkipped("not_due")
+    assert await r.observe(scope(), taipei(9, 5)) == not_started
+    assert len(source.urls) == 2
+
+
+@pytest.mark.asyncio
+async def test_the_first_number_switches_the_watch_to_the_dense_cadence() -> None:
+    source = FakeSource(page_with(""), PAGE)
+    r = reader(source)
+    assert await r.observe(scope(), taipei(9, 0)) == ReadSkipped("clinic_not_started")
+    # Sparse until it starts.
+    assert await r.observe(scope(), taipei(9, 3)) == ReadSkipped("not_due")
+    assert isinstance(await r.observe(scope(), taipei(9, 5)), QueueObservation)
+    # Dense from the read that saw the number, not five minutes after it.
+    assert await r.observe(scope(), taipei(9, 6)) == ReadSkipped("not_due")
+    assert isinstance(await r.observe(scope(), taipei(9, 7)), QueueObservation)
 
 
 # Scheduler and gate wiring
@@ -676,15 +725,25 @@ async def test_start_stays_draft_with_the_source_reason(page, error, status, rea
 
 
 @pytest.mark.asyncio
-async def test_start_outside_the_window_stays_draft_without_a_request() -> None:
+async def test_start_on_another_day_stays_draft_without_a_request() -> None:
     source = FakeSource(PAGE)
     database, gate = await gate_with_visit(source)
     repository = await seed_ntuh(database, gate, "d1")
-    assert await gate.start_visit("d1", taipei(9, 0).isoformat()) == {
+    day_before = (taipei(15, 0) - timedelta(days=1)).isoformat()
+    assert await gate.start_visit("d1", day_before) == {
         "error": "observation_unavailable"
     }
     assert source.urls == []
     assert (await repository.get_visit("d1"))["state"] == "draft"
+
+
+@pytest.mark.asyncio
+async def test_start_succeeds_at_any_hour_of_the_visit_day() -> None:
+    source = FakeSource(PAGE)
+    database, gate = await gate_with_visit(source)
+    repository = await seed_ntuh(database, gate, "d1")
+    assert await gate.start_visit("d1", taipei(9, 0).isoformat()) == {"state": "active"}
+    assert (await repository.get_visit("d1"))["state"] == "active"
 
 
 @pytest.mark.asyncio
@@ -785,14 +844,16 @@ async def test_three_failed_reads_inside_the_window_send_the_existing_unavailabl
 
 @pytest.mark.asyncio
 async def test_clinic_end_stops_reads_and_sends_no_unavailable_alert() -> None:
-    gone = PAGE.replace("合成醫師丙", "其他醫師")
-    source = FakeSource(gone)
+    # The clinic is calling well short of the patient's number, then its number
+    # goes blank and stays blank.
+    source = FakeSource(page_with("010"), page_with(""))
     database, gate = await gate_with_visit(source)
     await active_visit(database, gate)
     for minute in (31, 33, 35, 40, 50):
         result = await gate.scheduled_tick(taipei(16, minute).isoformat())
         assert result["events_created"] == 0
-    assert len(source.urls) == 1
+    # One opening read, then the two blank reads that end the watch.
+    assert len(source.urls) == 3
     assert (await gate.test_snapshot())["events"] == []
 
 

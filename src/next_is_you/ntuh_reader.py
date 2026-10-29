@@ -30,7 +30,7 @@ import asyncio
 import json
 import math
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from typing import Any, Awaitable, Callable, Mapping, Protocol
@@ -67,16 +67,15 @@ AMPM_CODES = {
     ClinicSession.AFTERNOON: "2",
     ClinicSession.EVENING: "3",
 }
-# Afternoon hours come from the evidence. Morning session hours are unverified
-# and outside the supported scope.
-SESSION_WINDOWS = {
-    ClinicSession.AFTERNOON: (time(13, 30), time(16, 30)),
-}
-WINDOW_BUFFER = timedelta(minutes=10)
-
-# One read per source every 2 to 3 minutes. The one-minute cron only offers the
-# reader a chance to read; the reader skips ticks inside the interval.
+# One read per source every 2 to 3 minutes while the clinic is calling. The
+# one-minute cron only offers the reader a chance to read; the reader skips
+# ticks inside the interval.
 MIN_READ_INTERVAL = timedelta(minutes=2)
+# Before the clinic has called anyone, reads only have to notice that it has
+# started, so they are sparse.
+PRE_ACTIVE_READ_INTERVAL = timedelta(minutes=5)
+# Blank reads in a row that end the watch once the clinic has been calling.
+END_BLANK_READS = 2
 # Duplicate reads of the same clinic in one tick reuse the same result.
 SAME_READ_WINDOW = timedelta(seconds=30)
 # Matches the scheduler and Start freshness bound.
@@ -283,14 +282,6 @@ def _matches(row: ListRow, key: ClinicKey) -> bool:
     )
 
 
-def session_window(day: date, session: ClinicSession) -> tuple[datetime, datetime]:
-    start, end = SESSION_WINDOWS[session]
-    return (
-        datetime.combine(day, start, TAIPEI),
-        datetime.combine(day, end, TAIPEI),
-    )
-
-
 class NtuhProgressReader:
     """Reads the official progress list under the owner-approved cadence."""
 
@@ -315,16 +306,15 @@ class NtuhProgressReader:
         if (
             scope.hospital != Hospital.NTUH_MAIN
             or scope.department_code != SUPPORTED_DEPARTMENT
-            or scope.session not in SESSION_WINDOWS
+            or scope.session not in AMPM_CODES
             or key is None
         ):
             return ReadFailed("scope_mismatch", "scope_mismatch")
 
-        start, end = session_window(scope.visit_date, scope.session)
-        if now < start - WINDOW_BUFFER:
-            return ReadSkipped("before_session")
-        if now >= end + WINDOW_BUFFER:
-            return ReadSkipped("session_ended")
+        # The only clock left: reads happen on the day the owner entered, and
+        # the scheduler's 23:59 Taipei cutoff closes the visit from above.
+        if now.astimezone(TAIPEI).date() != scope.visit_date:
+            return ReadSkipped("clinic_not_started")
 
         source = f"{BRANCH_CODE}|{scope.department_code}|{scope.session}"
         day = scope.visit_date.isoformat()
@@ -342,7 +332,7 @@ class NtuhProgressReader:
             await self._save(states, scope.visit_date)
             return ReadFailed("unavailable", "access_denied")
         if entry.get("ended"):
-            return ReadSkipped("session_ended")
+            return ReadSkipped("clinic_ended")
         if states.get(blocked_key, {}).get("blocked"):
             return ReadFailed("unavailable", "access_denied")
 
@@ -379,21 +369,17 @@ class NtuhProgressReader:
             return failure
         rows = [ListRow(*row) for row in result["rows"]]
         matched = [row for row in rows if _matches(row, key)]
-        if not matched:
-            if now >= end:
-                entry["ended"] = True
-                await self._save(states, scope.visit_date)
-                return ReadSkipped("session_ended")
-            return ReadFailed("unavailable", "empty_result")
         if len(matched) > 1:
             return ReadFailed("invalid", "ambiguous_match")
-        if matched[0].check_in_order:
-            # The card says this clinic calls by check-in order, so its light
-            # number is not a called number.
-            return ReadFailed("unavailable", "no_observation")
-        text = matched[0].current.strip()
+        # A card that calls by check-in order shows no called number at all, so
+        # it is read as having none rather than as a number.
+        text = (
+            ""
+            if not matched or matched[0].check_in_order
+            else matched[0].current.strip()
+        )
         if not text:
-            return ReadFailed("unavailable", "no_observation")
+            return await self._without_a_number(entry, states, scope, fetched=not reuse)
         if not text.isascii() or not text.isdigit():
             return ReadFailed("invalid", "invalid_data")
         try:
@@ -402,6 +388,7 @@ class NtuhProgressReader:
             return ReadFailed("invalid", "invalid_data")
         if current_number < 1:
             return ReadFailed("invalid", "invalid_data")
+        await self._calling(entry, states, scope, now, fetched=not reuse)
         assert read_at is not None
         return QueueObservation(
             scope=scope,
@@ -411,6 +398,49 @@ class NtuhProgressReader:
             # room light. Department/session are not labeled in source rows.
             trustworthy_current=True,
         )
+
+    async def _calling(
+        self,
+        entry: dict[str, Any],
+        states: dict[str, dict[str, Any]],
+        scope: ClinicScope,
+        now: datetime,
+        *,
+        fetched: bool,
+    ) -> None:
+        """A called number opens the watch and clears any run of blank reads."""
+        if not fetched:
+            return
+        entry["called"] = True
+        entry["blanks"] = 0
+        entry["due_at"] = (now + MIN_READ_INTERVAL).isoformat()
+        await self._save(states, scope.visit_date)
+
+    async def _without_a_number(
+        self,
+        entry: dict[str, Any],
+        states: dict[str, dict[str, Any]],
+        scope: ClinicScope,
+        *,
+        fetched: bool,
+    ) -> ReadSkipped | ReadFailed:
+        """No called number: the clinic has not started, or it is over.
+
+        A clinic that has never shown a number today has not started, and that
+        is not a failed read. Once it has shown one, the number going blank is
+        how this source ends a clinic; a run of blank reads confirms it before
+        the watch stops for the day.
+        """
+        if not entry.get("called"):
+            return ReadSkipped("clinic_not_started")
+        blanks = int(entry.get("blanks", 0)) + 1 if fetched else int(entry["blanks"])
+        entry["blanks"] = blanks
+        if blanks >= END_BLANK_READS:
+            entry["ended"] = True
+        await self._save(states, scope.visit_date)
+        if entry.get("ended"):
+            return ReadSkipped("clinic_ended")
+        return ReadFailed("unavailable", "empty_result")
 
     async def _fetch_result(self, key: ClinicKey, scope: ClinicScope) -> dict[str, Any]:
         """One read: GET the selector page for a token, then POST for the rows."""
@@ -485,7 +515,13 @@ class NtuhProgressReader:
         entry["result"] = result
         if "failure" not in result:
             entry["failures"] = 0
-            entry["due_at"] = (now + MIN_READ_INTERVAL).isoformat()
+            # Dense checks are for a clinic that is calling; a clinic that has
+            # not started yet is checked sparsely. `_calling` tightens this as
+            # soon as a number appears.
+            interval = (
+                MIN_READ_INTERVAL if entry.get("called") else PRE_ACTIVE_READ_INTERVAL
+            )
+            entry["due_at"] = (now + interval).isoformat()
             return
         failures = int(entry.get("failures", 0)) + 1
         entry["failures"] = failures

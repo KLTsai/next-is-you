@@ -6,9 +6,9 @@
 
 ## What this is
 
-A visit to a large hospital in Taiwan often means waiting several hours for your number to be called. A family member sits in the waiting room while the rest of the family stays elsewhere, hoping to arrive just in time. The light-number board moves at its own pace, so the only honest way to know when to leave is to keep refreshing the queue page by hand. NTU Hospital's ophthalmology afternoon session is where this problem bites first, but the shape is the same at any large hospital in Taiwan that publishes a queue page.
+A visit to a large hospital in Taiwan often means waiting several hours for your number to be called. A family member sits in the waiting room while the rest of the family stays elsewhere, hoping to arrive just in time. The light-number board moves at its own pace, so the only honest way to know when to leave is to keep refreshing the queue page by hand. NTU Hospital's ophthalmology department is where this problem bites first, but the shape is the same at any large hospital in Taiwan that publishes a queue page.
 
-Next is you is a small private tool that does that watching. The owner opens a stable URL in a browser, drafts today's visit (hospital, department, room, doctor, afternoon session), and presses Start. A Cloudflare Worker then reads the public registration-progress page on a schedule, matches the clinic row, and - when the current number is close - sends one LINE message to the recipients the owner has invited.
+Next is you is a small private tool that does that watching. The owner opens a stable URL in a browser, drafts today's visit (hospital, department, room, doctor, session), and presses Start. A Cloudflare Worker then reads the public registration-progress page on a schedule, matches the clinic card, and - when the current number is close - sends one LINE message to the recipients the owner has invited.
 
 It is a tool for one family and the people they invite, not a public service. Reminders stay held across every environment until the owner's own handset pilot (Issue #22) explicitly authorizes a real send.
 
@@ -23,13 +23,13 @@ Honest status as of today. The GitHub tracker is the authoritative source. Nothi
 **In progress**
 
 - [ ] Organizer-managed LINE enrollment and removal UI - [#19](https://github.com/KLTsai/next-is-you/issues/19)
-- [ ] NTU ophthalmology afternoon reader: fixture and local integration evidence in place; live hospital behavior unverified - [#17](https://github.com/KLTsai/next-is-you/issues/17), [#20](https://github.com/KLTsai/next-is-you/issues/20)
+- [ ] NTU ophthalmology reader: fixture and local integration evidence in place; the source's request contract and markup were captured by hand, but the reader's own live behavior is unverified - [#17](https://github.com/KLTsai/next-is-you/issues/17), [#20](https://github.com/KLTsai/next-is-you/issues/20)
 - [ ] Private storage recovery and operator readiness - [#21](https://github.com/KLTsai/next-is-you/issues/21)
 - [ ] Owner's handset pilot (first real reminder) - [#22](https://github.com/KLTsai/next-is-you/issues/22)
 
 **Future direction** (planned, not committed)
 
-- [ ] Additional hospitals beyond NTU main-campus ophthalmology afternoon. Structural discovery (departments, doctors, consultation rooms, URL patterns) can be automated via browsing or retrieval; each new hospital still needs one in-person verification comparing the public page's current-number against the physical room-light, plus human confirmation of ambiguous field semantics and hospital reuse terms.
+- [ ] Additional hospitals and departments beyond NTU main-campus ophthalmology. Structural discovery (departments, doctors, consultation rooms, URL patterns) can be automated via browsing or retrieval; each new hospital still needs one in-person verification comparing the public page's current-number against the physical room-light, plus human confirmation of ambiguous field semantics and hospital reuse terms.
 - [ ] Switch the NTUH reader from its hardcoded clock window to row-presence-driven polling, keeping session-change edge cases cleaner - [#34](https://github.com/KLTsai/next-is-you/issues/34).
 - [ ] Frontend UI/UX redesign using a mainstream industry web framework (examples: React, Vue, Svelte, or comparable). The current frontend ships as-is; no framework has been chosen.
 - [ ] CI/governance hardening: Dependabot, CodeQL scanning, branch protection, issue/PR templates, CODEOWNERS, and SECURITY.md. This work has not started; the design is still being considered, with no date or implementation commitment.
@@ -102,7 +102,7 @@ Prerequisites:
 - A LINE Developers account with a Login channel and a Messaging channel under the same provider; the owner's LINE subject (a stable identifier, not a display name) must be privately supplied.
 - Your own copy of this repository.
 
-Scope limit: the only hospital source currently supported by this project is NTU Hospital's main campus (總院區) ophthalmology (眼科) afternoon session, 13:30-16:30, matched against the Dr. appointment list rows on the official public registration-progress page. Production reads remain held pending the Issue #22 pilot. See [docs/NTUH-READER.md](docs/NTUH-READER.md) for the exact supported scope and known gaps. Adding another hospital is intended future work: structural discovery (departments, doctors, consultation rooms, URL patterns) can be automated via browsing or retrieval, but each new hospital still needs one in-person verification comparing the public page's current-number against the physical room-light, plus human confirmation of ambiguous field semantics and hospital reuse terms.
+Scope limit: the only hospital source currently supported by this project is NTU Hospital's main campus (總院區) ophthalmology (眼科), any session of the entered day, matched against the clinic cards on the official public registration-progress page. Production reads remain held pending the Issue #22 pilot. See [docs/NTUH-READER.md](docs/NTUH-READER.md) for the exact supported scope and known gaps. Adding another hospital is intended future work: structural discovery (departments, doctors, consultation rooms, URL patterns) can be automated via browsing or retrieval, but each new hospital still needs one in-person verification comparing the public page's current-number against the physical room-light, plus human confirmation of ambiguous field semantics and hospital reuse terms.
 
 For the end-to-end owner setup sequence (local proof, Wrangler login, D1 creation, migrations, deployment, LINE callback registration, acceptance), follow [docs/HTTPS-SERVICE.md](docs/HTTPS-SERVICE.md) in order.
 

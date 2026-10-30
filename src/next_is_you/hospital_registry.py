@@ -15,12 +15,14 @@ from datetime import datetime
 from typing import Any, Callable, Mapping
 
 from next_is_you.domain import (
+    ClinicRoster,
     ClinicScope,
     Hospital,
     HospitalReader,
     QueueObservation,
     ReadFailed,
     ReadSkipped,
+    RosterQuery,
     SourceCapability,
 )
 from next_is_you.ntuh_reader import Fetcher, NtuhProgressReader
@@ -43,23 +45,27 @@ class ReaderDeps:
 class HospitalEntry:
     """What the system knows about one hospital, independent of transport.
 
-    `capability` is read by the setup UI for graceful degradation.
-    `build_reader` is `None` when no reader exists yet (for example a hospital
-    whose source is still being evidenced), in which case reads fail closed.
+    `display_name` and `capability` are what the setup UI reads, so the frontend
+    carries no hospital names or source assumptions of its own. `build_reader`
+    is `None` when no reader exists yet (for example a hospital whose source is
+    still being evidenced), in which case reads fail closed.
     """
 
+    display_name: str
     capability: SourceCapability
     build_reader: Callable[[ReaderDeps], HospitalReader] | None
 
 
 HOSPITAL_REGISTRY: Mapping[Hospital, HospitalEntry] = {
     Hospital.NTUH_MAIN: HospitalEntry(
+        display_name="臺大醫院總院",
         capability=SourceCapability.FULL_SCHEDULE,
         build_reader=lambda deps: NtuhProgressReader(deps.storage, deps.fetch),
     ),
     # No reader until Issue #44 evidences a usable Shin Kong source; until then
     # it is offered to no one and reads fail closed.
     Hospital.SHIN_KONG_TAIPEI: HospitalEntry(
+        display_name="新光醫院（台北）",
         capability=SourceCapability.UNSUPPORTED,
         build_reader=None,
     ),
@@ -94,6 +100,15 @@ class RegistryHospitalReader:
         if reader is None:
             return ReadFailed("unavailable", "no_observation")
         return await reader.observe_for_start(scope, now)
+
+    async def list_clinics(self, query: RosterQuery, now: datetime) -> ClinicRoster:
+        if capability_of(query.hospital) is not SourceCapability.FULL_SCHEDULE:
+            return ClinicRoster(False, (), "unsupported")
+        reader = self._reader_for(query.hospital)
+        lister = getattr(reader, "list_clinics", None)
+        if lister is None:
+            return ClinicRoster(False, (), "no_observation")
+        return await lister(query, now)
 
     def _reader_for(self, hospital: Hospital) -> HospitalReader | None:
         cached = self._readers.get(hospital)

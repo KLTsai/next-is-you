@@ -165,6 +165,42 @@ def test_local_http_acceptance_journey() -> None:
                 ],
             }
 
+            # The frontend learns the hospitals and their capability from the
+            # backend, not from constants of its own.
+            hospitals = await http.get("/api/organizer/hospitals")
+            assert hospitals.json() == {
+                "hospitals": [
+                    {
+                        "hospital": "ntuh-main",
+                        "display_name": "臺大醫院總院",
+                        "capability": "full_schedule",
+                    },
+                    {
+                        "hospital": "shin-kong-taipei",
+                        "display_name": "新光醫院（台北）",
+                        "capability": "unsupported",
+                    },
+                ],
+            }
+            # With reads held (no reader configured here) the roster is simply
+            # unavailable, so the picker degrades to manual entry.
+            held_roster = await http.get(
+                "/api/organizer/hospitals/ntuh-main/clinics"
+                "?department=OPH&date=2026-09-28"
+            )
+            assert held_roster.status_code == 200
+            assert held_roster.json() == {
+                "available": False,
+                "reason": "no_observation",
+                "clinics": [],
+            }
+            # A malformed hospital is rejected before reaching the gate.
+            bad_roster = await http.get(
+                "/api/organizer/hospitals/not-a-hospital/clinics"
+                "?department=OPH&date=2026-09-28"
+            )
+            assert bad_roster.status_code == 400
+
             created = await http.post(
                 "/api/organizer/visits",
                 headers=headers,

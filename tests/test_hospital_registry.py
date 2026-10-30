@@ -4,11 +4,14 @@ import pytest
 
 from next_is_you import hospital_registry
 from next_is_you.domain import (
+    ClinicOption,
+    ClinicRoster,
     ClinicScope,
     ClinicSession,
     Hospital,
     QueueObservation,
     ReadFailed,
+    RosterQuery,
     SourceCapability,
 )
 from next_is_you.hospital_registry import (
@@ -45,6 +48,22 @@ class _RecordingReader:
         self.calls.append(("start", scope.hospital))
         return QueueObservation(scope, now.isoformat(), 9, trustworthy_current=True)
 
+    async def list_clinics(self, query, now):
+        self.calls.append(("roster", query.hospital))
+        return ClinicRoster(
+            True,
+            (
+                ClinicOption(
+                    ClinicSession.AFTERNOON,
+                    "11",
+                    "Wang",
+                    "Dr. Appt.",
+                    "11/Wang/Dr. Appt.",
+                ),
+            ),
+            "ok",
+        )
+
 
 def test_capability_reflects_the_registered_tier() -> None:
     assert capability_of(Hospital.NTUH_MAIN) is SourceCapability.FULL_SCHEDULE
@@ -64,7 +83,11 @@ async def test_dispatches_by_hospital_and_builds_the_reader_once(monkeypatch) ->
     monkeypatch.setattr(
         hospital_registry,
         "HOSPITAL_REGISTRY",
-        {Hospital.NTUH_MAIN: HospitalEntry(SourceCapability.FULL_SCHEDULE, build)},
+        {
+            Hospital.NTUH_MAIN: HospitalEntry(
+                "Test General", SourceCapability.FULL_SCHEDULE, build
+            )
+        },
     )
     dispatcher = RegistryHospitalReader(ReaderDeps(storage=object(), fetch=object()))
 
@@ -101,7 +124,9 @@ async def test_current_number_only_tier_still_reads(monkeypatch) -> None:
         "HOSPITAL_REGISTRY",
         {
             Hospital.SHIN_KONG_TAIPEI: HospitalEntry(
-                SourceCapability.CURRENT_NUMBER_ONLY, lambda _deps: reader
+                "Current Only",
+                SourceCapability.CURRENT_NUMBER_ONLY,
+                lambda _deps: reader,
             )
         },
     )
@@ -111,3 +136,38 @@ async def test_current_number_only_tier_still_reads(monkeypatch) -> None:
     dispatcher = RegistryHospitalReader(ReaderDeps(storage=object(), fetch=object()))
     observed = await dispatcher.observe(_scope(Hospital.SHIN_KONG_TAIPEI), NOW)
     assert isinstance(observed, QueueObservation)
+    # No schedule to list even though the hospital reads: the picker uses manual
+    # entry, so the roster is reported unavailable rather than routed.
+    roster = await dispatcher.list_clinics(
+        RosterQuery(Hospital.SHIN_KONG_TAIPEI, "OPH", date(2026, 9, 27)), NOW
+    )
+    assert roster == ClinicRoster(False, (), "unsupported")
+
+
+@pytest.mark.asyncio
+async def test_roster_is_routed_to_a_full_schedule_reader(monkeypatch) -> None:
+    reader = _RecordingReader()
+    monkeypatch.setattr(
+        hospital_registry,
+        "HOSPITAL_REGISTRY",
+        {
+            Hospital.NTUH_MAIN: HospitalEntry(
+                "Test General", SourceCapability.FULL_SCHEDULE, lambda _deps: reader
+            )
+        },
+    )
+    dispatcher = RegistryHospitalReader(ReaderDeps(storage=object(), fetch=object()))
+    roster = await dispatcher.list_clinics(
+        RosterQuery(Hospital.NTUH_MAIN, "OPH", date(2026, 9, 27)), NOW
+    )
+    assert roster.available and len(roster.clinics) == 1
+    assert reader.calls == [("roster", Hospital.NTUH_MAIN)]
+
+
+@pytest.mark.asyncio
+async def test_roster_for_an_unsupported_hospital_is_unavailable() -> None:
+    dispatcher = RegistryHospitalReader(ReaderDeps(storage=object(), fetch=object()))
+    roster = await dispatcher.list_clinics(
+        RosterQuery(Hospital.SHIN_KONG_TAIPEI, "OPH", date(2026, 9, 27)), NOW
+    )
+    assert roster == ClinicRoster(False, (), "unsupported")

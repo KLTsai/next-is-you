@@ -12,12 +12,14 @@ from urllib.parse import parse_qsl
 import pytest
 
 from next_is_you.domain import (
+    ClinicRoster,
     ClinicScope,
     ClinicSession,
     Hospital,
     QueueObservation,
     ReadFailed,
     ReadSkipped,
+    RosterQuery,
 )
 from next_is_you.ntuh_reader import (
     AMPM_CODES,
@@ -630,6 +632,79 @@ async def test_the_first_number_switches_the_watch_to_the_dense_cadence() -> Non
     assert isinstance(await r.observe(scope(), taipei(9, 7)), QueueObservation)
 
 
+# Roster listing for the setup picker
+
+
+@pytest.mark.asyncio
+async def test_list_clinics_merges_the_three_sessions() -> None:
+    source = FakeSource(PAGE)
+    roster = await reader(source).list_clinics(
+        RosterQuery(Hospital.NTUH_MAIN, "OPH", DAY), taipei(14, 0)
+    )
+    assert roster.available and roster.reason == "ok"
+    bodies = [
+        dict(parse_qsl(request.body or "", keep_blank_values=True))
+        for request in source.requests
+        if request.method == "POST"
+    ]
+    # One request per session, each selecting its own roster.
+    assert [body["AmpmCode"] for body in bodies] == [
+        AMPM_CODES[session]
+        for session in (
+            ClinicSession.MORNING,
+            ClinicSession.AFTERNOON,
+            ClinicSession.EVENING,
+        )
+    ]
+    # Five cards in the fixture, kept for each of the three sessions.
+    assert len(roster.clinics) == 15
+    assert {clinic.session for clinic in roster.clinics} == {
+        ClinicSession.MORNING,
+        ClinicSession.AFTERNOON,
+        ClinicSession.EVENING,
+    }
+    afternoon = {
+        clinic.clinic_code
+        for clinic in roster.clinics
+        if clinic.session is ClinicSession.AFTERNOON
+    }
+    assert "11 診/合成醫師丙/醫師約診" in afternoon
+
+
+@pytest.mark.asyncio
+async def test_list_clinics_only_lists_the_appointment_day() -> None:
+    # The source carries no date and shows only today, so a future day has no
+    # roster and no request is made.
+    source = FakeSource(PAGE)
+    roster = await reader(source).list_clinics(
+        RosterQuery(Hospital.NTUH_MAIN, "OPH", DAY + timedelta(days=1)), taipei(14, 0)
+    )
+    assert roster == ClinicRoster(False, (), "date_not_today")
+    assert source.requests == []
+
+
+@pytest.mark.asyncio
+async def test_list_clinics_is_unavailable_when_a_session_is_denied() -> None:
+    source = FakeSource(FetchedPage(403, ""))
+    roster = await reader(source).list_clinics(
+        RosterQuery(Hospital.NTUH_MAIN, "OPH", DAY), taipei(14, 0)
+    )
+    assert not roster.available and roster.reason == "access_denied"
+    assert roster.clinics == ()
+    # Fails on the first session; the other two are not requested.
+    assert len([r for r in source.requests if r.method == "POST"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_list_clinics_rejects_an_unsupported_scope() -> None:
+    source = FakeSource(PAGE)
+    roster = await reader(source).list_clinics(
+        RosterQuery(Hospital.NTUH_MAIN, "CARD", DAY), taipei(14, 0)
+    )
+    assert not roster.available and roster.reason == "scope_mismatch"
+    assert source.requests == []
+
+
 # Scheduler and gate wiring
 
 
@@ -866,3 +941,41 @@ async def test_challenge_stops_the_source_and_keeps_the_visit_unavailable() -> N
         await gate.scheduled_tick(taipei(15, minute).isoformat())
     assert counts(database, "d1")[:2] == ("unavailable", "access_denied")
     assert len(source.urls) == 2
+
+
+@pytest.mark.asyncio
+async def test_gate_lists_clinics_when_the_reader_is_enabled() -> None:
+    source = FakeSource(PAGE)
+    _, gate = await gate_with_visit(source)
+    result = await gate.list_clinics(
+        "ntuh-main", "OPH", DAY.isoformat(), taipei(14, 0).isoformat()
+    )
+    assert result["available"] is True and result["reason"] == "ok"
+    assert len(result["clinics"]) == 15
+    assert result["clinics"][0].keys() == {
+        "session",
+        "room",
+        "doctor",
+        "clinic_type",
+        "clinic_code",
+    }
+
+
+@pytest.mark.asyncio
+async def test_gate_roster_is_held_without_the_reader() -> None:
+    source = FakeSource(PAGE)
+    _, gate = await gate_with_visit(source, enabled=False)
+    result = await gate.list_clinics(
+        "ntuh-main", "OPH", DAY.isoformat(), taipei(14, 0).isoformat()
+    )
+    assert result == {"available": False, "reason": "no_observation", "clinics": []}
+
+
+@pytest.mark.asyncio
+async def test_gate_roster_rejects_an_unknown_hospital() -> None:
+    source = FakeSource(PAGE)
+    _, gate = await gate_with_visit(source)
+    result = await gate.list_clinics(
+        "not-a-hospital", "OPH", DAY.isoformat(), taipei(14, 0).isoformat()
+    )
+    assert result == {"available": False, "reason": "invalid_data", "clinics": []}

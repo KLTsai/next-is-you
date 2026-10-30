@@ -37,12 +37,15 @@ from typing import Any, Awaitable, Callable, Mapping, Protocol
 from urllib.parse import urlencode
 
 from next_is_you.domain import (
+    ClinicOption,
+    ClinicRoster,
     ClinicScope,
     ClinicSession,
     Hospital,
     QueueObservation,
     ReadFailed,
     ReadSkipped,
+    RosterQuery,
 )
 from next_is_you.source_samples import _page_status
 from next_is_you.persistence import TAIPEI
@@ -298,6 +301,102 @@ class NtuhProgressReader:
         self, scope: ClinicScope, now: datetime
     ) -> QueueObservation | ReadSkipped | ReadFailed:
         return await self._read(scope, now, for_start=True)
+
+    async def list_clinics(self, query: RosterQuery, now: datetime) -> ClinicRoster:
+        """List the department's consulting clinics for the picker to choose from.
+
+        This is a one-shot read, separate from the bounded polling path: the
+        progress list carries no date and shows only the current day, so a roster
+        exists only for a same-day appointment. Each session is a separate
+        request (`AmpmCode` selects the roster), and the three are merged with
+        the session kept on each clinic so the owner never types it. Any read
+        that is not a clean card list makes the whole roster unavailable, so the
+        picker falls back to manual entry rather than offering a partial list.
+        """
+        if (
+            query.hospital != Hospital.NTUH_MAIN
+            or query.department_code != SUPPORTED_DEPARTMENT
+        ):
+            return ClinicRoster(False, (), "scope_mismatch")
+        if now.astimezone(TAIPEI).date() != query.visit_date:
+            return ClinicRoster(False, (), "date_not_today")
+        options: list[ClinicOption] = []
+        for session in AMPM_CODES:
+            status, rows = await self._fetch_session_rows(
+                query.department_code, session
+            )
+            if status != "ok":
+                return ClinicRoster(False, (), status)
+            options.extend(
+                ClinicOption(
+                    session=session,
+                    room=row.room,
+                    doctor=row.doctor,
+                    clinic_type=row.clinic_type,
+                    clinic_code=f"{row.room}/{row.doctor}/{row.clinic_type}",
+                )
+                for row in rows
+            )
+        return ClinicRoster(True, tuple(options), "ok")
+
+    async def _fetch_session_rows(
+        self, department_code: str, session: ClinicSession
+    ) -> tuple[str, list[ListRow]]:
+        """A department+session's full card list, under one request budget."""
+        try:
+            return await asyncio.wait_for(
+                self._session_rows(department_code, session), REQUEST_TIMEOUT_SECONDS
+            )
+        except TimeoutError:
+            return "timeout", []
+        except Exception:
+            return "no_observation", []
+
+    async def _session_rows(
+        self, department_code: str, session: ClinicSession
+    ) -> tuple[str, list[ListRow]]:
+        selector = await self._fetch(
+            PageRequest(
+                selector_page_url(),
+                headers=_headers({"Cookie": f"{LANGUAGE_COOKIE}={UI_LANGUAGE}"}),
+            )
+        )
+        failure = _transport_failure(selector)
+        if failure is not None:
+            return failure["failure"][1], []
+        token = parse_request_token(selector.body)
+        if token is None:
+            return "schema_drift", []
+        page = await self._fetch(
+            PageRequest(
+                LIGHT_TABLE_URL,
+                method="POST",
+                headers=_headers(
+                    {
+                        "Content-Type": (
+                            "application/x-www-form-urlencoded; charset=UTF-8"
+                        ),
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Referer": selector_page_url(),
+                        "Cookie": _cookie_header(selector.cookies),
+                    }
+                ),
+                body=urlencode(
+                    {
+                        _TOKEN_FIELD: token,
+                        "vHospitalCode": BRANCH_CODE,
+                        "DeptCode": department_code,
+                        "RegionCode": "",
+                        "AmpmCode": AMPM_CODES[session],
+                    }
+                ),
+            )
+        )
+        failure = _transport_failure(page)
+        if failure is not None:
+            return failure["failure"][1], []
+        status, rows = parse_light_table(page.body)
+        return status, rows
 
     async def _read(
         self, scope: ClinicScope, now: datetime, *, for_start: bool

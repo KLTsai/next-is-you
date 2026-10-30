@@ -17,7 +17,7 @@ jobs:
     name: Deploy ${{ github.ref_name }} to Cloudflare
     runs-on: ubuntu-latest
     environment:
-      name: production
+      name: prod
       url: https://next-is-you-held.kunger810.workers.dev
     env:
       CI: "true"

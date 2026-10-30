@@ -7,7 +7,7 @@ and fails in a different way.
 | --- | --- | --- | --- |
 | CI (`.github/workflows/ci.yml`) | `push` and `pull_request` | Does this change build, lint, type-check and pass the test suite? | Blocks merge |
 | Release Please (`.github/workflows/release-please.yml`) | `push` to `main` | What would the next release look like? | Release PR is not updated |
-| Production deploy (`.github/workflows/production-deploy.yml`) | `push` tag `v*.*.*` | Should this exact version be deployed to Cloudflare? | Deployment is held |
+| Production deploy (`.github/workflows/production-deploy.yml`) | `push` tag `v*.*.*` | Deploy this exact version to Cloudflare | Deploy job fails; fix and re-run |
 
 CI stays the same as before. The two new workflows cover versioning and
 deployment.
@@ -19,16 +19,19 @@ deployment.
 3. On every merge to `main`, Release Please updates (or opens) a single PR
    titled `chore(main): release X.Y.Z`. It bumps `package.json`, rewrites
    `CHANGELOG.md`, and refreshes `.github/.release-please-manifest.json`.
-4. When you want to publish a release, merge that Release PR. Release Please
-   creates a Git tag `vX.Y.Z` and a GitHub Release.
-5. The tag triggers the production deploy workflow, which waits in the
-   `production` GitHub Environment for your manual approval.
-6. Approve. The workflow applies pending D1 migrations against the remote
-   database, then deploys the Worker.
-7. The GitHub Release page records the deploy status; the Cloudflare dashboard
+4. When you want to publish a release, merge that Release PR. This is the only
+   release decision point. Release Please creates a Git tag `vX.Y.Z` and a
+   GitHub Release.
+5. The tag immediately triggers the production deploy workflow. It runs in the
+   `prod` GitHub Environment, applies pending D1 migrations against the remote
+   database, then deploys the Worker. There is no second approval step.
+6. The GitHub Release page records the deploy status; the Cloudflare dashboard
    shows the new deployment under Workers & Pages.
 
 Nothing else about the trunk-based workflow changes.
+
+Because merging the Release PR starts the deploy, check the Release PR's
+CHANGELOG and the checklist below before merging it.
 
 ## What counts as a releasable change
 
@@ -48,12 +51,13 @@ expected.
 
 ## Required GitHub configuration
 
-### `production` environment
+### `prod` environment
 
-Set in **Settings -> Environments -> production**:
+Set in **Settings -> Environments -> prod**:
 
-- **Required reviewers**: at least one maintainer. The deploy job pauses until
-  one of them approves.
+- **Required reviewers**: not configured. Required reviewers need GitHub Pro
+  or a public repository; the repository is private on a free plan. Merging
+  the Release PR is the approval step.
 - **Deployment branches and tags**: only tags matching `v*.*.*` may deploy.
 - **Environment secrets**:
   - `CLOUDFLARE_API_TOKEN`: scoped token with
@@ -118,7 +122,7 @@ uv run python -m pywrangler secret list --config wrangler.production.jsonc
 
 The inventory of names and their purpose is maintained in `docs/SECRETS.md`.
 
-Only two GitHub secrets exist (both inside the `production` environment):
+Only two GitHub secrets exist (both inside the `prod` environment):
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. Nothing else should be
 added.
 
@@ -128,7 +132,7 @@ added.
 
 1. Open **Actions -> Production deploy**.
 2. Find the run for the tag you want to go back to (`v0.3.1` for example).
-3. Click **Re-run all jobs** and approve the environment prompt.
+3. Click **Re-run all jobs**.
 
 This replays the full deploy, including migrations. Because migrations are
 forward-only, re-running an older tag will not undo schema changes; only the
@@ -167,11 +171,11 @@ the gitignored copy once you are comfortable with the committed one.
 ## Operational calendar
 
 - **First release**: merge the first Release PR to tag `v0.1.1` (or higher,
-  depending on commit types). Approve the deploy. Verify the Worker and D1
+  depending on commit types). Merge it, then verify the Worker and D1
   in the Cloudflare dashboard. Re-run `docs/PRE-LIVE-CHECKLIST.md` for any
   gate affected by the change.
 - **Routine releases**: merge Release PR when a batch of changes is ready.
   There is no cadence requirement; releases are user-driven.
 - **Hotfix path**: push a `fix:` commit to `main`, let Release Please open or
-  update the Release PR, merge it, approve the deploy. The hotfix flows
+  update the Release PR, merge it, and the deploy runs. The hotfix flows
   through the same gates as every other release.

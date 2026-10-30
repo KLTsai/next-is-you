@@ -13,8 +13,8 @@ This document covers the production Worker (`next-is-you-held`,
 
 | Name | Kind | Purpose | Set via | Notes |
 | --- | --- | --- | --- | --- |
-| `CLOUDFLARE_API_TOKEN` | GitHub Env secret | Authenticates the production deploy workflow against Cloudflare | GitHub Settings -> Environments -> production | Scope: Workers Scripts Edit, D1 Edit, Account Settings Read. Rotate when a maintainer leaves. |
-| `CLOUDFLARE_ACCOUNT_ID` | GitHub Env secret | Target account for the deploy workflow | GitHub Settings -> Environments -> production | Identifier, not a credential. Rotate only on account change. |
+| `CLOUDFLARE_API_TOKEN` | GitHub Env secret | Authenticates the production deploy workflow against Cloudflare | GitHub Settings -> Environments -> prod | Scope: Workers Scripts Edit, D1 Edit, Account Settings Read. Rotate when a maintainer leaves. |
+| `CLOUDFLARE_ACCOUNT_ID` | GitHub Env secret | Target account for the deploy workflow | GitHub Settings -> Environments -> prod | Identifier, not a credential. Rotate only on account change. |
 | `LINE_LOGIN_CHANNEL_SECRET` | Cloudflare Worker secret | LINE Login OAuth client secret | `pywrangler secret put` | Rotate immediately if LINE Developers console is compromised. |
 | `SESSION_SIGNING_SECRET` | Cloudflare Worker secret | HMAC key for session cookies and signed tokens | `pywrangler secret put` | At least 32 UTF-8 bytes. Rotating this invalidates all live sessions. |
 | `ORGANIZER_LINE_SUBJECTS` | Cloudflare Worker secret | Comma-separated LINE subject IDs allowed to sign in as organizers | `pywrangler secret put` | Treated as a secret because membership is sensitive, not because it is a credential. |

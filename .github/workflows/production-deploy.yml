@@ -1,9 +1,7 @@
-name: Production deploy
+name: Promote candidate to production
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,7 +12,8 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy ${{ github.ref_name }} to Cloudflare
+    if: startsWith(github.ref, 'refs/tags/candidate-v')
+    name: Promote ${{ github.ref_name }} to Cloudflare
     runs-on: ubuntu-latest
     environment:
       name: prod
@@ -26,6 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ github.ref }}
           fetch-depth: 0
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
@@ -37,6 +37,31 @@ jobs:
         with:
           node-version: "24"
           cache: npm
+      - name: Verify candidate tag and release version
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          git tag --verify "$GITHUB_REF_NAME"
+          version="$(node -p "require('./package.json').version")"
+          short_commit="$(git rev-parse --short=12 HEAD)"
+          expected="candidate-v${version}-${short_commit}"
+          if [[ "$GITHUB_REF_NAME" != "$expected" ]]; then
+            echo "Candidate tag must match the checked-out package version and commit: $expected" >&2
+            exit 1
+          fi
+          release_tag="v$version"
+          exists=false
+          if git ls-remote --exit-code --tags origin "refs/tags/$release_tag"; then
+            git fetch --force origin "refs/tags/$release_tag:refs/tags/$release_tag"
+            if [[ "$(git rev-list -n 1 "$release_tag")" != "$(git rev-parse HEAD)" ]]; then
+              echo "Existing release tag does not point to this candidate: $release_tag" >&2
+              exit 1
+            fi
+            exists=true
+          fi
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "exists=$exists" >> "$GITHUB_OUTPUT"
       - name: Install Python dependencies
         run: uv sync --group dev --locked
       - name: Install Node dependencies
@@ -47,14 +72,28 @@ jobs:
         run: uv run python -m pywrangler d1 migrations apply next-is-you-production --remote --config wrangler.production.jsonc
       - name: Deploy Worker
         run: uv run python -m pywrangler deploy --config wrangler.production.jsonc --keep-vars
+      - name: Create formal release
+        if: steps.release.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git tag --annotate "$RELEASE_TAG" --message "Release $RELEASE_TAG"
+          git push origin "refs/tags/$RELEASE_TAG"
+          gh release create "$RELEASE_TAG" --generate-notes --title "$RELEASE_TAG"
       - name: Record deployment summary
         if: always()
         run: |
           {
-            echo "### Deployment: ${{ github.ref_name }}"
+            echo "### Production promotion: ${{ github.ref_name }}"
             echo ""
             echo "- Worker: next-is-you-held"
             echo "- D1 database: next-is-you-production"
             echo "- Status: ${{ job.status }}"
             echo "- URL: https://next-is-you-held.kunger810.workers.dev"
+            echo "- Formal release: ${{ steps.release.outputs.tag }}"
           } >> "$GITHUB_STEP_SUMMARY"

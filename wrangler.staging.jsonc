@@ -1,0 +1,51 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"account_id": "d925c0785e08a13154955e1fd9678cc2",
+	"name": "next-is-you-staging",
+	"main": "src/worker.py",
+	"compatibility_date": "2026-09-25",
+	"compatibility_flags": [
+		"python_workers"
+	],
+	"assets": {
+		"directory": "./dist/",
+		"binding": "ASSETS",
+		"run_worker_first": true
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "next-is-you-staging",
+			"database_id": "37fd610a-70a8-48a2-ba4d-05d157d24618",
+			"migrations_dir": "migrations"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "SEND_GATE",
+				"class_name": "SystemSendGate"
+			}
+		]
+	},
+	"exports": {
+		"SystemSendGate": {
+			"type": "durable-object",
+			"storage": "sqlite"
+		}
+	},
+	"triggers": {
+		"crons": [
+			"* * * * *"
+		]
+	},
+	"workers_dev": true,
+	"preview_urls": false,
+	"keep_vars": true,
+	"vars": {
+		"NIY_ENVIRONMENT": "staging",
+		"NIY006_LOCAL_TEST_MODE": "0",
+		"LINE_LOGIN_CHANNEL_ID": "2011753957",
+		"LINE_LOGIN_REDIRECT_URI": "https://next-is-you-staging.kunger810.workers.dev/auth/line/callback"
+	}
+}

@@ -174,11 +174,13 @@ def test_local_http_acceptance_journey() -> None:
                         "hospital": "ntuh-main",
                         "display_name": "臺大醫院總院",
                         "capability": "full_schedule",
+                        "departments": [{"code": "OPH", "display_name": "眼科"}],
                     },
                     {
                         "hospital": "shin-kong-taipei",
                         "display_name": "新光醫院（台北）",
                         "capability": "unsupported",
+                        "departments": [],
                     },
                 ],
             }

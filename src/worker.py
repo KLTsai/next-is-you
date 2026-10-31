@@ -475,6 +475,12 @@ def create_app(
                         "hospital": hospital.value,
                         "display_name": entry.display_name,
                         "capability": entry.capability.value,
+                        "source_url": progress_link(hospital.value),
+                        "clinic_code_labels": list(entry.clinic_code_labels),
+                        "departments": [
+                            {"code": dept.code, "display_name": dept.display_name}
+                            for dept in entry.departments
+                        ],
                     }
                     for hospital, entry in HOSPITAL_REGISTRY.items()
                 ]

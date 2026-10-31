@@ -30,6 +30,19 @@ class SourceCapability(StrEnum):
     UNSUPPORTED = "unsupported"
 
 
+@dataclass(frozen=True, slots=True)
+class SupportedDepartment:
+    """A department the setup picker may offer for a hospital.
+
+    `code` is what a draft stores and the reader matches on; `display_name` is
+    what the picker shows. Only departments listed here are offered, so the
+    frontend never has to know a hospital's own department codes.
+    """
+
+    code: str
+    display_name: str
+
+
 class ClinicSession(StrEnum):
     MORNING = "morning"
     AFTERNOON = "afternoon"

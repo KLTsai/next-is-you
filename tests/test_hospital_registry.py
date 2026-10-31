@@ -71,6 +71,15 @@ def test_capability_reflects_the_registered_tier() -> None:
     assert capability_of(Hospital.SHIN_KONG_TAIPEI) is SourceCapability.UNSUPPORTED
 
 
+def test_registry_declares_supported_departments() -> None:
+    from next_is_you.hospital_registry import HOSPITAL_REGISTRY
+
+    ntuh = HOSPITAL_REGISTRY[Hospital.NTUH_MAIN].departments
+    assert [(d.code, d.display_name) for d in ntuh] == [("OPH", "眼科")]
+    # No reader, so no department is offered.
+    assert HOSPITAL_REGISTRY[Hospital.SHIN_KONG_TAIPEI].departments == ()
+
+
 @pytest.mark.asyncio
 async def test_dispatches_by_hospital_and_builds_the_reader_once(monkeypatch) -> None:
     built: list[ReaderDeps] = []

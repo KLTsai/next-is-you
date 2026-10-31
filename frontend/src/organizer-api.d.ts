@@ -1,5 +1,35 @@
 export type Hospital = "ntuh-main" | "shin-kong-taipei";
+export type Session = "morning" | "afternoon" | "evening";
+export type SourceCapability = "full_schedule" | "current_number_only" | "unsupported";
 export type VisitState = "draft" | "active" | "stopping" | "stopped" | "expired";
+
+export interface SupportedDepartment {
+  code: string;
+  display_name: string;
+}
+
+export interface HospitalCatalogEntry {
+  hospital: Hospital;
+  display_name: string;
+  capability: SourceCapability;
+  source_url: string | null;
+  clinic_code_labels: string[];
+  departments: SupportedDepartment[];
+}
+
+export interface ClinicOption {
+  session: Session;
+  room: string;
+  doctor: string;
+  clinic_type: string;
+  clinic_code: string;
+}
+
+export interface ClinicRoster {
+  available: boolean;
+  reason: string;
+  clinics: ClinicOption[];
+}
 export type SourceReadStatus = "usable" | "unavailable" | "stale" | "untrusted" | "scope_mismatch" | "invalid";
 export type SourceReadReason = "none" | "no_observation" | "timeout" | "stale_sample" | "untrusted_source" | "scope_mismatch" | "empty_result" | "schema_drift" | "access_denied" | "ambiguous_match" | "invalid_data";
 
@@ -41,6 +71,8 @@ export class OrganizerApiError extends Error {
 
 export function listRecipients(options?: object): Promise<{ recipients: Recipient[] }>;
 export function listVisits(options?: object): Promise<{ visits: OrganizerVisit[] }>;
+export function listHospitals(options?: object): Promise<{ hospitals: HospitalCatalogEntry[] }>;
+export function listClinics(hospital: string, department: string, date: string, options?: object): Promise<ClinicRoster>;
 export function getVisitCorrection(id: string, options?: object): Promise<{ patient_number: number }>;
 export function createVisit(input: VisitInput, options?: object): Promise<{ id: string; state: "draft" }>;
 export function updateVisit(id: string, input: VisitInput, options?: object): Promise<{ id: string; state: "draft" }>;

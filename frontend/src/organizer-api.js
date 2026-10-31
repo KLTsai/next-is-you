@@ -41,6 +41,15 @@ export function listVisits(options) {
   return request("/api/organizer/visits", options);
 }
 
+export function listHospitals(options) {
+  return request("/api/organizer/hospitals", options);
+}
+
+export function listClinics(hospital, department, date, options = {}) {
+  const query = new URLSearchParams({ department, date }).toString();
+  return request(`/api/organizer/hospitals/${encodeURIComponent(hospital)}/clinics?${query}`, options);
+}
+
 export function getVisitCorrection(id, options = {}) {
   return request(`/api/organizer/visits/${encodeURIComponent(id)}/correction`, { ...options, csrf: true });
 }

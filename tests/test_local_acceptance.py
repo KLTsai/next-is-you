@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from httpx import ASGITransport, AsyncClient
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 import uvicorn
 
 from next_is_you.auth import CSRF_COOKIE_NAME
@@ -538,7 +538,12 @@ def test_local_browser_acceptance_journey() -> None:
                 page.get_by_text(
                     "草稿修改已儲存。請在提醒清單重新檢查並開始。", exact=True
                 ).wait_for()
-                assert page.get_by_text("晚診（evening）", exact=True).count() >= 1
+                # The saved message renders before the list reload completes, so
+                # wait for the card to reflect the new session rather than asserting
+                # immediately.
+                expect(
+                    page.get_by_text("晚診（evening）", exact=True).first
+                ).to_be_visible()
 
                 configured = page.request.post(
                     f"{origin}/__niy006_test/observation",

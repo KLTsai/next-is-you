@@ -1,0 +1,104 @@
+name: Candidate deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Full 40-character commit SHA on main to deploy to staging
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy candidate to Cloudflare staging
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://next-is-you-staging.kunger810.workers.dev
+    env:
+      CI: "true"
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      REQUESTED_COMMIT: ${{ inputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Resolve an immutable main commit
+        id: candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$REQUESTED_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Enter a full 40-character lowercase commit SHA." >&2
+            exit 1
+          fi
+          git fetch --force origin main
+          commit="$(git rev-parse --verify "${REQUESTED_COMMIT}^{commit}")"
+          git merge-base --is-ancestor "$commit" origin/main
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.candidate.outputs.commit }}
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.3"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install Python dependencies
+        run: uv sync --group dev --locked
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Build frontend assets
+        run: npm run build
+      - name: Apply D1 migrations (staging)
+        run: uv run python -m pywrangler d1 migrations apply next-is-you-staging --remote --config wrangler.staging.jsonc
+      - name: Deploy Worker (staging)
+        run: uv run python -m pywrangler deploy --config wrangler.staging.jsonc --keep-vars
+      - name: Record immutable candidate tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "package.json must contain a stable SemVer version." >&2
+            exit 1
+          fi
+          short_commit="$(git rev-parse --short=12 HEAD)"
+          tag="candidate-v${version}-${short_commit}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag"; then
+            echo "Candidate tag already exists: $tag" >&2
+            exit 1
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git tag --annotate "$tag" --message "Staging candidate for ${GITHUB_SHA}"
+          git push origin "refs/tags/$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Record deployment summary
+        if: always()
+        run: |
+          {
+            echo "### Candidate deployment"
+            echo ""
+            echo "- Commit: ${{ steps.candidate.outputs.commit }}"
+            echo "- Candidate tag: ${{ steps.tag.outputs.tag }}"
+            echo "- Worker: next-is-you-staging"
+            echo "- D1 database: next-is-you-staging"
+            echo "- Status: ${{ job.status }}"
+            echo "- URL: https://next-is-you-staging.kunger810.workers.dev"
+          } >> "$GITHUB_STEP_SUMMARY"

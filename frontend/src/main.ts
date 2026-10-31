@@ -5,6 +5,8 @@ import {
   createInvitation,
   createVisit,
   getVisitCorrection,
+  listClinics,
+  listHospitals,
   listRecipients,
   listVisits,
   removeVisitRecipient,
@@ -13,17 +15,20 @@ import {
   updateVisit,
   withdrawMember,
 } from "./organizer-api.js";
-import type { Hospital, OrganizerVisit, Recipient, VisitInput } from "./organizer-api.js";
+import type {
+  ClinicRoster,
+  Hospital,
+  HospitalCatalogEntry,
+  OrganizerVisit,
+  Recipient,
+  VisitInput,
+} from "./organizer-api.js";
 import { canRequestStart, formatSourceStatus, formatVisitState, visitStatusKey } from "./visit-state.js";
 import { sourceLinkMarkup } from "./source-link.js";
 import { projectDashboardVisits } from "./dashboard-projection.js";
 
 const app = document.querySelector<HTMLElement>("#app");
 const serviceStatus = document.querySelector<HTMLSpanElement>("#service-status");
-const hospitalNames: Record<Hospital, string> = {
-  "ntuh-main": "臺大醫院總院",
-  "shin-kong-taipei": "新光醫院（台北）",
-};
 const sessionNames: Record<OrganizerVisit["session"], string> = {
   morning: "早診",
   afternoon: "午診",
@@ -45,6 +50,11 @@ const sourceReasons: Record<string, string> = {
 
 let recipients: Recipient[] = [];
 let visits: OrganizerVisit[] = [];
+let hospitals: HospitalCatalogEntry[] = [];
+let roster: ClinicRoster | null = null;
+let rosterLoading = false;
+let rosterKey = "";
+let formErrors: Record<string, string> = {};
 let authorized = false;
 let localTestMode = false;
 let loading = false;
@@ -78,6 +88,43 @@ function text(value: string | number | null | undefined): string {
 function recipientLabel(recipient: Recipient): string {
   const label = recipient.display_name.trim();
   return label || `成員 · ${recipient.id.slice(0, 6)}`;
+}
+
+function hospitalEntry(hospital: string): HospitalCatalogEntry | undefined {
+  return hospitals.find((entry) => entry.hospital === hospital);
+}
+
+function hospitalDisplayName(hospital: string): string {
+  return hospitalEntry(hospital)?.display_name ?? hospital;
+}
+
+function firstHospital(): string {
+  return hospitals[0]?.hospital ?? "";
+}
+
+function todayTaipei(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function selectionKey(hospital: string, department: string, date: string): string {
+  return `${hospital}\u0000${department}\u0000${date}`;
+}
+
+function degradeNotice(reason: string): string {
+  const map: Record<string, string> = {
+    date_not_today: "預約當天該科門診才會出現在院方進度頁。你可以先手動輸入建立草稿，或當天回來用醫師下拉（免打字）。",
+    no_observation: "目前無法取得當日門診名單（服務尚未開放即時讀取），已切換為手動輸入。",
+    access_denied: "院方暫時拒絕讀取當日名單，已切換為手動輸入。",
+    timeout: "讀取院方名單逾時，已切換為手動輸入。",
+    schema_drift: "院方頁面格式無法辨識，已切換為手動輸入。",
+    scope_mismatch: "此科別不在支援範圍，已切換為手動輸入。",
+  };
+  return map[reason] ?? "目前無法取得當日門診名單，已切換為手動輸入。";
 }
 
 function formatCheckedAt(value: string | null | undefined): string {
@@ -138,14 +185,26 @@ function rememberFormValues(): void {
   const form = document.querySelector<HTMLFormElement>("#visit-form");
   if (!form) return;
   const data = new FormData(form);
+  const prev = formValues ?? {};
+  // A cascading form hides fields that the current mode does not use; keep the
+  // previous value for any field absent from the DOM instead of clearing it.
+  const keep = (name: string, fallback: string): string => {
+    if (form.elements.namedItem(name)) return String(data.get(name) ?? "");
+    const stored = prev[name];
+    return typeof stored === "string" ? stored : fallback;
+  };
   formValues = {
-    hospital: String(data.get("hospital") ?? "ntuh-main"),
-    date: String(data.get("date") ?? ""),
-    patient_number: String(data.get("patient_number") ?? ""),
-    department_code: String(data.get("department_code") ?? ""),
-    clinic_code: String(data.get("clinic_code") ?? ""),
-    session: String(data.get("session") ?? "morning"),
-    recipient_ids: data.getAll("recipient_ids").map(String),
+    hospital: keep("hospital", firstHospital()),
+    date: keep("date", ""),
+    patient_number: keep("patient_number", ""),
+    department_code: keep("department_code", ""),
+    clinic_code: keep("clinic_code", ""),
+    session: keep("session", "morning"),
+    recipient_ids: form.elements.namedItem("recipient_ids")
+      ? data.getAll("recipient_ids").map(String)
+      : Array.isArray(prev.recipient_ids)
+        ? prev.recipient_ids
+        : [],
   };
 }
 
@@ -159,14 +218,25 @@ function hasUnsavedFormChanges(): boolean {
   if (!form) return false;
   const data = new FormData(form);
   const saved = editing?.visit;
+  const present = (name: string): boolean => Boolean(form.elements.namedItem(name));
+  const changed = (name: string, savedValue: string): boolean =>
+    present(name) && String(data.get(name) ?? "") !== savedValue;
   const baselineRecipients = saved?.recipients.map((recipient) => recipient.id).sort() ?? [];
-  const currentRecipients = data.getAll("recipient_ids").map(String).sort();
-  return data.get("hospital") !== (saved?.hospital ?? "ntuh-main")
-    || data.get("date") !== (saved?.date ?? "")
-    || data.get("patient_number") !== (initialPatientNumber ?? "")
-    || data.get("department_code") !== (saved?.department_code ?? "")
-    || data.get("clinic_code") !== (saved?.clinic_code ?? "")
-    || data.get("session") !== (saved?.session ?? "morning")
+  const currentRecipients = present("recipient_ids")
+    ? data.getAll("recipient_ids").map(String).sort()
+    : baselineRecipients;
+  // A new draft auto-selects the only hospital and its default department, so
+  // those defaults are not user edits. The roster-mode session is a derived
+  // hidden field; an empty value (no doctor picked yet) is not an edit either.
+  const currentHospital = String(data.get("hospital") ?? firstHospital());
+  const defaultDept = hospitalEntry(currentHospital)?.departments[0]?.code ?? "";
+  const sessionValue = String(data.get("session") ?? "");
+  return changed("hospital", saved?.hospital ?? firstHospital())
+    || changed("date", saved?.date ?? "")
+    || (present("patient_number") && String(data.get("patient_number") ?? "") !== (initialPatientNumber ?? ""))
+    || changed("department_code", saved?.department_code ?? defaultDept)
+    || changed("clinic_code", saved?.clinic_code ?? "")
+    || (present("session") && sessionValue !== "" && sessionValue !== (saved?.session ?? "morning"))
     || currentRecipients.join("\u0000") !== baselineRecipients.join("\u0000");
 }
 
@@ -177,13 +247,96 @@ function blockNavigationWithUnsavedChanges(): boolean {
   return true;
 }
 
+function errorMarkup(field: string): string {
+  return formErrors[field]
+    ? `<p class="inline-error" role="alert">${escapeHtml(formErrors[field])}</p>`
+    : "";
+}
+
+// The manual clinic-code parse preview, labelled from the catalog so it carries
+// no hard-coded hospital format. Returned separately so it can be patched in
+// place on input without re-rendering (and destroying) the whole form.
+function clinicPreview(labels: readonly string[], value: string): { cls: string; html: string } {
+  if (!labels.length || !value) return { cls: "", html: "" };
+  const parts = value.split("/").map((part) => part.trim());
+  if (parts.length === labels.length && parts.every(Boolean)) {
+    const read = labels.map((label, index) => `${escapeHtml(label)} <b>${escapeHtml(parts[index])}</b>`).join("｜");
+    return { cls: "", html: `系統讀到：${read} <span class="ok">✓</span>` };
+  }
+  return { cls: "warn", html: `格式通常為「${escapeHtml(labels.join("/"))}」，請對照院方進度頁。` };
+}
+
+function clinicPreviewMarkup(labels: readonly string[], value: string): string {
+  const { cls, html } = clinicPreview(labels, value);
+  return `<div class="parse-preview ${cls}" id="clinic-preview"${html ? "" : " hidden"}>${html}</div>`;
+}
+
+function clinicSectionMarkup(
+  entry: HospitalCatalogEntry,
+  selectedDept: string,
+  selectedDate: string,
+  selectedClinic: string,
+  selectedSession: string,
+): string {
+  const selectionReady = Boolean(selectedDept) && Boolean(selectedDate);
+  if (!selectionReady) {
+    return `<p class="gate-note">請先選擇科別與看診日期。</p>`;
+  }
+  const key = selectionKey(entry.hospital, selectedDept, selectedDate);
+  const rosterReady = roster !== null && rosterKey === key;
+  const useRoster = entry.capability === "full_schedule" && selectedDate === todayTaipei();
+
+  if (useRoster && !rosterReady) {
+    return `<div class="loading-row"><span class="spinner" aria-hidden="true"></span><span role="status">正在向院方讀取當天門診名單…</span></div>`;
+  }
+  if (useRoster && rosterReady && roster?.available) {
+    const options = roster.clinics
+      .map((clinic) => `<option value="${escapeHtml(clinic.clinic_code)}" ${selectedClinic === clinic.clinic_code ? "selected" : ""}>${escapeHtml(`${clinic.room} · ${clinic.doctor}（${sessionNames[clinic.session]}）`)}</option>`)
+      .join("");
+    const chosen = roster.clinics.find((clinic) => clinic.clinic_code === selectedClinic);
+    return `<label class="field"><span>醫師 / 診間</span><select name="clinic_code" required><option value="" ${selectedClinic ? "" : "selected"}>請選擇醫師</option>${options}</select><input type="hidden" name="session" value="${escapeHtml(chosen?.session ?? "")}"><small>只列出當天該科實際看診的醫師；診間與診次自動帶入。來源吻合不代表號碼已與現場燈號核實。</small>${errorMarkup("clinic_code")}</label>`;
+  }
+
+  // Manual entry: future/past date, held or unavailable roster, or a
+  // current-number-only source. Reuse the per-hospital source link and show a
+  // live parse preview so the user can confirm the three parts.
+  const reason = rosterReady && roster
+    ? roster.reason
+    : selectedDate !== todayTaipei()
+      ? "date_not_today"
+      : "no_observation";
+  // The part labels come from the catalog, so the preview carries no hard-coded
+  // hospital format. A mismatch is only a hint, never a submit gate.
+  const labels = entry.clinic_code_labels;
+  const preview = clinicPreviewMarkup(labels, selectedClinic);
+  const formatHint = labels.length
+    ? `照院方進度頁上顯示的「${escapeHtml(labels.join(" / "))}」文字填寫。`
+    : "照院方進度頁上顯示的資訊填寫。";
+  const sessionOptions = (["morning", "afternoon", "evening"] as const)
+    .map((value) => `<option value="${value}" ${selectedSession === value ? "selected" : ""}>${sessionNames[value]}</option>`)
+    .join("");
+  return `<p class="edit-notice">${escapeHtml(degradeNotice(reason))}</p>
+    <p class="source-ref">${sourceLinkMarkup(entry.source_url)}<small>${formatHint}</small></p>
+    <label class="field"><span>診間代碼</span><input name="clinic_code" maxlength="64" value="${escapeHtml(selectedClinic)}" autocomplete="off" required>${preview}<small>比對忽略大小寫、空白、標點；上面的即時預覽顯示系統讀到的內容供你核對。</small>${errorMarkup("clinic_code")}</label>
+    <label class="field"><span>診次</span><select name="session" required>${sessionOptions}</select>${errorMarkup("session")}</label>`;
+}
+
 function formMarkup(): string {
   const item = editing?.visit;
   const storedRecipients = item?.recipients.map((recipient) => recipient.id) ?? [];
   const allowedRecipientIds = editing?.mode === "correct" ? new Set(storedRecipients) : undefined;
   const draftRecipients = formValues?.recipient_ids;
   const selectedRecipients = Array.isArray(draftRecipients) ? draftRecipients : storedRecipients;
-  const defaultHospital = formValue("hospital", item?.hospital ?? "ntuh-main");
+
+  const selectedHospital = formValue("hospital", item?.hospital ?? firstHospital());
+  const entry = hospitalEntry(selectedHospital);
+  const capability = entry?.capability ?? "unsupported";
+  const departments = entry?.departments ?? [];
+  const selectedDept = formValue("department_code", item?.department_code ?? departments[0]?.code ?? "");
+  const selectedDate = formValue("date", item?.date ?? "");
+  const selectedClinic = formValue("clinic_code", item?.clinic_code ?? "");
+  const selectedSession = formValue("session", item?.session ?? "morning");
+
   const correctionIsExpired = item?.state === "expired";
   const formTitle = editing?.mode === "correct"
     ? correctionIsExpired ? "修正已結束的提醒" : "修正已停止的提醒"
@@ -191,27 +344,39 @@ function formMarkup(): string {
   const submitLabel = formSaving ? "儲存中…" : editing?.mode === "correct" ? "儲存修正並回到草稿" : item ? "儲存草稿" : "建立草稿";
   const showCancel = Boolean(item) || (!item && formValues !== null && hasUnsavedFormChanges());
   const cancelLabel = item ? "取消修正" : "清除未儲存草稿";
+
+  const hospitalRadios = hospitals.length
+    ? hospitals.map((hospital) => {
+      const disabled = hospital.capability === "unsupported";
+      return `<label class="choice"><input type="radio" name="hospital" value="${escapeHtml(hospital.hospital)}" ${selectedHospital === hospital.hospital ? "checked" : ""} ${disabled ? "disabled" : ""} required><span>${escapeHtml(hospital.display_name)}</span>${disabled ? `<span class="choice-note">尚未支援</span>` : ""}</label>`;
+    }).join("")
+    : `<p class="empty-inline">正在載入醫院清單…</p>`;
+
+  let body: string;
+  if (!entry || capability === "unsupported") {
+    body = `<div class="state-off" role="status"><p class="state-off-title">此醫院尚未支援自動候診監控</p><p>目前無法取得這家醫院的即時候診進度，待來源確認後開通。</p></div>`;
+  } else {
+    const deptOptions = departments
+      .map((dept) => `<option value="${escapeHtml(dept.code)}" ${selectedDept === dept.code ? "selected" : ""}>${escapeHtml(dept.display_name)}</option>`)
+      .join("");
+    const deptPrompt = departments.length > 1 ? `<option value="" ${selectedDept ? "" : "selected"}>請選擇科別</option>` : "";
+    const departmentField = `<label class="field"><span>科別</span><select name="department_code" required>${deptPrompt}${deptOptions}</select>${errorMarkup("department_code")}</label>`;
+    const dateField = `<label class="field"><span>看診日期</span><input name="date" type="date" value="${escapeHtml(selectedDate)}" required>${errorMarkup("date")}</label>`;
+    const clinicSection = clinicSectionMarkup(entry, selectedDept, selectedDate, selectedClinic, selectedSession);
+    const patientField = `<label class="field"><span>掛號序號</span><input name="patient_number" type="number" min="1" max="999999" value="${escapeHtml(formValue("patient_number", initialPatientNumber ?? ""))}" required inputmode="numeric"><small>僅供這筆提醒使用；已儲存草稿會顯示序號，方便辨識。</small>${errorMarkup("patient_number")}</label>`;
+    body = `<div class="form-grid">${departmentField}${dateField}</div>${clinicSection}${patientField}`;
+  }
+
+  const submitDisabled = formSaving || !entry || capability === "unsupported" || hospitals.length === 0;
+
   return `<section class="panel" aria-labelledby="setup-heading">
     <div class="panel-heading"><div><p class="eyebrow">提醒設定</p><h2 id="setup-heading">${formTitle}</h2></div><span class="step-count">${item ? formatVisitState(item.state) : "新草稿"}</span></div>
     ${item ? `<p class="edit-notice" role="status">你正在修改已儲存的${editing?.mode === "correct" ? correctionIsExpired ? "已結束提醒" : "已停止提醒" : "草稿"}。畫面上的變更尚未儲存；取消會捨棄這次編輯，儲存後仍須重新檢查才能開始提醒。</p>` : `<p class="intro">先建立草稿，再由提醒清單檢查並開始。建立或儲存草稿不會啟動監控，也不會傳送通知。</p>`}
     <form id="visit-form" novalidate>
-      <fieldset class="hospital-options"><legend>醫院</legend>
-        <label class="choice"><input type="radio" name="hospital" value="ntuh-main" ${defaultHospital === "ntuh-main" ? "checked" : ""} required><span>臺大醫院總院</span></label>
-        <label class="choice"><input type="radio" name="hospital" value="shin-kong-taipei" ${defaultHospital === "shin-kong-taipei" ? "checked" : ""}><span>新光醫院（台北）</span></label>
-      </fieldset>
-      <div class="form-grid">
-        <label class="field"><span>看診日期</span><input name="date" type="date" value="${escapeHtml(formValue("date", item?.date ?? ""))}" required></label>
-        <label class="field"><span>掛號序號</span><input name="patient_number" type="number" min="1" max="999999" value="${escapeHtml(formValue("patient_number", initialPatientNumber ?? ""))}" required inputmode="numeric"><small>${item ? "僅供這筆提醒修正使用；已儲存草稿會顯示序號，方便辨識。" : "僅供這筆提醒使用；已儲存草稿會顯示序號，方便辨識。"}</small></label>
-        <label class="field"><span>科別代碼</span><input name="department_code" maxlength="64" value="${escapeHtml(formValue("department_code", item?.department_code ?? ""))}" required autocomplete="off"></label>
-        <label class="field"><span>診間代碼</span><input name="clinic_code" maxlength="64" value="${escapeHtml(formValue("clinic_code", item?.clinic_code ?? ""))}" required autocomplete="off"><small>臺大醫院總院眼科：科別填 OPH，診間填「診間/醫師/門診別」，例如 11/Hsiao-Sang Chu/Dr. Appt.，須與院方進度頁列表一致。來源讀取與設定範圍吻合不代表號碼已與現場燈號核實；此準確性尚未驗證。</small></label>
-        <label class="field"><span>診次</span><select name="session" required>
-          <option value="morning" ${formValue("session", item?.session ?? "morning") === "morning" ? "selected" : ""}>${sessionNames.morning}（morning）</option>
-          <option value="afternoon" ${formValue("session", item?.session ?? "morning") === "afternoon" ? "selected" : ""}>${sessionNames.afternoon}（afternoon）</option>
-          <option value="evening" ${formValue("session", item?.session ?? "morning") === "evening" ? "selected" : ""}>${sessionNames.evening}（evening）</option>
-        </select><small>這是系統目前接受的診次代碼，不代表該院、該科別或日期有開診。臺大總院眼科目前僅支援午診讀取；早診時段未驗證且不在支援範圍。請先依院方資訊確認；API 尚未提供診間與日期的可選診次。</small></label>
-      </div>
+      <fieldset class="hospital-options"><legend>醫院</legend>${hospitalRadios}</fieldset>
+      ${body}
       <fieldset class="recipient-panel"><legend>通知對象</legend><div class="recipient-list">${recipientChoices(selectedRecipients, allowedRecipientIds)}</div>${allowedRecipientIds ? `<p class="recipient-note">第一次成功啟動後，不能新增通知對象；修正時只能保留或移除原有對象。</p>` : ""}</fieldset>
-      <div class="action-row"><button class="primary-button" type="submit" ${formSaving ? "disabled" : ""}>${submitLabel}</button>${showCancel ? `<button class="secondary-button" id="cancel-edit" type="button" ${formSaving ? "disabled" : ""}>${cancelLabel}</button>` : ""}</div>
+      <div class="action-row"><button class="primary-button" type="submit" ${submitDisabled ? "disabled" : ""}>${submitLabel}</button>${showCancel ? `<button class="secondary-button" id="cancel-edit" type="button" ${formSaving ? "disabled" : ""}>${cancelLabel}</button>` : ""}</div>
       ${formSaving ? `<p class="inline-state" role="status">正在儲存${editing?.mode === "correct" ? "修正" : "草稿"}…</p>` : ""}
     </form>
     <p class="gate-note">儲存只會建立或更新草稿。提醒清單會顯示 API 提供的院方官方來源連結；連結不代表已查詢院方資料。</p>
@@ -241,7 +406,7 @@ function visitCard(item: OrganizerVisit): string {
     ? `<div><dt>掛號序號</dt><dd>${escapeHtml(String(item.patient_number))}</dd></div>`
     : "";
   return `<article class="visit-card" aria-labelledby="visit-${escapeHtml(item.id)}">
-    <div class="visit-heading"><div><p class="eyebrow">${escapeHtml(hospitalNames[item.hospital] ?? item.hospital)}</p><h3 id="visit-${escapeHtml(item.id)}">${escapeHtml(item.date)} · ${escapeHtml(item.department_code)} · ${escapeHtml(item.clinic_code)}</h3><p class="visit-session">${escapeHtml(sessionNames[item.session])}（${escapeHtml(item.session)}）</p></div><span class="state state-${displayStateKey}">${pendingStop ? "停止中" : stateKey === "source-unavailable" ? "來源暫不可用 · 草稿" : stateKey === "terminal" ? "已結束" : formatVisitState(item.state)}</span></div>
+    <div class="visit-heading"><div><p class="eyebrow">${escapeHtml(hospitalDisplayName(item.hospital))}</p><h3 id="visit-${escapeHtml(item.id)}">${escapeHtml(item.date)} · ${escapeHtml(item.department_code)} · ${escapeHtml(item.clinic_code)}</h3><p class="visit-session">${escapeHtml(sessionNames[item.session])}（${escapeHtml(item.session)}）</p></div><span class="state state-${displayStateKey}">${pendingStop ? "停止中" : stateKey === "source-unavailable" ? "來源暫不可用 · 草稿" : stateKey === "terminal" ? "已結束" : formatVisitState(item.state)}</span></div>
     <dl class="details">
       <div><dt>科別・診間・診次</dt><dd>${escapeHtml(item.department_code)}・${escapeHtml(item.clinic_code)}・${escapeHtml(item.session)}</dd></div>
       ${patientNumberRow}
@@ -314,6 +479,28 @@ function scheduleStoppingRefresh(): void {
   }, 1000);
 }
 
+async function maybeFetchRoster(): Promise<void> {
+  if (!authorized || rosterLoading) return;
+  const item = editing?.visit;
+  const hospital = formValue("hospital", item?.hospital ?? firstHospital());
+  const entry = hospitalEntry(hospital);
+  if (!entry || entry.capability !== "full_schedule") return;
+  const department = formValue("department_code", item?.department_code ?? entry.departments[0]?.code ?? "");
+  const date = formValue("date", item?.date ?? "");
+  if (!department || !date || date !== todayTaipei()) return;
+  const key = selectionKey(hospital, department, date);
+  if (roster !== null && rosterKey === key) return;
+  rosterLoading = true;
+  try {
+    roster = await listClinics(hospital, department, date);
+  } catch {
+    roster = { available: false, reason: "no_observation", clinics: [] };
+  }
+  rosterKey = key;
+  rosterLoading = false;
+  renderDashboard(false);
+}
+
 async function loadDashboard(preserveSaveConfirmation = false): Promise<void> {
   if (!serviceStatus) return;
   loading = true;
@@ -323,9 +510,14 @@ async function loadDashboard(preserveSaveConfirmation = false): Promise<void> {
     localTestMode = (await health.json()).mode === "local-test";
     serviceStatus.textContent = "服務正常";
     serviceStatus.className = "status status-ok";
-    const [roster, projection] = await Promise.all([listRecipients(), listVisits()]);
-    recipients = roster.recipients;
+    const [recipientRoster, projection, catalog] = await Promise.all([
+      listRecipients(),
+      listVisits(),
+      listHospitals(),
+    ]);
+    recipients = recipientRoster.recipients;
     visits = projection.visits;
+    hospitals = catalog.hospitals;
     authorized = true;
     refreshWarning = "";
   } catch (error) {
@@ -375,14 +567,46 @@ function readForm(form: HTMLFormElement): VisitInput | null {
   const session = data.get("session");
   const patientNumber = Number(data.get("patient_number"));
   const selectedRecipients = data.getAll("recipient_ids").filter((item): item is string => typeof item === "string");
-  if ((hospital !== "ntuh-main" && hospital !== "shin-kong-taipei") || typeof date !== "string" || !date
+  if (typeof hospital !== "string" || !hospital || typeof date !== "string" || !date
     || typeof department !== "string" || !department.trim() || typeof clinic !== "string" || !clinic.trim()
     || (session !== "morning" && session !== "afternoon" && session !== "evening")
     || !Number.isSafeInteger(patientNumber) || patientNumber < 1 || selectedRecipients.length === 0) return null;
   return {
-    hospital, date, department_code: department.trim(), clinic_code: clinic.trim(),
+    hospital: hospital as Hospital, date, department_code: department.trim(), clinic_code: clinic.trim(),
     session, patient_number: patientNumber, recipient_ids: selectedRecipients,
   };
+}
+
+// Pre-submit validation for the mistake classes that must be caught before a
+// draft enters monitoring. Authoritative identity/freshness checks still run in
+// the backend Start (fail-closed); this only improves the setup experience.
+function validateForm(form: HTMLFormElement): boolean {
+  const data = new FormData(form);
+  const errors: Record<string, string> = {};
+  const hospital = String(data.get("hospital") ?? "");
+  const department = String(data.get("department_code") ?? "");
+  const date = String(data.get("date") ?? "");
+  const clinic = String(data.get("clinic_code") ?? "").trim();
+  const today = todayTaipei();
+  if (date && date < today) {
+    errors.date = "看診日期已過，請選擇今天或之後的日期。";
+  }
+  const entry = hospitalEntry(hospital);
+  const rosterReady = roster !== null
+    && rosterKey === selectionKey(hospital, department, date)
+    && roster.available;
+  // Only roster-mode selection is checked here, since that is hospital-neutral
+  // (the clinic must be one the live roster offered). Manual-entry formatting is
+  // hospital-specific and is validated authoritatively by the backend Start.
+  if (entry?.capability === "full_schedule" && date === today && rosterReady) {
+    if (!clinic) {
+      errors.clinic_code = "請選擇醫師。";
+    } else if (!roster!.clinics.some((option) => option.clinic_code === clinic)) {
+      errors.clinic_code = "所選醫師當天該科沒有看診，請重新選擇。";
+    }
+  }
+  formErrors = errors;
+  return Object.keys(errors).length === 0;
 }
 
 function bindActions(): void {
@@ -446,20 +670,59 @@ function bindActions(): void {
     editing = null;
     formValues = null;
     initialPatientNumber = null;
+    formErrors = {};
     message = "";
     renderDashboard(false);
   });
+  // Reveal-drivers re-render so dependent fields appear and the roster is
+  // fetched once hospital + department + date are complete. A clinic *select*
+  // also re-renders, to refresh its derived hidden session.
+  const rerenderOnChange = (selector: string): void => {
+    document.querySelectorAll<HTMLInputElement | HTMLSelectElement>(selector).forEach((element) => {
+      element.addEventListener("change", () => {
+        rememberFormValues();
+        formErrors = {};
+        renderDashboard(false);
+      });
+    });
+  };
+  rerenderOnChange('#visit-form [name="hospital"]');
+  rerenderOnChange('#visit-form select[name="department_code"]');
+  rerenderOnChange('#visit-form input[name="date"]');
+  rerenderOnChange('#visit-form select[name="clinic_code"]');
+  // A free-text clinic code must NOT re-render on every edit: that would drop
+  // focus mid-typing and destroy the submit button on blur (losing the click).
+  // Patch only the parse preview in place; its value is read from the DOM on
+  // submit and captured by rememberFormValues on the next real render.
+  const clinicInput = document.querySelector<HTMLInputElement>('#visit-form input[name="clinic_code"]');
+  const previewNode = document.querySelector<HTMLElement>("#clinic-preview");
+  if (clinicInput && previewNode) {
+    clinicInput.addEventListener("input", () => {
+      const hospital = formValue("hospital", editing?.visit.hospital ?? firstHospital());
+      const labels = hospitalEntry(hospital)?.clinic_code_labels ?? [];
+      const { cls, html } = clinicPreview(labels, clinicInput.value);
+      previewNode.className = `parse-preview ${cls}`;
+      previewNode.innerHTML = html;
+      previewNode.hidden = !html;
+    });
+  }
   document.querySelector<HTMLFormElement>("#visit-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     if (!(form instanceof HTMLFormElement)) return;
     if (!form.reportValidity()) return;
+    if (!validateForm(form)) {
+      message = "";
+      renderDashboard();
+      return;
+    }
     const input = readForm(form);
     if (!input) {
       message = "請輸入完整診次資料並選擇至少一位通知對象。";
       renderDashboard();
       return;
     }
+    formErrors = {};
     if (formSaving) return;
     formSaving = true;
     message = "";
@@ -586,6 +849,8 @@ function bindActions(): void {
       await loadDashboard();
     }
   }));
+
+  void maybeFetchRoster();
 }
 
 void loadDashboard();

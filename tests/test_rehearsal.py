@@ -585,9 +585,11 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
                 page.locator('[data-stop="rehearsal-setup"]').click()
                 expect(page.locator('[data-correct="rehearsal-setup"]')).to_be_visible()
                 page.locator("input[name=date]").fill(day)
+                page.locator("input[name=clinic_code]").wait_for()
                 page.locator("input[name=patient_number]").fill("85")
-                page.locator("input[name=department_code]").fill("SYN")
-                page.locator("input[name=clinic_code]").fill("SYN-1")
+                page.locator("input[name=clinic_code]").fill(
+                    "11 診/合成醫師丙/醫師約診"
+                )
                 page.locator("select[name=session]").select_option("afternoon")
                 page.locator(
                     'input[name=recipient_ids][value="rehearsal-recipient"]'
@@ -741,9 +743,11 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                 page.get_by_role("button", name="本機合成測試登入").click()
                 page.locator('[data-stop="rehearsal-transition-setup"]').click()
                 page.locator("input[name=date]").fill(day)
+                page.locator("input[name=clinic_code]").wait_for()
                 page.locator("input[name=patient_number]").fill("88")
-                page.locator("input[name=department_code]").fill("SYN-DRAFT")
-                page.locator("input[name=clinic_code]").fill("SYN-DRAFT-1")
+                page.locator("input[name=clinic_code]").fill(
+                    "SYN-DRAFT 診/合成醫師甲/門診約診"
+                )
                 page.locator("select[name=session]").select_option("afternoon")
                 page.locator(
                     'input[name=recipient_ids][value="rehearsal-transition-recipient"]'
@@ -786,16 +790,17 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                     page.get_by_role("heading", name="修正已停止的提醒")
                 ).to_be_visible()
                 page.locator("input[name=patient_number]").fill("89")
-                page.locator("input[name=department_code]").fill("SYN-CORRECTED")
-                page.locator("input[name=clinic_code]").fill("SYN-CORRECTED-1")
+                page.locator("input[name=clinic_code]").fill(
+                    "SYN-CORRECTED 診/合成醫師乙/門診約診"
+                )
                 assert page.locator("input[name=patient_number]").input_value() == "89"
                 assert (
-                    page.locator("input[name=department_code]").input_value()
-                    == "SYN-CORRECTED"
+                    page.locator('select[name="department_code"]').input_value()
+                    == "OPH"
                 )
                 assert (
                     page.locator("input[name=clinic_code]").input_value()
-                    == "SYN-CORRECTED-1"
+                    == "SYN-CORRECTED 診/合成醫師乙/門診約診"
                 )
                 failed_corrections = []
 
@@ -862,7 +867,7 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                     corrected_api = next(
                         visit for visit in corrected_visits if visit["id"] == draft_id
                     )
-                    assert corrected_api["department_code"] == "SYN-CORRECTED"
+                    assert corrected_api["department_code"] == "OPH"
 
                     def fail_dashboard_refresh(route):
                         route.fulfill(
@@ -908,7 +913,7 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                 )
                 expect(corrected_draft).to_be_visible()
                 expect(corrected_draft).to_contain_text("SYN-CORRECTED")
-                expect(corrected_draft).to_contain_text("SYN-CORRECTED-1")
+                expect(corrected_draft).to_contain_text("合成醫師乙")
                 expect(corrected_draft).to_contain_text("掛號序號")
                 expect(corrected_draft).to_contain_text("89")
                 expect(
@@ -921,8 +926,10 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                 )["visits"]
                 corrected = next(visit for visit in visits if visit["id"] == draft_id)
                 assert corrected["state"] == "draft"
-                assert corrected["department_code"] == "SYN-CORRECTED"
-                assert corrected["clinic_code"] == "SYN-CORRECTED-1"
+                assert corrected["department_code"] == "OPH"
+                assert (
+                    corrected["clinic_code"] == "SYN-CORRECTED 診/合成醫師乙/門診約診"
+                )
                 assert corrected["patient_number"] == 89
         finally:
             context.close()
@@ -977,16 +984,21 @@ def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fie
                     page.locator('[data-correct="rehearsal-failure-setup"]')
                 ).to_be_visible()
 
+                # Department and date share the first cascading row; they stay aligned.
+                department_box = page.locator(
+                    'select[name="department_code"]'
+                ).bounding_box()
                 date_box = page.locator("input[name=date]").bounding_box()
-                number_box = page.locator("input[name=patient_number]").bounding_box()
-                assert date_box and number_box
-                assert abs(date_box["height"] - number_box["height"]) < 1
-                assert abs(date_box["y"] - number_box["y"]) < 1
+                assert department_box and date_box
+                assert abs(department_box["height"] - date_box["height"]) < 1
+                assert abs(department_box["y"] - date_box["y"]) < 1
 
                 page.locator("input[name=date]").fill(day)
+                page.locator("input[name=clinic_code]").wait_for()
                 page.locator("input[name=patient_number]").fill("85")
-                page.locator("input[name=department_code]").fill("SYN")
-                page.locator("input[name=clinic_code]").fill("SYN-1")
+                page.locator("input[name=clinic_code]").fill(
+                    "11 診/合成醫師丙/醫師約診"
+                )
                 page.locator(
                     'input[name=recipient_ids][value="rehearsal-failure-recipient"]'
                 ).check()

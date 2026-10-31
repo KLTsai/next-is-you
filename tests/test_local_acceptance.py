@@ -6,7 +6,7 @@ import sqlite3
 import socket
 import threading
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -174,12 +174,19 @@ def test_local_http_acceptance_journey() -> None:
                         "hospital": "ntuh-main",
                         "display_name": "臺大醫院總院",
                         "capability": "full_schedule",
+                        "source_url": (
+                            "https://registration.ntuh.gov.tw/WebReg/WebReg/"
+                            "ClinicCurrentLightNo?vHospCode=T0"
+                        ),
+                        "clinic_code_labels": ["診間", "醫師", "門診別"],
                         "departments": [{"code": "OPH", "display_name": "眼科"}],
                     },
                     {
                         "hospital": "shin-kong-taipei",
                         "display_name": "新光醫院（台北）",
                         "capability": "unsupported",
+                        "source_url": "https://reg.skh.org.tw/",
+                        "clinic_code_labels": [],
                         "departments": [],
                     },
                 ],
@@ -315,6 +322,12 @@ def test_local_http_acceptance_journey() -> None:
 
 
 def test_local_browser_acceptance_journey() -> None:
+    # The cascading form validates against the browser's real date, so use a
+    # clearly-future appointment day (manual-entry mode, since the day is not
+    # today) and a synthetic clinic in the required 診間/醫師/門診別 format.
+    visit_day = (date.today() + timedelta(days=2)).isoformat()
+    clinic_code = "11 診/合成醫師丙/醫師約診"
+    heading_text = f"{visit_day} · OPH · {clinic_code}"
     database = SQLiteStore()
     database.connection.execute(
         """INSERT INTO recipients (
@@ -384,10 +397,12 @@ def test_local_browser_acceptance_journey() -> None:
                 page.get_by_role("button", name="本機合成測試登入").click()
                 page.locator("#visit-form").wait_for()
 
-                page.locator("input[name=date]").fill("2026-09-29")
+                # 眼科 (OPH) is the only supported department, pre-selected in the
+                # catalog-driven dropdown; the clinic is entered manually.
+                page.locator("input[name=date]").fill(visit_day)
+                page.locator("input[name=clinic_code]").wait_for()
                 page.locator("input[name=patient_number]").fill("85")
-                page.locator("input[name=department_code]").fill("MED")
-                page.locator("input[name=clinic_code]").fill("MED-101")
+                page.locator("input[name=clinic_code]").fill(clinic_code)
                 page.locator('select[name="session"]').select_option("afternoon")
                 page.locator(
                     'input[name=recipient_ids][value="selected-family"]'
@@ -429,10 +444,9 @@ def test_local_browser_acceptance_journey() -> None:
                 assert toggle.get_attribute("aria-expanded") == "true"
                 drafts = page.locator("#saved-drafts-list article.visit-card")
                 assert drafts.count() == 2
-                assert sorted(drafts.locator("h3").all_text_contents()) == [
-                    "2026-09-29 · MED · MED-101",
-                    "2026-09-30 · SYN2 · SYN-2",
-                ]
+                assert sorted(drafts.locator("h3").all_text_contents()) == sorted(
+                    [heading_text, "2026-09-30 · SYN2 · SYN-2"]
+                )
                 toggle.focus()
                 page.keyboard.press("Enter")
                 toggle = page.get_by_role("button", name="展開草稿")
@@ -443,25 +457,25 @@ def test_local_browser_acceptance_journey() -> None:
                 toggle.click()
                 first_draft = page.locator(
                     "#saved-drafts-list article.visit-card"
-                ).filter(has_text="2026-09-29 · MED · MED-101")
+                ).filter(has_text=heading_text)
                 first_visit = page.locator("article.visit-card").filter(
-                    has_text="2026-09-29 · MED · MED-101"
+                    has_text=heading_text
                 )
                 visit_heading = first_draft.locator('h3[id^="visit-"]')
                 visit_heading.wait_for()
-                assert "2026-09-29 · MED · MED-101" in visit_heading.inner_text()
+                assert heading_text in visit_heading.inner_text()
                 assert (
                     first_draft.get_by_text("Selected family", exact=True).count() == 1
                 )
                 assert page.get_by_text("來源暫不可用", exact=False).count() >= 1
 
-                page.locator('input[name="department_code"]').fill("UNSAVED-NEW")
+                page.locator('input[name="patient_number"]').fill("5")
                 first_draft.get_by_role("button", name="修正草稿").click()
                 page.get_by_text(
                     "目前設定尚未儲存。請先儲存或取消修正，再開啟其他提醒。", exact=True
                 ).wait_for()
                 page.get_by_role("button", name="清除未儲存草稿").click()
-                assert page.locator('input[name="department_code"]').input_value() == ""
+                assert page.locator('input[name="patient_number"]').input_value() == ""
 
                 first_draft.get_by_role("button", name="重新檢查並開始提醒").click()
                 page.get_by_text(
@@ -477,10 +491,12 @@ def test_local_browser_acceptance_journey() -> None:
                     "document.querySelector('input[name=patient_number]')?.value === '85'"
                 )
                 assert (
-                    page.locator('input[name="department_code"]').input_value() == "MED"
+                    page.locator('select[name="department_code"]').input_value()
+                    == "OPH"
                 )
                 assert (
-                    page.locator('input[name="clinic_code"]').input_value() == "MED-101"
+                    page.locator('input[name="clinic_code"]').input_value()
+                    == clinic_code
                 )
                 assert (
                     page.locator('select[name="session"]').input_value() == "afternoon"
@@ -495,18 +511,22 @@ def test_local_browser_acceptance_journey() -> None:
                     page.locator('input[name="patient_number"]').input_value() == "85"
                 )
                 assert (
-                    page.locator('input[name="department_code"]').input_value() == "MED"
+                    page.locator('input[name="clinic_code"]').input_value()
+                    == clinic_code
                 )
-                page.locator('input[name="department_code"]').fill("UNSAVED")
+                page.locator('input[name="clinic_code"]').fill("臨時變更/未存/門診")
                 page.get_by_role("button", name="重新整理").click()
                 assert (
-                    page.locator('input[name="department_code"]').input_value()
-                    == "UNSAVED"
+                    page.locator('input[name="clinic_code"]').input_value()
+                    == "臨時變更/未存/門診"
                 )
                 page.get_by_role("button", name="取消修正").click()
-                page.locator('input[name="department_code"]').wait_for()
-                assert page.locator('input[name="department_code"]').input_value() == ""
-                assert "MED" in first_draft.locator("h3").inner_text()
+                page.locator('select[name="department_code"]').wait_for()
+                assert (
+                    page.locator('select[name="department_code"]').input_value()
+                    == "OPH"
+                )
+                assert heading_text in first_draft.locator("h3").inner_text()
 
                 first_draft.get_by_role("button", name="修正草稿").click()
                 page.wait_for_function(
@@ -585,7 +605,8 @@ def test_local_browser_acceptance_journey() -> None:
                     page.locator('input[name="patient_number"]').input_value() == "85"
                 )
                 assert (
-                    page.locator('input[name="department_code"]').input_value() == "MED"
+                    page.locator('select[name="department_code"]').input_value()
+                    == "OPH"
                 )
                 page.get_by_role("button", name="儲存修正並回到草稿").click()
                 page.get_by_text(

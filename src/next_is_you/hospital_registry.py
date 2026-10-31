@@ -57,6 +57,9 @@ class HospitalEntry:
     build_reader: Callable[[ReaderDeps], HospitalReader] | None
     # Departments the setup picker may offer; empty when none are supported yet.
     departments: tuple[SupportedDepartment, ...] = ()
+    # Labels for the manual clinic-code parts, so the setup form can show a parse
+    # preview without hard-coding any hospital's format. Empty = freeform.
+    clinic_code_labels: tuple[str, ...] = ()
 
 
 HOSPITAL_REGISTRY: Mapping[Hospital, HospitalEntry] = {
@@ -66,6 +69,7 @@ HOSPITAL_REGISTRY: Mapping[Hospital, HospitalEntry] = {
         build_reader=lambda deps: NtuhProgressReader(deps.storage, deps.fetch),
         # Only ophthalmology is evidenced today; mirrors ntuh_reader's scope.
         departments=(SupportedDepartment(SUPPORTED_DEPARTMENT, "眼科"),),
+        clinic_code_labels=("診間", "醫師", "門診別"),
     ),
     # No reader until Issue #44 evidences a usable Shin Kong source; until then
     # it is offered to no one and reads fail closed.

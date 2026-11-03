@@ -1,6 +1,5 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"account_id": "d925c0785e08a13154955e1fd9678cc2",
 	"name": "next-is-you-staging",
 	"main": "src/worker.py",
 	"compatibility_date": "2026-09-25",
@@ -45,7 +44,6 @@
 	"vars": {
 		"NIY_ENVIRONMENT": "staging",
 		"NIY006_LOCAL_TEST_MODE": "0",
-		"LINE_LOGIN_CHANNEL_ID": "2011753957",
-		"LINE_LOGIN_REDIRECT_URI": "https://next-is-you-staging.kunger810.workers.dev/auth/line/callback"
+		"LINE_LOGIN_CHANNEL_ID": "2011753957"
 	}
 }

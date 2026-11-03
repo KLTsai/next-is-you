@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: prod
-      url: https://next-is-you-held.kunger810.workers.dev
+      url: ${{ vars.PROD_WORKER_URL }}
     env:
       CI: "true"
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -94,6 +94,6 @@ jobs:
             echo "- Worker: next-is-you-held"
             echo "- D1 database: next-is-you-production"
             echo "- Status: ${{ job.status }}"
-            echo "- URL: https://next-is-you-held.kunger810.workers.dev"
+            echo "- URL: ${{ vars.PROD_WORKER_URL }}"
             echo "- Formal release: ${{ steps.release.outputs.tag }}"
           } >> "$GITHUB_STEP_SUMMARY"

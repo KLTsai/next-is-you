@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: staging
-      url: https://next-is-you-staging.kunger810.workers.dev
+      url: ${{ vars.STAGING_WORKER_URL }}
     env:
       CI: "true"
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -100,5 +100,5 @@ jobs:
             echo "- Worker: next-is-you-staging"
             echo "- D1 database: next-is-you-staging"
             echo "- Status: ${{ job.status }}"
-            echo "- URL: https://next-is-you-staging.kunger810.workers.dev"
+            echo "- URL: ${{ vars.STAGING_WORKER_URL }}"
           } >> "$GITHUB_STEP_SUMMARY"

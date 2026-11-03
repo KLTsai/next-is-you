@@ -64,7 +64,7 @@ environment without copying production data:
    LINE Login channel:
 
    ```text
-   https://next-is-you-staging.kunger810.workers.dev/auth/line/callback
+   https://next-is-you-staging.<owner-subdomain>.workers.dev/auth/line/callback
    ```
 
    LINE supports more than one callback URL per channel. Do not replace the

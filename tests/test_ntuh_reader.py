@@ -907,7 +907,9 @@ async def test_start_activates_on_fresh_exact_positive_read() -> None:
     visit = await repository.get_visit("d1")
     assert visit["state"] == "active"
     assert counts(database, "d1")[:2] == ("usable", "none")
-    assert source.urls == [LIGHT_TABLE_URL]
+    # Pre-flight loads today's roster (one POST per session) before the
+    # authoritative observe_for_start read.
+    assert source.urls == [LIGHT_TABLE_URL] * 4
 
 
 @pytest.mark.asyncio
@@ -916,17 +918,17 @@ async def test_start_activates_on_fresh_exact_positive_read() -> None:
     [
         (
             FetchedPage(503, ""),
-            "observation_unavailable",
+            "schedule_unavailable",
             "unavailable",
             "no_observation",
         ),
         (
             FetchedPage(403, ""),
-            "observation_unavailable",
+            "schedule_unavailable",
             "unavailable",
             "access_denied",
         ),
-        (FetchedPage(200, "<html/>"), "observation_invalid", "invalid", "schema_drift"),
+        (FetchedPage(200, "<html/>"), "schedule_unavailable", "unavailable", "schema_drift"),
         (page_with(""), "observation_unavailable", "unavailable", "no_observation"),
         (page_with("000"), "observation_invalid", "invalid", "invalid_data"),
     ],
@@ -940,13 +942,17 @@ async def test_start_stays_draft_with_the_source_reason(page, error, status, rea
 
 
 @pytest.mark.asyncio
-async def test_start_on_another_day_stays_draft_without_a_request() -> None:
+async def test_start_on_an_earlier_day_degrades_to_schedule_unavailable() -> None:
+    # The visit is one day in the future from the simulated clock. Pre-flight
+    # reads RegDeptSchedule to validate the doctor; without a schedule fixture
+    # the parse fails as schema_drift and Start fails closed with
+    # schedule_unavailable. No DeptLightTable POST runs.
     source = FakeSource(PAGE)
     database, gate = await gate_with_visit(source)
     repository = await seed_ntuh(database, gate, "d1")
     day_before = (taipei(15, 0) - timedelta(days=1)).isoformat()
     assert await gate.start_visit("d1", day_before) == {
-        "error": "observation_unavailable"
+        "error": "schedule_unavailable"
     }
     assert source.urls == []
     assert (await repository.get_visit("d1"))["state"] == "draft"
@@ -995,6 +1001,155 @@ async def test_production_hold_disables_start_and_reader_status_even_if_enabled(
     status = await gate.scheduler_status()
     assert status["held"]
     assert not status["hospital_reader_available"]
+
+
+async def seed_ntuh_at(
+    database: LocalD1,
+    gate,
+    visit_id: str,
+    visit_day,
+    clinic_code: str = CLINIC,
+    session: str = "afternoon",
+    patient: int = 28,
+):
+    now = taipei(14, 0)
+    store = CloudflareD1Store(database)
+    await store.execute(
+        Statement(
+            """INSERT OR IGNORE INTO recipients (id, line_subject, display_name,
+            consented_at, friendship_checked_at, active, created_at) VALUES
+            ('r1', 'U' || lower(hex(zeroblob(16))), 'Synthetic one', ?, ?, 1, ?)""",
+            (now.isoformat(),) * 3,
+        )
+    )
+    repository = VisitRepository(store)
+    await repository.create_draft(
+        visit_id=visit_id,
+        hospital="ntuh-main",
+        visit_day=visit_day,
+        department_code="OPH",
+        clinic_code=clinic_code,
+        clinic_session=session,
+        patient_number=patient,
+        now=now,
+    )
+    assert await repository.add_recipient(visit_id, "r1", now)
+    return repository
+
+
+# Pre-flight validation for Start (Issue #58)
+
+
+_PREFLIGHT_SIM_SOURCE_DATE = datetime(2026, 11, 9).date()
+
+
+def _preflight_now() -> datetime:
+    return datetime(
+        _PREFLIGHT_SIM_SOURCE_DATE.year,
+        _PREFLIGHT_SIM_SOURCE_DATE.month,
+        _PREFLIGHT_SIM_SOURCE_DATE.day,
+        14,
+        0,
+        tzinfo=timezone(timedelta(hours=8)),
+    )
+
+
+@pytest.mark.asyncio
+async def test_preflight_blocks_start_when_visit_date_is_in_the_past() -> None:
+    source = FakeSource(PAGE)
+    database, gate = await gate_with_visit(source)
+    past = _PREFLIGHT_SIM_SOURCE_DATE - timedelta(days=1)
+    await seed_ntuh_at(database, gate, "past", past)
+    result = await gate.start_visit("past", _preflight_now().isoformat())
+    assert result == {"error": "visit_date_past"}
+    # No live fetches: pre-flight short-circuits before touching the source.
+    assert source.urls == []
+    assert counts(database, "past")[:2] == ("scope_mismatch", "scope_mismatch")
+
+
+@pytest.mark.asyncio
+async def test_preflight_blocks_start_when_date_is_out_of_schedule_window() -> None:
+    source = FakeSource(PAGE)
+    database, gate = await gate_with_visit(source)
+    beyond = _PREFLIGHT_SIM_SOURCE_DATE + timedelta(days=20)
+    await seed_ntuh_at(database, gate, "far", beyond)
+    result = await gate.start_visit("far", _preflight_now().isoformat())
+    assert result == {"error": "visit_date_out_of_schedule_window"}
+    assert source.urls == []
+    assert counts(database, "far")[:2] == ("scope_mismatch", "scope_mismatch")
+
+
+@pytest.mark.asyncio
+async def test_preflight_blocks_start_when_doctor_not_scheduled() -> None:
+    # The schedule fixture lists 合成醫師甲 at 11/10 morning room 03. A draft
+    # that names a different (session, room, doctor) must fail closed.
+    source = FakeSource(schedule=SCHEDULE_FIXTURE)
+    database, gate = await gate_with_visit(source)
+    await seed_ntuh_at(
+        database,
+        gate,
+        "mismatch",
+        SCHEDULE_FIRST_VISIT,
+        clinic_code="99/陌生醫師/角膜",
+        session="morning",
+    )
+    result = await gate.start_visit("mismatch", _preflight_now().isoformat())
+    assert result == {"error": "doctor_not_scheduled"}
+    assert counts(database, "mismatch")[:2] == ("scope_mismatch", "scope_mismatch")
+
+
+@pytest.mark.asyncio
+async def test_preflight_blocks_start_when_schedule_source_is_unreachable() -> None:
+    # No schedule in the fake source; parse yields schema_drift and the gate
+    # fails closed with a specific schedule_unavailable error.
+    source = FakeSource(PAGE)
+    database, gate = await gate_with_visit(source)
+    await seed_ntuh_at(database, gate, "down", SCHEDULE_FIRST_VISIT, session="morning")
+    result = await gate.start_visit("down", _preflight_now().isoformat())
+    assert result == {"error": "schedule_unavailable"}
+    assert counts(database, "down")[:2] == ("unavailable", "schema_drift")
+
+
+@pytest.mark.asyncio
+async def test_future_date_start_transitions_to_active_without_an_observation() -> None:
+    source = FakeSource(schedule=SCHEDULE_FIXTURE)
+    database, gate = await gate_with_visit(source)
+    repository = await seed_ntuh_at(
+        database,
+        gate,
+        "future",
+        SCHEDULE_FIRST_VISIT,
+        clinic_code="03/合成醫師甲/角膜",
+        session="morning",
+    )
+    result = await gate.start_visit("future", _preflight_now().isoformat())
+    assert result == {"state": "active"}
+    visit = await repository.get_visit("future")
+    assert visit["state"] == "active"
+    # No DeptLightTable POST; the clinic hasn't opened yet, so no observation.
+    assert source.urls == []
+    assert counts(database, "future")[:2] == ("unavailable", "no_observation")
+
+
+@pytest.mark.asyncio
+async def test_preflight_resolve_rewrites_clinic_code_for_same_day_schedule_sourced_draft() -> None:
+    # A draft left with the schedule-side 診別 (e.g. "角膜") is resolved to the
+    # today-side `clinic_type` from the live roster at Start time.
+    source = FakeSource(PAGE)
+    database, gate = await gate_with_visit(source)
+    repository = await seed_ntuh_at(
+        database,
+        gate,
+        "resolve",
+        DAY,
+        clinic_code="11診/合成醫師丙/角膜",
+    )
+    result = await gate.start_visit("resolve", taipei(14, 0).isoformat())
+    assert result == {"state": "active"}
+    updated = await repository.get_visit("resolve")
+    assert "醫師約診" in str(updated["clinic_code"])
+    assert "角膜" not in str(updated["clinic_code"])
+    assert "合成醫師丙" in str(updated["clinic_code"])
 
 
 async def active_visit(database, gate, visit_id="d1", patient=28):

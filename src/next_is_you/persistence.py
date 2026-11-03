@@ -770,6 +770,22 @@ class VisitRepository:
         )
         return changes == 1
 
+    async def update_clinic_code(self, visit_id: str, clinic_code: str) -> bool:
+        """Rewrite a draft's clinic_code when pre-flight resolves to a new value.
+
+        Used by the Start-time resolve step when a schedule-sourced draft's
+        visit_date reaches today: the stored clinic_type (schedule's 診別)
+        must become the today-side clinic_type so the visit-day reader's
+        (room, doctor, clinic_type) matcher continues to work.
+        """
+        changes = await self._store.execute(
+            Statement(
+                "UPDATE visits SET clinic_code = ? WHERE id = ? AND state = 'draft'",
+                (clinic_code, visit_id),
+            )
+        )
+        return changes == 1
+
     async def start(self, visit_id: str, now: datetime) -> bool:
         """Start or resume a corrected series while atomically freezing its roster."""
         changes = await self._store.execute(

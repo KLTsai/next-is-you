@@ -12,6 +12,8 @@ Next is you 就是替你做這件事的小工具。擁有者在瀏覽器開啟�
 
 這是給一個家庭與他們所邀請的人使用的工具，不是公開服務。在擁有者本人透過 Issue #22 的手機實測明確授權真實發送之前，所有環境下的提醒都處於保留狀態。
 
+如果你是第一次看到這個 repository，想知道能不能自己架一份：可以，這是支援的路徑。前置條件與範圍請跳到[想自架的其他家庭](#想自架的其他家庭)，本地設定流程請接著看[開發者](#開發者)。
+
 ## 現況
 
 以下是今日誠實的現況。權威來源是 GitHub 上的 issue tracker。以上任何一項都不代表已經有一則真實的病患提醒被送出。
@@ -19,19 +21,21 @@ Next is you 就是替你做這件事的小工具。擁有者在瀏覽器開啟�
 **已完成**
 
 - [x] 私人 HTTPS 服務已部署、提醒保留中，僅為保留態 bootstrap - [#18](https://github.com/KLTsai/next-is-you/issues/18)
+- [x] 看診比對改用科別 + 醫師 + 診間作為身分，並以來源本身的首筆/轉空白讀取結果界定監看範圍，取代原本寫死的時段時鐘窗 - [#34](https://github.com/KLTsai/next-is-you/issues/34)
+- [x] 連動式提醒建立 UI：選好醫院、科別與日期後，依即時門診名單帶出醫師/診間下拉選單（時段自動推算），沒有名單可用時會退回手動輸入並附上送出前驗證 - [#47](https://github.com/KLTsai/next-is-you/issues/47)。已知落差：新表單邏輯目前只有瀏覽器端的 E2E 測試覆蓋，還沒有獨立的單元測試；「來源缺某項能力」的退回路徑沒有 UI 層測試驗證；組合檢查只在有名單可用時才會跑，手動輸入模式下完全依賴後端 Start 驗證（這是刻意的設計，但尚未明確文件化或測試覆蓋）。
 - [x] 送出前擋掉三類設定錯誤，進入監看前就擋下：看診日期已過、所選醫師當日沒看診、科別/醫師/診間組合與院方公告對不上。14 天內的未來日期以 NTUH 的全科排班表預先驗證；超過 14 天的草稿先保留，進入視窗後由每日 sweep 自動補驗 - [#58](https://github.com/KLTsai/next-is-you/issues/58)
 
 **進行中**
 
-- [ ] 管理者主導的 LINE 邀請與移除 UI - [#19](https://github.com/KLTsai/next-is-you/issues/19)
-- [ ] 台大眼科 reader：已具備 fixture 與本地整合證據；來源的請求契約與 markup 已人工實地擷取，但 reader 本身的線上行為尚未驗證 - [#17](https://github.com/KLTsai/next-is-you/issues/17)、[#20](https://github.com/KLTsai/next-is-you/issues/20)
+- [ ] 可替換的醫院 adapter 後端邊界（`HospitalReader` 介面、醫院註冊表、能力描述）與新增醫院的文件指南（[docs/ADDING-A-HOSPITAL.md](docs/ADDING-A-HOSPITAL.md)） - [#45](https://github.com/KLTsai/next-is-you/issues/45)。介面與註冊表已經合併進主線；issue 本身仍是開啟狀態，尚待正式結案。
+- [ ] 管理者主導的 LINE 邀請與移除 UI：已合併並在本地驗證過；用真實家庭 LINE 帳號走一次完整流程仍待進行 - [#19](https://github.com/KLTsai/next-is-you/issues/19)
+- [ ] 台大眼科 reader：已具備 fixture 與本地整合證據；來源的請求契約與 markup 已人工實地擷取，但 reader 本身的線上行為尚未驗證 - [#20](https://github.com/KLTsai/next-is-you/issues/20)
 - [ ] 私人儲存復原與營運就緒 - [#21](https://github.com/KLTsai/next-is-you/issues/21)
 - [ ] 擁有者本人手機實測（首次真實提醒） - [#22](https://github.com/KLTsai/next-is-you/issues/22)
 
 **未來方向**（規劃中，尚未承諾）
 
 - [ ] 支援台大總院區眼科之外的其他醫院與科別。結構面的盤點（科別、醫師、診間、URL 格式）可用瀏覽或檢索方式自動化；但每新增一間醫院，仍需現場親自驗證一次，比對公開頁面上的目前叫號與診間實體燈號是否一致，並由人工確認含糊的欄位語意，以及該醫院對相關術語的使用方式。
-- [ ] 將 NTUH reader 從硬編碼時段視窗改為依門診列是否出現來輪詢，讓診次切換時的邊界情況更清楚 - [#34](https://github.com/KLTsai/next-is-you/issues/34)。
 - [ ] 以主流業界 web framework（例如 React、Vue、Svelte 或同等級框架）重新設計前端 UI/UX。目前前端照現況提供使用，尚未選定框架。
 - [ ] CI/治理加固：Dependabot、CodeQL 掃描、分支保護、issue/PR 範本、CODEOWNERS，以及 SECURITY.md。這項工作尚未開始；設計仍待思考完整，目前沒有日期或實作承諾。
 

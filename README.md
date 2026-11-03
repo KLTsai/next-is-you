@@ -12,6 +12,8 @@ Next is you is a small private tool that does that watching. The owner opens a s
 
 It is a tool for one family and the people they invite, not a public service. Reminders stay held across every environment until the owner's own handset pilot (Issue #22) explicitly authorizes a real send.
 
+If you are looking at this repository for the first time and wondering whether you could run your own copy: yes, that is a supported path. Jump to [For other families (self-hosting)](#for-other-families-self-hosting) for the prerequisites and scope, then [For developers](#for-developers) for the local setup.
+
 ## Status
 
 Honest status as of today. The GitHub tracker is the authoritative source. Nothing in this list means a real patient reminder has been delivered.
@@ -19,19 +21,21 @@ Honest status as of today. The GitHub tracker is the authoritative source. Nothi
 **Done**
 
 - [x] Private HTTPS service deployed with reminders held, held bootstrap only - [#18](https://github.com/KLTsai/next-is-you/issues/18)
+- [x] Clinic matching by department + doctor + room, with the watch bounded by the live source's own first/blank reads instead of a hardcoded session clock window - [#34](https://github.com/KLTsai/next-is-you/issues/34)
+- [x] Cascading reminder-setup UI: hospital, department, and date drive a live doctor/room dropdown (session auto-derived), falling back to manual entry with pre-submit validation when no roster is available - [#47](https://github.com/KLTsai/next-is-you/issues/47). Known gaps: the new form logic has no dedicated unit tests yet (only browser end-to-end coverage), the synthetic-hospital degradation path is not proven by a UI-level test, and the mismatch check only runs when a roster is available (manual entry relies solely on backend Start validation, by design).
 - [x] Pre-flight validation blocks three setup mistakes before monitoring starts: past visit date, selected doctor not working on the chosen date, department/doctor/room combination that does not match NTUH's own schedule. Future dates within NTUH's 14-day window are validated against the dept-wide schedule; drafts beyond that are held and re-validated by a daily sweep once they enter the window - [#58](https://github.com/KLTsai/next-is-you/issues/58)
 
 **In progress**
 
-- [ ] Organizer-managed LINE enrollment and removal UI - [#19](https://github.com/KLTsai/next-is-you/issues/19)
-- [ ] NTU ophthalmology reader: fixture and local integration evidence in place; the source's request contract and markup were captured by hand, but the reader's own live behavior is unverified - [#17](https://github.com/KLTsai/next-is-you/issues/17), [#20](https://github.com/KLTsai/next-is-you/issues/20)
+- [ ] Reusable hospital-adapter backend boundary (`HospitalReader` interface, hospital registry, capability descriptor) and a documented hospital-integration guide ([docs/ADDING-A-HOSPITAL.md](docs/ADDING-A-HOSPITAL.md)) - [#45](https://github.com/KLTsai/next-is-you/issues/45). The interface and registry have merged; the issue itself remains open pending final sign-off.
+- [ ] Organizer-managed LINE enrollment and removal UI: merged and verified locally; a live walkthrough with a real family LINE account is still open - [#19](https://github.com/KLTsai/next-is-you/issues/19)
+- [ ] NTU ophthalmology reader: fixture and local integration evidence in place; the source's request contract and markup were captured by hand, but the reader's own live behavior is unverified - [#20](https://github.com/KLTsai/next-is-you/issues/20)
 - [ ] Private storage recovery and operator readiness - [#21](https://github.com/KLTsai/next-is-you/issues/21)
 - [ ] Owner's handset pilot (first real reminder) - [#22](https://github.com/KLTsai/next-is-you/issues/22)
 
 **Future direction** (planned, not committed)
 
 - [ ] Additional hospitals and departments beyond NTU main-campus ophthalmology. Structural discovery (departments, doctors, consultation rooms, URL patterns) can be automated via browsing or retrieval; each new hospital still needs one in-person verification comparing the public page's current-number against the physical room-light, plus human confirmation of ambiguous field semantics and hospital reuse terms.
-- [ ] Switch the NTUH reader from its hardcoded clock window to row-presence-driven polling, keeping session-change edge cases cleaner - [#34](https://github.com/KLTsai/next-is-you/issues/34).
 - [ ] Frontend UI/UX redesign using a mainstream industry web framework (examples: React, Vue, Svelte, or comparable). The current frontend ships as-is; no framework has been chosen.
 - [ ] CI/governance hardening: Dependabot, CodeQL scanning, branch protection, issue/PR templates, CODEOWNERS, and SECURITY.md. This work has not started; the design is still being considered, with no date or implementation commitment.
 

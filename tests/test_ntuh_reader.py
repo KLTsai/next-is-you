@@ -727,9 +727,12 @@ def test_parse_schedule_extracts_date_session_room_doctor_clinic_type_status() -
     assert status == "ok"
     assert len(rows) == 6
     # One open morning card, with 診別 pulled from `.sub-spec` after the pipe.
-    assert ScheduleRow(
-        SCHEDULE_FIRST_VISIT, ClinicSession.MORNING, "03", "合成醫師甲", "角膜", ""
-    ) in rows
+    assert (
+        ScheduleRow(
+            SCHEDULE_FIRST_VISIT, ClinicSession.MORNING, "03", "合成醫師甲", "角膜", ""
+        )
+        in rows
+    )
     # Status markers are captured verbatim, both open and cancellation.
     full_card = next(r for r in rows if r.doctor == "合成醫師乙")
     assert full_card.status == "額滿"
@@ -746,7 +749,9 @@ def test_parse_schedule_extracts_date_session_room_doctor_clinic_type_status() -
 
 
 def test_parse_schedule_returns_schema_drift_on_empty_markup() -> None:
-    status, rows = parse_schedule("<html><body>no cards</body></html>", SCHEDULE_SIM_TODAY)
+    status, rows = parse_schedule(
+        "<html><body>no cards</body></html>", SCHEDULE_SIM_TODAY
+    )
     assert status == "schema_drift"
     assert rows == []
 
@@ -774,7 +779,9 @@ async def test_list_clinics_future_date_filters_schedule_and_drops_cancelled() -
 
 
 @pytest.mark.asyncio
-async def test_list_clinics_future_date_reports_no_observation_when_cancelled_only() -> None:
+async def test_list_clinics_future_date_reports_no_observation_when_cancelled_only() -> (
+    None
+):
     # A date whose every card is cancelled (停診 or 颱風停診) has no viable
     # clinic to list; the roster degrades to no_observation so the picker can
     # fall back to manual entry.
@@ -808,6 +815,7 @@ async def test_list_clinics_future_date_timeout_degrades_without_crashing() -> N
         async def __call__(self, request: PageRequest) -> FetchedPage:
             self.requests.append(request)
             raise TimeoutError
+
     roster = await reader(TimeoutFetch()).list_clinics(
         RosterQuery(Hospital.NTUH_MAIN, "OPH", SCHEDULE_SECOND_VISIT),
         _schedule_sim_now(),
@@ -928,7 +936,12 @@ async def test_start_activates_on_fresh_exact_positive_read() -> None:
             "unavailable",
             "access_denied",
         ),
-        (FetchedPage(200, "<html/>"), "schedule_unavailable", "unavailable", "schema_drift"),
+        (
+            FetchedPage(200, "<html/>"),
+            "schedule_unavailable",
+            "unavailable",
+            "schema_drift",
+        ),
         (page_with(""), "observation_unavailable", "unavailable", "no_observation"),
         (page_with("000"), "observation_invalid", "invalid", "invalid_data"),
     ],
@@ -951,9 +964,7 @@ async def test_start_on_an_earlier_day_degrades_to_schedule_unavailable() -> Non
     database, gate = await gate_with_visit(source)
     repository = await seed_ntuh(database, gate, "d1")
     day_before = (taipei(15, 0) - timedelta(days=1)).isoformat()
-    assert await gate.start_visit("d1", day_before) == {
-        "error": "schedule_unavailable"
-    }
+    assert await gate.start_visit("d1", day_before) == {"error": "schedule_unavailable"}
     assert source.urls == []
     assert (await repository.get_visit("d1"))["state"] == "draft"
 
@@ -1132,7 +1143,9 @@ async def test_future_date_start_transitions_to_active_without_an_observation() 
 
 
 @pytest.mark.asyncio
-async def test_preflight_resolve_rewrites_clinic_code_for_same_day_schedule_sourced_draft() -> None:
+async def test_preflight_resolve_rewrites_clinic_code_for_same_day_schedule_sourced_draft() -> (
+    None
+):
     # A draft left with the schedule-side 診別 (e.g. "角膜") is resolved to the
     # today-side `clinic_type` from the live roster at Start time.
     source = FakeSource(PAGE)

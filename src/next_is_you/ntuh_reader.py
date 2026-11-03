@@ -214,12 +214,16 @@ def selector_page_url() -> str:
 
 def schedule_url(department_code: str) -> str:
     """The dept-wide schedule for the active 14-day window, Traditional Chinese."""
-    return f"{SCHEDULE_PATH}?{urlencode({
-        'vhospCode': BRANCH_CODE,
-        'showBlock': 'A',
-        'vDeptCode': department_code,
-        'realSubDeptCode': 'showAll',
-    })}"
+    return f"{SCHEDULE_PATH}?{
+        urlencode(
+            {
+                'vhospCode': BRANCH_CODE,
+                'showBlock': 'A',
+                'vDeptCode': department_code,
+                'realSubDeptCode': 'showAll',
+            }
+        )
+    }"
 
 
 def _resolve_schedule_date(month: int, day: int, today: date) -> date | None:
@@ -445,14 +449,12 @@ class _ScheduleCollector(HTMLParser):
     def _on_button_end(self) -> None:
         doc_name = self._card.get("doc_name", "").strip()
         match = _DOC_NAME_RE.match(doc_name)
-        if (
-            match is None
-            or self._current_date is None
-            or self._current_session is None
-        ):
+        if match is None or self._current_date is None or self._current_session is None:
             return
         sub_spec = self._card.get("sub_spec", "")
-        clinic_type = sub_spec.split("|")[-1].strip() if "|" in sub_spec else sub_spec.strip()
+        clinic_type = (
+            sub_spec.split("|")[-1].strip() if "|" in sub_spec else sub_spec.strip()
+        )
         self.rows.append(
             ScheduleRow(
                 visit_date=self._current_date,

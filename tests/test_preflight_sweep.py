@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Mapping
+from typing import Mapping
 
 import pytest
 
@@ -11,7 +11,6 @@ from next_is_you.domain import (
     ClinicOption,
     ClinicRoster,
     ClinicSession,
-    Hospital,
     RosterQuery,
 )
 from next_is_you.scheduler import OutboxScheduler
@@ -19,9 +18,7 @@ from test_scheduler_outbox import LocalD1
 
 from next_is_you.persistence import (
     CloudflareD1Store,
-    Statement,
     VisitRepository,
-    iso_utc,
 )
 
 
@@ -47,7 +44,11 @@ class FakeRosterReader:
 
     async def list_clinics(self, query: RosterQuery, now: datetime) -> ClinicRoster:
         self.calls.append(query)
-        key = (query.hospital.value, query.department_code, query.visit_date.isoformat())
+        key = (
+            query.hospital.value,
+            query.department_code,
+            query.visit_date.isoformat(),
+        )
         if key not in self._rosters:
             return ClinicRoster(False, (), "no_observation")
         return self._rosters[key]
@@ -132,7 +133,9 @@ async def _state(database: LocalD1, visit_id: str) -> str:
     return str(row[0])
 
 
-def _scheduler(repository: VisitRepository, reader: FakeRosterReader) -> OutboxScheduler:
+def _scheduler(
+    repository: VisitRepository, reader: FakeRosterReader
+) -> OutboxScheduler:
     return OutboxScheduler(repository, reader, None, lambda: taipei(2026, 11, 9))
 
 
@@ -142,7 +145,10 @@ async def test_sweep_keeps_a_draft_whose_doctor_is_still_scheduled() -> None:
     repository = await _repo(database)
     now = taipei(2026, 11, 9, 14)
     await _seed_draft(
-        repository, visit_id="v-ok", visit_day=date(2026, 11, 10), now=now,
+        repository,
+        visit_id="v-ok",
+        visit_day=date(2026, 11, 10),
+        now=now,
     )
     reader = FakeRosterReader(
         {
@@ -167,7 +173,10 @@ async def test_sweep_flags_a_draft_whose_doctor_is_no_longer_scheduled() -> None
     repository = await _repo(database)
     now = taipei(2026, 11, 9, 14)
     await _seed_draft(
-        repository, visit_id="v-gone", visit_day=date(2026, 11, 10), now=now,
+        repository,
+        visit_id="v-gone",
+        visit_day=date(2026, 11, 10),
+        now=now,
     )
     reader = FakeRosterReader(
         {
@@ -217,7 +226,10 @@ async def test_sweep_is_a_noop_when_schedule_source_fails() -> None:
     repository = await _repo(database)
     now = taipei(2026, 11, 9, 14)
     await _seed_draft(
-        repository, visit_id="v-hiccup", visit_day=date(2026, 11, 10), now=now,
+        repository,
+        visit_id="v-hiccup",
+        visit_day=date(2026, 11, 10),
+        now=now,
     )
     reader = FakeRosterReader(
         {
@@ -240,7 +252,10 @@ async def test_sweep_is_idempotent_within_one_taipei_day() -> None:
     repository = await _repo(database)
     now = taipei(2026, 11, 9, 14)
     await _seed_draft(
-        repository, visit_id="v-ok", visit_day=date(2026, 11, 10), now=now,
+        repository,
+        visit_id="v-ok",
+        visit_day=date(2026, 11, 10),
+        now=now,
     )
     reader = FakeRosterReader(
         {
@@ -267,7 +282,10 @@ async def test_sweep_runs_again_on_the_next_taipei_day() -> None:
     today = taipei(2026, 11, 9, 14)
     tomorrow = taipei(2026, 11, 10, 14)
     await _seed_draft(
-        repository, visit_id="v-ok", visit_day=date(2026, 11, 12), now=today,
+        repository,
+        visit_id="v-ok",
+        visit_day=date(2026, 11, 12),
+        now=today,
     )
     reader = FakeRosterReader(
         {
@@ -324,7 +342,10 @@ async def test_sweep_ignores_a_draft_whose_visit_date_is_today() -> None:
     repository = await _repo(database)
     now = taipei(2026, 11, 9, 14)
     await _seed_draft(
-        repository, visit_id="v-today", visit_day=date(2026, 11, 9), now=now,
+        repository,
+        visit_id="v-today",
+        visit_day=date(2026, 11, 9),
+        now=now,
     )
     reader = FakeRosterReader({})
     scheduler = _scheduler(repository, reader)
@@ -399,10 +420,16 @@ async def test_sweep_separates_fetches_across_different_dates() -> None:
         clinic_code="03/合成醫師甲/角膜",
     )
     await _seed_draft(
-        repository, visit_id="v-a", visit_day=date(2026, 11, 10), now=now,
+        repository,
+        visit_id="v-a",
+        visit_day=date(2026, 11, 10),
+        now=now,
     )
     await _seed_draft(
-        repository, visit_id="v-b", visit_day=date(2026, 11, 11), now=now,
+        repository,
+        visit_id="v-b",
+        visit_day=date(2026, 11, 11),
+        now=now,
     )
     reader = FakeRosterReader(
         {

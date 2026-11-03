@@ -901,6 +901,40 @@ class VisitRepository:
             )
         )
 
+    async def drafts_due_for_preflight_sweep(
+        self, today: date
+    ) -> list[Mapping[str, Any]]:
+        """Drafts in [today+1, today+14] that have not been swept today."""
+        window_start = (today + timedelta(days=1)).isoformat()
+        window_end = (today + timedelta(days=14)).isoformat()
+        today_iso = today.isoformat()
+        return await self._store.fetch_all(
+            Statement(
+                """SELECT id, hospital, visit_date, department_code, clinic_code,
+                    clinic_session, doctor_code, room_code
+                FROM visits
+                WHERE state = 'draft'
+                    AND visit_date >= ? AND visit_date <= ?
+                    AND (preflight_last_checked_date IS NULL
+                         OR preflight_last_checked_date != ?)
+                ORDER BY hospital, department_code, visit_date, id""",
+                (window_start, window_end, today_iso),
+            )
+        )
+
+    async def mark_preflight_checked(self, visit_id: str, today: date) -> bool:
+        """Record that the sweep ran against this draft for today Taipei."""
+        return (
+            await self._store.execute(
+                Statement(
+                    """UPDATE visits SET preflight_last_checked_date = ?
+                    WHERE id = ? AND state = 'draft'""",
+                    (today.isoformat(), visit_id),
+                )
+            )
+            == 1
+        )
+
     async def expire_due_visits(self, now: datetime) -> int:
         if now.tzinfo is None:
             raise ValueError("timestamps must be timezone-aware")

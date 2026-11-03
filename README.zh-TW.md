@@ -19,6 +19,7 @@ Next is you 就是替你做這件事的小工具。擁有者在瀏覽器開啟�
 **已完成**
 
 - [x] 私人 HTTPS 服務已部署、提醒保留中，僅為保留態 bootstrap - [#18](https://github.com/KLTsai/next-is-you/issues/18)
+- [x] 送出前擋掉三類設定錯誤，進入監看前就擋下：看診日期已過、所選醫師當日沒看診、科別/醫師/診間組合與院方公告對不上。14 天內的未來日期以 NTUH 的全科排班表預先驗證；超過 14 天的草稿先保留，進入視窗後由每日 sweep 自動補驗 - [#58](https://github.com/KLTsai/next-is-you/issues/58)
 
 **進行中**
 

@@ -62,9 +62,43 @@ The same evidence rules out two things the reader must not start doing:
 
 The start and end signals come from two clinics watched through their transition on 2026-10-29: both kept their card and blanked their number when they finished, while a clinic that had not started showed a blank number and a blank highest-called number on its detail page. That is one department on one morning. What it does not cover: whether a clinic can blank its number temporarily and resume, what a cancelled clinic looks like, and what happens in a room when its next session begins. The two-blank-reads rule is the margin left for the first of those.
 
+## Future-date schedule reader (Issue #58)
+
+The today-only `DeptLightTable` path above covers the live queue number. A separate reader, enabled by the same `NTUH_READER_ENABLED` flag, serves `list_clinics` for dates in the next 14 days against the dept-wide `RegDeptSchedule` page.
+
+The pre-flight path answers one question only: for the chosen visit date, department and (session, room, doctor), is this clinic published on NTUH's own schedule? It does not read queue numbers, and the queue-side `DeptLightTable` reader keeps its today-only contract unchanged.
+
+### How this read is made
+
+One GET against `GET https://reg.ntuh.gov.tw/WebReg/WebReg/RegDeptSchedule?vhospCode=T0&showBlock=A&vDeptCode=<DeptCode>&realSubDeptCode=showAll`, with `Accept-Language: zh-TW` and `Localization.CurrentUICulture=zh-TW`. No token, no POST. The returned page lists every weekday in the active 14-day window with its sessions and per-doctor clinic cards. The parser pins the day-column `MM/DD` against the caller's Taipei today year, so a window that crosses December into January still resolves correctly.
+
+Per clinic card the reader records `(visit_date, session, room, doctor, 診別, status)` from the schedule's own markup; the modal's 預約碼 is observed as evidence (`research/private/source-evidence/ntuh-schedule-2026-11-03.md`) but is not stored, since the visit-day card does not carry it.
+
+### Match contract
+
+Pre-flight matches on `(visit_date, session, room, doctor)` only. The schedule's `診別` vocabulary (`角膜`, `網膜`, `教學門診`, `葡萄膜炎`, `眼神經`, `眼整型`, …) is different from the visit-day card's `clinic_type` vocabulary (`醫師約診`, `特別門診`, `教學門診`, `日間手術`, `代診`), and the two sets overlap only on `教學門診`. The schedule's 診別 is kept on the draft until the moment its `visit_date` reaches today, at which point the Start-time path rewrites the stored `clinic_code` to the today-side `clinic_type` from `DeptLightTable`. After that rewrite the existing visit-day reader's `(room, doctor, clinic_type)` matcher keeps working unchanged.
+
+### Status markers
+
+Cards carry a status marker inside `<div class="tag"><div class="first-reg">...</div></div>`. The reader drops rows whose status is `停診` or `颱風停診` (the clinic will not run that day). Registration-restriction markers (`額滿`, `已逾當日掛號時間`, `代診不續掛`, `代診可續掛`, `僅存本院初診`, `本院初診`, `本科初診`, `本科複診`, `18:00開放`) leave the clinic running and keep the row in the roster, since a patient who already has a number is unaffected by registration-side limits.
+
+### Reason codes returned to the setup picker and Start
+
+- `visit_date_past` - the chosen date is before Taipei today. Returned by both `list_clinics` and Start.
+- `visit_date_out_of_schedule_window` - the chosen date is more than 14 days ahead; the schedule page cannot answer and the picker degrades to manual entry.
+- `scope_mismatch` - the hospital or department is outside the supported scope (not NTUH main or not OPH).
+- `no_observation`, `access_denied`, `timeout`, `schema_drift` - transport or shape failures from the schedule page itself; the picker degrades to manual entry and Start fails closed as `schedule_unavailable`.
+- `doctor_not_scheduled` - the schedule read succeeded, but no row for the chosen date matches on `(session, room, doctor)`. Only Start returns this; the picker catches it earlier by refusing a dropdown mismatch.
+
+### Daily sweep (Issue #58, R1)
+
+A once-per-Taipei-day sweep runs over drafts whose `visit_date` falls in `[today+1, today+14]`. Drafts of the same `(hospital, department)` share one schedule fetch. For each draft the sweep matches on `(session, room, doctor)`; a draft whose doctor is no longer on the schedule, or whose matching row has status `停診`/`颱風停診`, transitions to `scope_mismatch` and raises the standard organizer-attention signal. A schedule read that fails is a no-op this run; the sweep retries the next day. Drafts whose `visit_date` is today are handled by the Start-time resolve step, not the sweep. Drafts beyond `today+14` are left alone until they enter the window.
+
 ## Recovery
 
 - Unavailable with a timeout, no observation or no result: wait; the reader retries by itself while the clinic is still calling. Start again after the reason clears.
 - "來源沒有可用資料" all day with no reminder: the clinic never showed a number for the department, session and clinic code entered. Open the official page, pick the same department and session, and compare the card's room, doctor and clinic type against the draft; a session or a doctor that does not match is the usual cause, and the reader cannot tell that apart from a clinic that has not started.
 - Access refused: do not retry by hand around it. Open the official page in a browser to see what changed. The block lasts for the rest of that day.
 - Scope mismatch or schema drift: correct the department and clinic code, or update the parser after a fresh manual check of the page.
+- `visit_date_out_of_schedule_window` on a draft: the chosen date is more than two weeks out. The draft is held; the daily sweep will validate it as soon as it enters the window.
+- `doctor_not_scheduled` or `schedule_unavailable` at Start: open the setup form, re-pick the doctor from the dropdown (now constrained to the schedule), or wait a few minutes and retry if the source was briefly down.

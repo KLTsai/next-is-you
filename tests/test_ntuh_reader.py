@@ -24,13 +24,17 @@ from next_is_you.domain import (
 from next_is_you.ntuh_reader import (
     AMPM_CODES,
     LIGHT_TABLE_URL,
+    SCHEDULE_PATH,
     FetchedPage,
     NtuhProgressReader,
     PageRequest,
+    ScheduleRow,
     parse_clinic_key,
     parse_light_table,
     parse_request_token,
     parse_retry_after,
+    parse_schedule,
+    schedule_url,
     selector_page_url,
 )
 from next_is_you.persistence import CloudflareD1Store, Statement, VisitRepository
@@ -44,7 +48,13 @@ from next_is_you.send_gate import SystemSendGate
 FIXTURES = Path(__file__).parent / "fixtures" / "hospitals"
 PAGE = (FIXTURES / "ntuh_oph_light_table.html").read_text(encoding="utf-8")
 SELECTOR = (FIXTURES / "ntuh_webreg_selector.html").read_text(encoding="utf-8")
+SCHEDULE_FIXTURE = (FIXTURES / "ntuh_oph_schedule.html").read_text(encoding="utf-8")
 DAY = datetime(2026, 10, 22).date()
+# The schedule fixture covers 11/10 and 11/11; the simulated today is the day
+# before so both are future dates inside the lookahead window.
+SCHEDULE_SIM_TODAY = datetime(2026, 11, 9).date()
+SCHEDULE_FIRST_VISIT = datetime(2026, 11, 10).date()
+SCHEDULE_SECOND_VISIT = datetime(2026, 11, 11).date()
 CLINIC = "11診/合成醫師丙/醫師約診"
 OTHER_CLINIC = "07診/合成醫師甲/普通門診"
 BLANK_CLINIC = "08診/合成醫師乙/普通門診"
@@ -82,14 +92,16 @@ class FakeSource:
 
     One read is a GET of the selector page followed by a POST for the clinic
     cards, so the script holds one entry per read and `urls` counts the POSTs.
-    An exception instance in a script is raised.
+    An exception instance in a script is raised. A GET of the dept-wide
+    schedule page returns `schedule`, when it is set.
     """
 
     SESSION_COOKIES = ("ASP.NET_SessionId=synthetic", "__RequestVerificationToken_X=t")
 
-    def __init__(self, *script, selector=SELECTOR) -> None:
+    def __init__(self, *script, selector=SELECTOR, schedule=None) -> None:
         self.script = list(script)
         self.selector = selector
+        self.schedule = schedule
         self.requests: list[PageRequest] = []
 
     @property
@@ -108,6 +120,8 @@ class FakeSource:
     async def __call__(self, request: PageRequest) -> FetchedPage:
         self.requests.append(request)
         if request.method == "GET":
+            if request.url.startswith(SCHEDULE_PATH) and self.schedule is not None:
+                return _page(self.schedule)
             page = _page(self.selector)
             return replace(page, cookies=self.SESSION_COOKIES)
         item = self.script.pop(0) if len(self.script) > 1 else self.script[0]
@@ -672,15 +686,141 @@ async def test_list_clinics_merges_the_three_sessions() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_clinics_only_lists_the_appointment_day() -> None:
-    # The source carries no date and shows only today, so a future day has no
-    # roster and no request is made.
+async def test_list_clinics_rejects_past_date_without_fetching() -> None:
+    # A past visit date can only produce `visit_date_past`; no source read is
+    # worthwhile.
     source = FakeSource(PAGE)
     roster = await reader(source).list_clinics(
-        RosterQuery(Hospital.NTUH_MAIN, "OPH", DAY + timedelta(days=1)), taipei(14, 0)
+        RosterQuery(Hospital.NTUH_MAIN, "OPH", DAY - timedelta(days=1)), taipei(14, 0)
     )
-    assert roster == ClinicRoster(False, (), "date_not_today")
+    assert roster == ClinicRoster(False, (), "visit_date_past")
     assert source.requests == []
+
+
+@pytest.mark.asyncio
+async def test_list_clinics_rejects_date_beyond_schedule_window() -> None:
+    # NTUH publishes the next 14 days; later dates are unreachable, so the
+    # picker degrades to manual entry without a fetch.
+    source = FakeSource(PAGE)
+    roster = await reader(source).list_clinics(
+        RosterQuery(Hospital.NTUH_MAIN, "OPH", DAY + timedelta(days=15)),
+        taipei(14, 0),
+    )
+    assert roster == ClinicRoster(False, (), "visit_date_out_of_schedule_window")
+    assert source.requests == []
+
+
+def _schedule_sim_now() -> datetime:
+    """A Taipei `now` whose date is the day before the schedule fixture starts."""
+    return datetime(
+        SCHEDULE_SIM_TODAY.year,
+        SCHEDULE_SIM_TODAY.month,
+        SCHEDULE_SIM_TODAY.day,
+        14,
+        0,
+        tzinfo=timezone(timedelta(hours=8)),
+    )
+
+
+def test_parse_schedule_extracts_date_session_room_doctor_clinic_type_status() -> None:
+    status, rows = parse_schedule(SCHEDULE_FIXTURE, SCHEDULE_SIM_TODAY)
+    assert status == "ok"
+    assert len(rows) == 6
+    # One open morning card, with 診別 pulled from `.sub-spec` after the pipe.
+    assert ScheduleRow(
+        SCHEDULE_FIRST_VISIT, ClinicSession.MORNING, "03", "合成醫師甲", "角膜", ""
+    ) in rows
+    # Status markers are captured verbatim, both open and cancellation.
+    full_card = next(r for r in rows if r.doctor == "合成醫師乙")
+    assert full_card.status == "額滿"
+    cancelled = next(r for r in rows if r.doctor == "合成醫師丙")
+    assert cancelled.status == "停診"
+    typhoon = next(r for r in rows if r.doctor == "合成醫師己")
+    assert typhoon.status == "颱風停診"
+    # Afternoon session is tracked distinctly on the same day.
+    afternoon = next(r for r in rows if r.session == ClinicSession.AFTERNOON)
+    assert afternoon.doctor == "合成醫師丁" and afternoon.room == "11"
+    # Day column resolves `MM/DD` against the caller's today year.
+    next_day_rows = [r for r in rows if r.visit_date == SCHEDULE_SECOND_VISIT]
+    assert len(next_day_rows) == 2
+
+
+def test_parse_schedule_returns_schema_drift_on_empty_markup() -> None:
+    status, rows = parse_schedule("<html><body>no cards</body></html>", SCHEDULE_SIM_TODAY)
+    assert status == "schema_drift"
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_list_clinics_future_date_filters_schedule_and_drops_cancelled() -> None:
+    source = FakeSource(schedule=SCHEDULE_FIXTURE)
+    roster = await reader(source).list_clinics(
+        RosterQuery(Hospital.NTUH_MAIN, "OPH", SCHEDULE_FIRST_VISIT),
+        _schedule_sim_now(),
+    )
+    assert roster.available and roster.reason == "ok"
+    doctors = {clinic.doctor for clinic in roster.clinics}
+    # 停診 dropped; the three live cards survive.
+    assert "合成醫師丙" not in doctors
+    assert {"合成醫師甲", "合成醫師乙", "合成醫師丁"} <= doctors
+    assert any(c.clinic_code == "03/合成醫師甲/角膜" for c in roster.clinics)
+    # 11/11 rows must not leak into 11/10's roster.
+    assert "合成醫師戊" not in doctors
+    # The schedule page is GET only; no POST, no selector hit.
+    schedule_requests = [r for r in source.requests if r.url.startswith(SCHEDULE_PATH)]
+    assert len(schedule_requests) == 1
+    assert schedule_requests[0].method == "GET"
+    assert not any(r.method == "POST" for r in source.requests)
+
+
+@pytest.mark.asyncio
+async def test_list_clinics_future_date_reports_no_observation_when_cancelled_only() -> None:
+    # A date whose every card is cancelled (停診 or 颱風停診) has no viable
+    # clinic to list; the roster degrades to no_observation so the picker can
+    # fall back to manual entry.
+    only_cancelled = (
+        "<html><body>"
+        '<div class="row gx-2 align-items-stretch" id="deptScheduleResult">'
+        '<div class="col-1"><div class="date" style="text-align:center">11/12</div></div>'
+        '<div class="col-md-11"><div class="row">'
+        '<span class="me-2 date">上午門診</span>'
+        '<div class="col-12 col-sm-6 col-lg-3" id="99_合成醫師X">'
+        '<button class="doctor-tag">'
+        '<div class="doc-name">合成醫師X | 03 診</div>'
+        '<div class="tag"><div class="first-reg">停診</div></div>'
+        '<div class="sub-spec" title="角膜">一般眼科 | 角膜</div>'
+        "</button></div>"
+        "</div></div></div></body></html>"
+    )
+    source = FakeSource(schedule=only_cancelled)
+    roster = await reader(source).list_clinics(
+        RosterQuery(Hospital.NTUH_MAIN, "OPH", datetime(2026, 11, 12).date()),
+        _schedule_sim_now(),
+    )
+    assert roster == ClinicRoster(False, (), "no_observation")
+
+
+@pytest.mark.asyncio
+async def test_list_clinics_future_date_timeout_degrades_without_crashing() -> None:
+    class TimeoutFetch:
+        requests: list[PageRequest] = []
+
+        async def __call__(self, request: PageRequest) -> FetchedPage:
+            self.requests.append(request)
+            raise TimeoutError
+    roster = await reader(TimeoutFetch()).list_clinics(
+        RosterQuery(Hospital.NTUH_MAIN, "OPH", SCHEDULE_SECOND_VISIT),
+        _schedule_sim_now(),
+    )
+    assert not roster.available
+    assert roster.reason in {"timeout", "no_observation"}
+
+
+def test_schedule_url_carries_showall_in_14_day_window() -> None:
+    url = schedule_url("OPH")
+    assert "RegDeptSchedule" in url
+    assert "vhospCode=T0" in url and "showBlock=A" in url
+    assert "vDeptCode=OPH" in url and "realSubDeptCode=showAll" in url
 
 
 @pytest.mark.asyncio

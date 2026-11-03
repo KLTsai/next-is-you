@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -57,8 +58,13 @@ from next_is_you.persistence import TAIPEI
 WEBREG_BASE = "https://registration.ntuh.gov.tw/WebReg/WebReg"
 SELECTOR_PATH = f"{WEBREG_BASE}/ClinicCurrentLightNo"
 LIGHT_TABLE_URL = f"{WEBREG_BASE}/DeptLightTable"
+SCHEDULE_PATH = f"{WEBREG_BASE}/RegDeptSchedule"
 BRANCH_CODE = "T0"
 SUPPORTED_DEPARTMENT = "OPH"
+# RegDeptSchedule publishes the next two weekdays-filled calendar weeks; dates
+# past this cap are not reachable until they enter the window and are reported
+# as `visit_date_out_of_schedule_window` for the picker to degrade gracefully.
+SCHEDULE_LOOKAHEAD_DAYS = 14
 # The site negotiates its language, and the rendering decides whether rows read
 # "11 診 / 合成醫師丙" or "Room 11 / ...". The owner enters the clinic from a
 # Traditional Chinese registration slip, so the reader pins that rendering.
@@ -87,6 +93,9 @@ RETRY_BACKOFF = (timedelta(minutes=1), timedelta(minutes=2), timedelta(minutes=4
 RETRY_AFTER_CAP = timedelta(minutes=10)
 REQUEST_TIMEOUT_SECONDS = 10
 MAX_BODY_CHARS = 2_000_000
+# The dept-wide schedule page is larger than the per-session light table (the
+# 2026-11-03 OPH showAll capture was 2.2 MB), so it carries its own ceiling.
+MAX_SCHEDULE_BODY_CHARS = 3_500_000
 STATE_KEY = "ntuh_reader_state"
 USER_AGENT = "next-is-you/1.0 (family-internal, non-commercial; one read per 2-3 min)"
 
@@ -105,6 +114,25 @@ _VOID_ELEMENTS = frozenset(
 _TOKEN_FIELD = "__RequestVerificationToken"
 _TRANSIENT_STATUSES = {408, 429}
 _DENIED_STATUSES = {401, 403, 451}
+
+# `RegDeptSchedule` session header text (left of the clinic cards). Any other
+# string makes the session unparseable and the schedule read fails closed.
+SCHEDULE_SESSION_TEXT = {
+    "上午門診": ClinicSession.MORNING,
+    "下午門診": ClinicSession.AFTERNOON,
+    "夜間門診": ClinicSession.EVENING,
+}
+# A doctor-tag whose status marker is one of these means the clinic will not
+# run on that day. Other markers (`額滿`, `已逾當日掛號時間`, `代診不續掛`,
+# `代診可續掛`, `僅存本院初診`, `本院初診`, `本科初診`, `本科複診`,
+# `18:00開放`) only restrict REGISTRATION; a patient who already has a number
+# still has a clinic, so the roster keeps those rows.
+_SCHEDULE_CANCELLED_STATUSES = frozenset(("停診", "颱風停診"))
+# `MM/DD` as rendered in the day-column header; a date more than seven days
+# behind today rolls to next year so Dec→Jan edges stay correct.
+_MONTH_DAY_RE = re.compile(r"\s*(\d{1,2})/(\d{1,2})")
+# Card doc-name reads `doctor | NN 診`; the ` 診` suffix is dropped.
+_DOC_NAME_RE = re.compile(r"\s*(?P<doctor>[^|]+?)\s*\|\s*(?P<room>[^\s]+)\s*診?\s*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +179,26 @@ class ListRow:
     check_in_order: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class ScheduleRow:
+    """One (date, session, room, doctor) slot the dept schedule publishes.
+
+    `clinic_type` is the schedule-side 診別 (`角膜`, `網膜`, `教學門診` ...)
+    which uses a different vocabulary from the today-side light-table
+    `clinic_type` (`醫師約診`, `特別門診` ...). Pre-flight validation matches on
+    `(visit_date, session, room, doctor)` only; the daily sweep's resolve step
+    rewrites a draft's stored clinic_type to the today-side value the moment
+    its visit_date reaches today.
+    """
+
+    visit_date: date
+    session: ClinicSession
+    room: str
+    doctor: str
+    clinic_type: str
+    status: str
+
+
 def parse_clinic_key(clinic_code: str) -> ClinicKey | None:
     """Read `room/doctor/clinic type`, for example `11/Hsiao-Sang Chu/Dr. Appt.`."""
     parts = [part.strip() for part in clinic_code.split("/")]
@@ -162,6 +210,34 @@ def parse_clinic_key(clinic_code: str) -> ClinicKey | None:
 def selector_page_url() -> str:
     """The page whose GET carries the anti-forgery token and the session cookies."""
     return f"{SELECTOR_PATH}?{urlencode({'vHospCode': BRANCH_CODE})}"
+
+
+def schedule_url(department_code: str) -> str:
+    """The dept-wide schedule for the active 14-day window, Traditional Chinese."""
+    return f"{SCHEDULE_PATH}?{
+        urlencode(
+            {
+                'vhospCode': BRANCH_CODE,
+                'showBlock': 'A',
+                'vDeptCode': department_code,
+                'realSubDeptCode': 'showAll',
+            }
+        )
+    }"
+
+
+def _resolve_schedule_date(month: int, day: int, today: date) -> date | None:
+    """`MM/DD` on the day-column has no year; roll Dec→Jan forward from today."""
+    try:
+        candidate = date(today.year, month, day)
+    except ValueError:
+        return None
+    if candidate < today - timedelta(days=7):
+        try:
+            return date(today.year + 1, month, day)
+        except ValueError:
+            return None
+    return candidate
 
 
 class _LightTableCollector(HTMLParser):
@@ -248,6 +324,169 @@ def parse_light_table(html: str) -> tuple[str, list[ListRow]]:
     return "ok", rows
 
 
+class _ScheduleCollector(HTMLParser):
+    """Walk `RegDeptSchedule` in document order and emit one row per card.
+
+    Day blocks appear in chronological order; each day block has one or more
+    session blocks (`上午門診` / `下午門診` / `夜間門診`), each with its own
+    doctor-tag buttons. The current date and session are tracked as we walk,
+    so a button inherits whichever date and session block it is nested under.
+    """
+
+    def __init__(self, today: date) -> None:
+        super().__init__(convert_charrefs=True)
+        self._today = today
+        self.rows: list[ScheduleRow] = []
+        self.text: list[str] = []
+        self._current_date: date | None = None
+        self._current_session: ClinicSession | None = None
+        # A stack of (kind, depth) frames; `kind` names the text we are
+        # collecting into (`day_date`, `session`, `doc_name`, `status`,
+        # `sub_spec`), `depth` is the open-tag depth when the frame started.
+        # The frame is popped once endtag brings depth back below its start.
+        self._frames: list[tuple[str, int]] = []
+        self._depth = 0
+        self._in_button = 0
+        self._card: dict[str, str] = {}
+        self._buffers: dict[str, list[str]] = {
+            "day_date": [],
+            "session": [],
+            "doc_name": [],
+            "status": [],
+            "sub_spec": [],
+        }
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in _VOID_ELEMENTS:
+            return
+        self._depth += 1
+        # Some rows carry two `class="..."` attributes on the same tag (the
+        # live page's own markup is invalid). Union them instead of letting
+        # the second clobber the first.
+        classes: set[str] = set()
+        style = ""
+        for name, value in attrs:
+            if value is None:
+                continue
+            if name == "class":
+                classes.update(value.split())
+            elif name == "style":
+                style = value
+
+        # Day-column date: `<div class="date" style="text-align:center">`. The
+        # inline style disambiguates it from the session header, which also
+        # uses the `date` class on a `<span>`.
+        if tag == "div" and "date" in classes and "text-align:center" in style:
+            self._frames.append(("day_date", self._depth))
+            self._buffers["day_date"] = []
+            return
+        # Session header: `<span class="me-2 date">上午門診</span>`.
+        if tag == "span" and "me-2" in classes and "date" in classes:
+            self._frames.append(("session", self._depth))
+            self._buffers["session"] = []
+            return
+        # Clinic card button.
+        if tag == "button" and "doctor-tag" in classes:
+            self._in_button = self._depth
+            self._card = {"status": ""}
+            return
+        if self._in_button == 0:
+            return
+        # Fields inside a card button.
+        if "doc-name" in classes:
+            self._frames.append(("doc_name", self._depth))
+            self._buffers["doc_name"] = []
+            return
+        if "first-reg" in classes:
+            self._frames.append(("status", self._depth))
+            self._buffers["status"] = []
+            return
+        if "sub-spec" in classes:
+            self._frames.append(("sub_spec", self._depth))
+            self._buffers["sub_spec"] = []
+            return
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _VOID_ELEMENTS:
+            return
+        depth = self._depth
+        self._depth = max(0, self._depth - 1)
+        # Close any frames that end at or above this depth.
+        while self._frames and self._frames[-1][1] >= depth:
+            kind, _ = self._frames.pop()
+            self._on_frame_end(kind)
+        if self._in_button and depth <= self._in_button:
+            self._on_button_end()
+            self._in_button = 0
+
+    def handle_data(self, data: str) -> None:
+        self.text.append(data)
+        if not self._frames:
+            return
+        kind = self._frames[-1][0]
+        self._buffers[kind].append(data)
+
+    def _on_frame_end(self, kind: str) -> None:
+        text = "".join(self._buffers[kind]).strip()
+        if kind == "day_date":
+            match = _MONTH_DAY_RE.match(text)
+            if match is not None:
+                resolved = _resolve_schedule_date(
+                    int(match.group(1)), int(match.group(2)), self._today
+                )
+                if resolved is not None:
+                    self._current_date = resolved
+        elif kind == "session":
+            self._current_session = SCHEDULE_SESSION_TEXT.get(text)
+        elif self._in_button:
+            if kind == "doc_name":
+                self._card["doc_name"] = text
+            elif kind == "status":
+                self._card["status"] = text
+            elif kind == "sub_spec":
+                self._card["sub_spec"] = text
+
+    def _on_button_end(self) -> None:
+        doc_name = self._card.get("doc_name", "").strip()
+        match = _DOC_NAME_RE.match(doc_name)
+        if match is None or self._current_date is None or self._current_session is None:
+            return
+        sub_spec = self._card.get("sub_spec", "")
+        clinic_type = (
+            sub_spec.split("|")[-1].strip() if "|" in sub_spec else sub_spec.strip()
+        )
+        self.rows.append(
+            ScheduleRow(
+                visit_date=self._current_date,
+                session=self._current_session,
+                room=match.group("room"),
+                doctor=match.group("doctor"),
+                clinic_type=clinic_type,
+                status=self._card.get("status", ""),
+            )
+        )
+
+
+def parse_schedule(html: str, today: date) -> tuple[str, list[ScheduleRow]]:
+    """Return `("ok", rows)` or a page-level failure reason for the schedule.
+
+    `today` resolves the day-column `MM/DD` to a full date; use the Taipei date
+    the caller is working against (the one that opens the picker's window).
+    """
+    collector = _ScheduleCollector(today)
+    try:
+        collector.feed(html)
+        collector.close()
+    except (ValueError, AssertionError):
+        return "schema_drift", []
+    marker = _page_status(" ".join(collector.text).casefold())
+    if marker is not None:
+        return marker.value, []
+    if not collector.rows:
+        return "schema_drift", []
+    return "ok", collector.rows
+
+
 class _TokenCollector(HTMLParser):
     """Read the first anti-forgery token the selector page renders."""
 
@@ -303,28 +542,37 @@ class NtuhProgressReader:
         return await self._read(scope, now, for_start=True)
 
     async def list_clinics(self, query: RosterQuery, now: datetime) -> ClinicRoster:
-        """List the department's consulting clinics for the picker to choose from.
+        """List the department's clinics for the setup picker.
 
-        This is a one-shot read, separate from the bounded polling path: the
-        progress list carries no date and shows only the current day, so a roster
-        exists only for a same-day appointment. Each session is a separate
-        request (`AmpmCode` selects the roster), and the three are merged with
-        the session kept on each clinic so the owner never types it. Any read
-        that is not a clean card list makes the whole roster unavailable, so the
-        picker falls back to manual entry rather than offering a partial list.
+        Dispatches on `visit_date`: today reads the live light-table (one POST
+        per session), a date in `[today+1, today+14]` reads the 14-day
+        dept-wide `RegDeptSchedule` (one GET for the whole window, filtered to
+        the requested date), a date past `today+14` returns
+        `visit_date_out_of_schedule_window`, and a date before today returns
+        `visit_date_past`. Any read that is not a clean card list makes the
+        whole roster unavailable, so the picker falls back to manual entry
+        rather than offering a partial list.
         """
         if (
             query.hospital != Hospital.NTUH_MAIN
             or query.department_code != SUPPORTED_DEPARTMENT
         ):
             return ClinicRoster(False, (), "scope_mismatch")
-        if now.astimezone(TAIPEI).date() != query.visit_date:
-            return ClinicRoster(False, (), "date_not_today")
+        today = now.astimezone(TAIPEI).date()
+        if query.visit_date < today:
+            return ClinicRoster(False, (), "visit_date_past")
+        days_ahead = (query.visit_date - today).days
+        if days_ahead == 0:
+            return await self._list_today_roster(query.department_code)
+        if days_ahead > SCHEDULE_LOOKAHEAD_DAYS:
+            return ClinicRoster(False, (), "visit_date_out_of_schedule_window")
+        return await self._list_future_schedule(query, today)
+
+    async def _list_today_roster(self, department_code: str) -> ClinicRoster:
+        """Today's roster, merged across all three sessions from the light table."""
         options: list[ClinicOption] = []
         for session in AMPM_CODES:
-            status, rows = await self._fetch_session_rows(
-                query.department_code, session
-            )
+            status, rows = await self._fetch_session_rows(department_code, session)
             if status != "ok":
                 return ClinicRoster(False, (), status)
             options.extend(
@@ -338,6 +586,62 @@ class NtuhProgressReader:
                 for row in rows
             )
         return ClinicRoster(True, tuple(options), "ok")
+
+    async def _list_future_schedule(
+        self, query: RosterQuery, today: date
+    ) -> ClinicRoster:
+        """A future date inside the 14-day window, filtered from the schedule.
+
+        Cancelled rows (`停診`, `颱風停診`) are dropped; other status markers
+        (`額滿`, `已逾當日掛號時間`, 代診-related and restricted-registration
+        markers) only limit new registration and leave the clinic running, so
+        a holder of an existing number still has a clinic and the row stays.
+        """
+        try:
+            status, rows = await asyncio.wait_for(
+                self._fetch_schedule_rows(query.department_code, today),
+                REQUEST_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            return ClinicRoster(False, (), "timeout")
+        except Exception:
+            return ClinicRoster(False, (), "no_observation")
+        if status != "ok":
+            return ClinicRoster(False, (), status)
+        matching = [
+            row
+            for row in rows
+            if row.visit_date == query.visit_date
+            and row.status not in _SCHEDULE_CANCELLED_STATUSES
+        ]
+        if not matching:
+            return ClinicRoster(False, (), "no_observation")
+        options = tuple(
+            ClinicOption(
+                session=row.session,
+                room=row.room,
+                doctor=row.doctor,
+                clinic_type=row.clinic_type,
+                clinic_code=f"{row.room}/{row.doctor}/{row.clinic_type}",
+            )
+            for row in matching
+        )
+        return ClinicRoster(True, options, "ok")
+
+    async def _fetch_schedule_rows(
+        self, department_code: str, today: date
+    ) -> tuple[str, list[ScheduleRow]]:
+        """One GET of the dept-wide 14-day schedule, parsed into rows."""
+        page = await self._fetch(
+            PageRequest(
+                schedule_url(department_code),
+                headers=_headers({"Cookie": f"{LANGUAGE_COOKIE}={UI_LANGUAGE}"}),
+            )
+        )
+        failure = _transport_failure(page, max_body_chars=MAX_SCHEDULE_BODY_CHARS)
+        if failure is not None:
+            return failure["failure"][1], []
+        return parse_schedule(page.body, today)
 
     async def _fetch_session_rows(
         self, department_code: str, session: ClinicSession
@@ -672,7 +976,9 @@ def _cookie_header(cookies: tuple[str, ...]) -> str:
     return "; ".join(pairs)
 
 
-def _transport_failure(page: FetchedPage) -> dict[str, Any] | None:
+def _transport_failure(
+    page: FetchedPage, *, max_body_chars: int = MAX_BODY_CHARS
+) -> dict[str, Any] | None:
     if page.status in _DENIED_STATUSES or 300 <= page.status < 400:
         return _failed("unavailable", "access_denied", blocked=True)
     if page.status in _TRANSIENT_STATUSES or page.status >= 500:
@@ -681,7 +987,7 @@ def _transport_failure(page: FetchedPage) -> dict[str, Any] | None:
         )
         result["retry_after"] = page.retry_after
         return result
-    if page.status != 200 or len(page.body) > MAX_BODY_CHARS:
+    if page.status != 200 or len(page.body) > max_body_chars:
         return _failed("invalid", "schema_drift")
     return None
 

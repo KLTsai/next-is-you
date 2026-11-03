@@ -16,15 +16,25 @@ from next_is_you.domain import (
     HospitalReader,
     ReadFailed,
     ReadSkipped,
+    RosterQuery,
 )
 from next_is_you.line_messaging import LinePushResult
-from next_is_you.persistence import VisitRepository, visit_cutoff
+from next_is_you.persistence import TAIPEI, VisitRepository, visit_cutoff
 
 LINE_RETRY_WINDOW = timedelta(hours=24)
 _MESSAGES = {
     "near": "候診進度已接近您的號碼，請留意現場叫號。",
     "unavailable": "目前無法取得診間候診進度，請留意現場叫號。",
 }
+# Reasons that mean a schedule read failed transiently; the sweep leaves such
+# drafts untouched and retries on the next Taipei day.
+_SWEEP_TRANSIENT_REASONS = frozenset(
+    ("no_observation", "access_denied", "timeout", "schema_drift")
+)
+# Status markers from `RegDeptSchedule` that mean the clinic will not run on
+# that date; a matched row carrying either marker is treated as "doctor not
+# scheduled" by the sweep.
+_SCHEDULE_CANCELLED_STATUSES = frozenset(("停診", "颱風停診"))
 
 
 class LineSender(Protocol):
@@ -42,6 +52,8 @@ class TickPlan:
     events_created: int = 0
     event_ids: tuple[str, ...] = ()
     closed: int = 0
+    drafts_rechecked: int = 0
+    drafts_scope_mismatch: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,8 +91,12 @@ class OutboxScheduler:
         await self._visits.erase_settled_withdrawals()
         await self._visits.delete_expired(now)
 
+        rechecked, mismatched = await self._preflight_sweep(now)
+
         if self._hospital is None or self._line is None:
-            return TickPlan()
+            return TickPlan(
+                drafts_rechecked=rechecked, drafts_scope_mismatch=mismatched
+            )
 
         rows = await self._visits.active_schedule_rows()
         by_visit: dict[str, list[Mapping[str, Any]]] = {}
@@ -222,7 +238,88 @@ class OutboxScheduler:
             events_created=created,
             event_ids=tuple(event_ids),
             closed=closed,
+            drafts_rechecked=rechecked,
+            drafts_scope_mismatch=mismatched,
         )
+
+    async def _preflight_sweep(self, now: datetime) -> tuple[int, int]:
+        """Re-validate drafts in `[today+1, today+14]` once per Taipei day.
+
+        A matching `(session, room, doctor)` row keeps the draft; a doctor
+        that is no longer scheduled, or whose row carries `停診`/`颱風停診`,
+        flips `latest_source_read_*` to the organizer-attention signal. A
+        transient read failure leaves the draft untouched and retries on
+        the next Taipei day. One `list_clinics` call per (hospital, dept,
+        date) is reused across every draft sharing those three.
+        """
+        lister = getattr(self._hospital, "list_clinics", None)
+        if lister is None:
+            return 0, 0
+        today = now.astimezone(TAIPEI).date()
+        drafts = await self._visits.drafts_due_for_preflight_sweep(today)
+        if not drafts:
+            return 0, 0
+        rechecked = 0
+        mismatched = 0
+        roster_cache: dict[tuple[str, str, str], Any] = {}
+        for draft in drafts:
+            hospital = str(draft["hospital"])
+            department = str(draft["department_code"])
+            visit_date_str = str(draft["visit_date"])
+            cache_key = (hospital, department, visit_date_str)
+            roster = roster_cache.get(cache_key)
+            if roster is None:
+                try:
+                    query = RosterQuery(
+                        hospital=Hospital(hospital),
+                        department_code=department,
+                        visit_date=datetime.fromisoformat(visit_date_str).date(),
+                    )
+                except ValueError:
+                    continue
+                try:
+                    roster = await lister(query, now)
+                except Exception:
+                    # The sweep leaves the draft untouched on transport
+                    # exceptions; the next Taipei day retries.
+                    continue
+                roster_cache[cache_key] = roster
+            if not roster.available:
+                if roster.reason in _SWEEP_TRANSIENT_REASONS:
+                    continue
+                # Non-transient unavailable (visit_date_past from a race
+                # across midnight, scope_mismatch, out-of-window) is a real
+                # mismatch and belongs on the draft as an organizer signal.
+                await self._visits.set_source_read(
+                    str(draft["id"]), "scope_mismatch", "scope_mismatch"
+                )
+                await self._visits.mark_preflight_checked(str(draft["id"]), today)
+                rechecked += 1
+                mismatched += 1
+                continue
+            session_value = str(draft["clinic_session"])
+            clinic_code = str(draft["clinic_code"])
+            room, doctor = _draft_room_and_doctor(clinic_code)
+            match_found = any(
+                option.session.value == session_value
+                and option.room == room
+                and option.doctor == doctor
+                for option in roster.clinics
+            )
+            if match_found:
+                # The draft still matches; clear a prior scope_mismatch flag
+                # so an earlier bad run does not linger as a false alarm.
+                await self._visits.set_source_read(
+                    str(draft["id"]), "unavailable", "no_observation"
+                )
+            else:
+                await self._visits.set_source_read(
+                    str(draft["id"]), "scope_mismatch", "scope_mismatch"
+                )
+                mismatched += 1
+            await self._visits.mark_preflight_checked(str(draft["id"]), today)
+            rechecked += 1
+        return rechecked, mismatched
 
     async def send_event(
         self,
@@ -327,6 +424,20 @@ class OutboxScheduler:
             ),
         ):
             raise RuntimeError("prepared outbox attempt could not be rolled back")
+
+
+def _draft_room_and_doctor(clinic_code: str) -> tuple[str, str]:
+    """Pull `(room, doctor)` out of a `room/doctor/clinic_type` draft code.
+
+    The pre-flight sweep deliberately ignores the clinic_type segment: the
+    schedule's 診別 and the today-side `clinic_type` use different
+    vocabularies, so matching on `(session, room, doctor)` is the only
+    stable cross-source identity.
+    """
+    parts = [piece.strip() for piece in clinic_code.split("/")]
+    if len(parts) < 2:
+        return "", ""
+    return parts[0], parts[1]
 
 
 def _scope(row: Mapping[str, Any]) -> ClinicScope:

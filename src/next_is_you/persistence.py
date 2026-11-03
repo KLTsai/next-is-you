@@ -770,6 +770,22 @@ class VisitRepository:
         )
         return changes == 1
 
+    async def update_clinic_code(self, visit_id: str, clinic_code: str) -> bool:
+        """Rewrite a draft's clinic_code when pre-flight resolves to a new value.
+
+        Used by the Start-time resolve step when a schedule-sourced draft's
+        visit_date reaches today: the stored clinic_type (schedule's 診別)
+        must become the today-side clinic_type so the visit-day reader's
+        (room, doctor, clinic_type) matcher continues to work.
+        """
+        changes = await self._store.execute(
+            Statement(
+                "UPDATE visits SET clinic_code = ? WHERE id = ? AND state = 'draft'",
+                (clinic_code, visit_id),
+            )
+        )
+        return changes == 1
+
     async def start(self, visit_id: str, now: datetime) -> bool:
         """Start or resume a corrected series while atomically freezing its roster."""
         changes = await self._store.execute(
@@ -899,6 +915,40 @@ class VisitRepository:
                 )""",
                 (iso_utc(now), iso_utc(terminal_expiry(now)), visit_id),
             )
+        )
+
+    async def drafts_due_for_preflight_sweep(
+        self, today: date
+    ) -> list[Mapping[str, Any]]:
+        """Drafts in [today+1, today+14] that have not been swept today."""
+        window_start = (today + timedelta(days=1)).isoformat()
+        window_end = (today + timedelta(days=14)).isoformat()
+        today_iso = today.isoformat()
+        return await self._store.fetch_all(
+            Statement(
+                """SELECT id, hospital, visit_date, department_code, clinic_code,
+                    clinic_session, doctor_code, room_code
+                FROM visits
+                WHERE state = 'draft'
+                    AND visit_date >= ? AND visit_date <= ?
+                    AND (preflight_last_checked_date IS NULL
+                         OR preflight_last_checked_date != ?)
+                ORDER BY hospital, department_code, visit_date, id""",
+                (window_start, window_end, today_iso),
+            )
+        )
+
+    async def mark_preflight_checked(self, visit_id: str, today: date) -> bool:
+        """Record that the sweep ran against this draft for today Taipei."""
+        return (
+            await self._store.execute(
+                Statement(
+                    """UPDATE visits SET preflight_last_checked_date = ?
+                    WHERE id = ? AND state = 'draft'""",
+                    (today.isoformat(), visit_id),
+                )
+            )
+            == 1
         )
 
     async def expire_due_visits(self, now: datetime) -> int:

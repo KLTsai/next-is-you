@@ -599,6 +599,13 @@ def create_app(
                 "observation_invalid": ("observation_invalid", 409),
                 "ineligible_recipients": ("ineligible_recipients", 409),
                 "scheduler_held": ("scheduler_held", 503),
+                "visit_date_past": ("visit_date_past", 409),
+                "doctor_not_scheduled": ("doctor_not_scheduled", 409),
+                "schedule_unavailable": ("schedule_unavailable", 503),
+                "visit_date_out_of_schedule_window": (
+                    "visit_date_out_of_schedule_window",
+                    409,
+                ),
             }
             code, status = errors.get(result["error"], ("service_unavailable", 503))
             return _api_error(code, status)

@@ -19,6 +19,7 @@ Honest status as of today. The GitHub tracker is the authoritative source. Nothi
 **Done**
 
 - [x] Private HTTPS service deployed with reminders held, held bootstrap only - [#18](https://github.com/KLTsai/next-is-you/issues/18)
+- [x] Pre-flight validation blocks three setup mistakes before monitoring starts: past visit date, selected doctor not working on the chosen date, department/doctor/room combination that does not match NTUH's own schedule. Future dates within NTUH's 14-day window are validated against the dept-wide schedule; drafts beyond that are held and re-validated by a daily sweep once they enter the window - [#58](https://github.com/KLTsai/next-is-you/issues/58)
 
 **In progress**
 

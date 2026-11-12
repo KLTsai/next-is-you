@@ -728,6 +728,7 @@ function bindActions(): void {
   const previewNode = document.querySelector<HTMLElement>("#clinic-preview");
   if (clinicInput && previewNode) {
     clinicInput.addEventListener("input", () => {
+      rememberFormValues();
       const hospital = formValue("hospital", editing?.visit.hospital ?? firstHospital());
       const labels = hospitalEntry(hospital)?.clinic_code_labels ?? [];
       const { cls, html } = clinicPreview(labels, clinicInput.value);

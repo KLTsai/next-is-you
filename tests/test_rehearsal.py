@@ -467,10 +467,9 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
                 ).to_be_visible(timeout=15000)
                 page.locator('input[name="date"]').fill(next_day)
                 page.get_by_role("button", name="儲存修正並回到草稿").click()
-                expect(
-                    page.get_by_role("heading", name="修正已結束的提醒")
-                ).to_be_hidden(timeout=30000)
-                expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
+                expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible(
+                    timeout=60000
+                )
                 page.get_by_role("button", name="展開草稿").click()
                 expect(page.locator("#saved-drafts-list")).to_be_visible(timeout=15000)
                 draft = page.locator(

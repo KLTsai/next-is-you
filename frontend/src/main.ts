@@ -187,6 +187,7 @@ function rememberFormValues(): void {
   if (!form) return;
   const data = new FormData(form);
   const prev = formValues ?? {};
+  const item = editing?.visit;
   // A cascading form hides fields that the current mode does not use; keep the
   // previous value for any field absent from the DOM instead of clearing it.
   const keep = (name: string, fallback: string): string => {
@@ -195,12 +196,12 @@ function rememberFormValues(): void {
     return typeof stored === "string" ? stored : fallback;
   };
   formValues = {
-    hospital: keep("hospital", firstHospital()),
-    date: keep("date", ""),
-    patient_number: keep("patient_number", ""),
-    department_code: keep("department_code", ""),
-    clinic_code: keep("clinic_code", ""),
-    session: keep("session", "morning"),
+    hospital: keep("hospital", item?.hospital ?? firstHospital()),
+    date: keep("date", item?.date ?? ""),
+    patient_number: keep("patient_number", initialPatientNumber ?? ""),
+    department_code: keep("department_code", item?.department_code ?? ""),
+    clinic_code: keep("clinic_code", item?.clinic_code ?? ""),
+    session: keep("session", item?.session ?? "morning"),
     recipient_ids: form.elements.namedItem("recipient_ids")
       ? data.getAll("recipient_ids").map(String)
       : Array.isArray(prev.recipient_ids)
@@ -382,7 +383,10 @@ function formMarkup(): string {
     body = `<div class="form-grid">${departmentField}${dateField}</div>${clinicSection}${patientField}`;
   }
 
-  const submitDisabled = formSaving || !entry || capability === "unsupported" || hospitals.length === 0;
+  const rosterPending = Boolean(entry) && capability === "full_schedule" && Boolean(selectedDept)
+    && withinScheduleWindow(selectedDate, todayTaipei())
+    && !(roster !== null && rosterKey === selectionKey(selectedHospital, selectedDept, selectedDate));
+  const submitDisabled = formSaving || rosterPending || !entry || capability === "unsupported" || hospitals.length === 0;
 
   return `<section class="panel" aria-labelledby="setup-heading">
     <div class="panel-heading"><div><p class="eyebrow">提醒設定</p><h2 id="setup-heading">${formTitle}</h2></div><span class="step-count">${item ? formatVisitState(item.state) : "新草稿"}</span></div>
@@ -724,6 +728,7 @@ function bindActions(): void {
   const previewNode = document.querySelector<HTMLElement>("#clinic-preview");
   if (clinicInput && previewNode) {
     clinicInput.addEventListener("input", () => {
+      rememberFormValues();
       const hospital = formValue("hospital", editing?.visit.hospital ?? firstHospital());
       const labels = hospitalEntry(hospital)?.clinic_code_labels ?? [];
       const { cls, html } = clinicPreview(labels, clinicInput.value);

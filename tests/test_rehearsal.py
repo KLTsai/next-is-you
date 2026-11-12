@@ -14,6 +14,7 @@ from urllib.error import URLError
 from urllib.request import urlopen
 from zoneinfo import ZoneInfo
 
+import pytest
 from playwright.sync_api import expect, sync_playwright
 
 
@@ -1041,6 +1042,88 @@ def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fie
                 )
                 draft.locator("[data-start]").click()
                 expect(page.get_by_role("heading", name="已儲存草稿 0")).to_be_visible()
+        finally:
+            context.close()
+            browser.close()
+
+
+@pytest.mark.parametrize(
+    "scenario", ["settled", "fill_during_load", "click_during_load"]
+)
+def test_correction_save_vs_roster_latency(tmp_path, scenario):
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = int(listener.getsockname()[1])
+    day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
+    next_day = (datetime.fromisoformat(day) + timedelta(days=1)).date().isoformat()
+    expired_at = datetime.fromisoformat(day).replace(tzinfo=timezone.utc) + timedelta(
+        hours=16
+    )
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        context = browser.new_context()
+        origin = f"http://127.0.0.1:{port}"
+        context.route(
+            "**/*",
+            lambda r: (
+                r.continue_() if r.request.url.startswith(origin + "/") else r.abort()
+            ),
+        )
+        page = context.new_page()
+        held, hold = [], {"on": True}
+        page.route(
+            "**/clinics?**", lambda r: held.append(r) if hold["on"] else r.continue_()
+        )
+
+        def release():
+            hold["on"] = False
+            while held:
+                held.pop().continue_()
+
+        try:
+            with rehearsal(tmp_path, port):
+                control(
+                    page,
+                    origin,
+                    "seed",
+                    {
+                        "visit_id": "rehearsal-expired-restart",
+                        "recipient_id": "rehearsal-expired-recipient",
+                        "visit_day": day,
+                        "patient_number": 85,
+                        "now": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                page.goto(origin)
+                page.get_by_role("button", name="本機合成測試登入").click()
+                control(page, origin, "tick", {"now": expired_at.isoformat()})
+                page.get_by_role("button", name="重新整理").click()
+                card = page.locator(
+                    '[aria-labelledby="visit-rehearsal-expired-restart"]'
+                )
+                expect(card.locator(".state")).to_have_text("已結束")
+                card.locator('[data-correct="rehearsal-expired-restart"]').click()
+                expect(
+                    page.get_by_role("heading", name="修正已結束的提醒")
+                ).to_be_visible()
+                expect(page.locator('input[name="date"]')).to_have_value(day)
+                clinic = page.locator('#visit-form [name="clinic_code"]')
+                session = page.locator('#visit-form [name="session"]')
+                save = page.get_by_role("button", name="儲存修正並回到草稿")
+                if scenario in ("settled", "click_during_load"):
+                    release()
+                    expect(clinic).to_have_value("SYN-1")
+                    hold["on"] = True
+                page.locator('input[name="date"]').fill(next_day)
+                if scenario == "click_during_load":
+                    expect(save).to_be_disabled(timeout=3000)
+                release()
+                expect(clinic).to_have_value("SYN-1")
+                expect(session).to_have_value("afternoon")
+                save.click()
+                expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible(
+                    timeout=10000
+                )
         finally:
             context.close()
             browser.close()

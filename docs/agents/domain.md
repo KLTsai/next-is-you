@@ -4,7 +4,7 @@ How the engineering skills should consume this repo's domain documentation when 
 
 ## Before exploring, read these
 
-- Root `CONTEXT.md`, when present.
+- Root `GLOSSARY.md`, when present.
 - ADRs in `docs/adr/` that touch the area being changed.
 
 If either is absent, proceed silently. Do not suggest creating it upfront. The `/domain-modeling` skill, reached via `/grill-with-docs` and `/improve-codebase-architecture`, creates domain records lazily when terms or decisions are actually resolved.
@@ -15,7 +15,7 @@ This is a single-context product with a Python backend and a Vite frontend, not 
 
 ```text
 /
-|-- CONTEXT.md       # Created lazily
+|-- GLOSSARY.md      # Created lazily
 |-- docs/adr/        # Created lazily
 |-- src/next_is_you/
 |-- frontend/
@@ -27,7 +27,7 @@ Do not create `CONTEXT-MAP.md` or multiple contexts just for setup.
 
 ## Use the glossary's vocabulary
 
-When an issue title, refactor proposal, hypothesis, or test name uses a domain concept, use the term defined in `CONTEXT.md`. Avoid synonyms the glossary explicitly rejects.
+When an issue title, refactor proposal, hypothesis, or test name uses a domain concept, use the term defined in `GLOSSARY.md`. Avoid synonyms the glossary explicitly rejects.
 
 If a concept is missing, reconsider whether it belongs to this product; otherwise note the gap for `/domain-modeling`.
 

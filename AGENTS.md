@@ -27,4 +27,4 @@ Issues and specs are tracked in GitHub Issues for `KLTsai/next-is-you`. See `doc
 
 ### Domain docs
 
-Use a single-context layout: root `CONTEXT.md` and `docs/adr/`, created lazily when needed. See `docs/agents/domain.md`.
+Use a single-context layout: root `GLOSSARY.md` and `docs/adr/`, created lazily when needed. See `docs/agents/domain.md`.

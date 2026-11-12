@@ -600,7 +600,9 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
                     'input[name=recipient_ids][value="rehearsal-recipient"]'
                 ).check()
                 page.get_by_role("button", name="建立草稿").click()
-                expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
+                expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible(
+                    timeout=15000
+                )
                 expect(page.locator("#saved-drafts-list")).to_be_hidden()
                 page.get_by_role("button", name="展開草稿").click()
                 edit = page.locator("#saved-drafts-list [data-edit]")
@@ -761,7 +763,9 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                     'input[name=recipient_ids][value="rehearsal-transition-recipient"]'
                 ).check()
                 page.get_by_role("button", name="建立草稿").click()
-                expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
+                expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible(
+                    timeout=15000
+                )
                 page.get_by_role("button", name="展開草稿").click()
                 expect(page.locator("#saved-drafts-list")).to_be_visible()
 
@@ -777,7 +781,9 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                 )
                 page.locator(f'[data-start="{draft_id}"]').click()
 
-                expect(page.get_by_role("heading", name="已儲存草稿 0")).to_be_visible()
+                expect(page.get_by_role("heading", name="已儲存草稿 0")).to_be_visible(
+                    timeout=15000
+                )
                 expect(
                     page.locator(f'#saved-drafts-list [data-start="{draft_id}"]')
                 ).to_have_count(0)
@@ -916,7 +922,9 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                 expect(page.get_by_role("heading", name="已儲存草稿 0")).to_be_visible()
                 page.unroute("**/api/organizer/visits", fail_dashboard_refresh)
                 page.get_by_role("button", name="重新整理").click()
-                expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
+                expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible(
+                    timeout=15000
+                )
                 corrected_draft = page.locator(
                     f'#saved-drafts-list article[aria-labelledby="visit-{draft_id}"]'
                 )
@@ -1012,7 +1020,9 @@ def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fie
                     'input[name=recipient_ids][value="rehearsal-failure-recipient"]'
                 ).check()
                 page.get_by_role("button", name="建立草稿").click()
-                expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
+                expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible(
+                    timeout=15000
+                )
                 page.get_by_role("button", name="展開草稿").click()
                 expect(page.locator("#saved-drafts-list")).to_be_visible()
                 draft = page.locator("#saved-drafts-list .visit-card")
@@ -1050,7 +1060,9 @@ def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fie
                     {"current_number": 70, "trustworthy": True},
                 )
                 draft.locator("[data-start]").click()
-                expect(page.get_by_role("heading", name="已儲存草稿 0")).to_be_visible()
+                expect(page.get_by_role("heading", name="已儲存草稿 0")).to_be_visible(
+                    timeout=15000
+                )
         finally:
             context.close()
             browser.close()

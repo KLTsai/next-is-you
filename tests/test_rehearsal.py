@@ -469,6 +469,7 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
                 page.get_by_role("button", name="儲存修正並回到草稿").click()
                 expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
                 page.get_by_role("button", name="展開草稿").click()
+                expect(page.locator("#saved-drafts-list")).to_be_visible()
                 draft = page.locator(
                     '#saved-drafts-list [aria-labelledby="visit-rehearsal-expired-restart"]'
                 )
@@ -756,6 +757,7 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                 page.get_by_role("button", name="建立草稿").click()
                 expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
                 page.get_by_role("button", name="展開草稿").click()
+                expect(page.locator("#saved-drafts-list")).to_be_visible()
 
                 draft_id = page.locator(
                     "#saved-drafts-list [data-start]"
@@ -1006,6 +1008,7 @@ def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fie
                 page.get_by_role("button", name="建立草稿").click()
                 expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
                 page.get_by_role("button", name="展開草稿").click()
+                expect(page.locator("#saved-drafts-list")).to_be_visible()
                 draft = page.locator("#saved-drafts-list .visit-card")
                 draft.locator("[data-start]").click()
 

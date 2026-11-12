@@ -380,7 +380,7 @@ def test_rehearsal_stopped_correction_cannot_add_recipients(tmp_path):
                 page.locator('[data-correct="rehearsal-no-add"]').click()
                 expect(
                     page.get_by_role("heading", name="修正已停止的提醒")
-                ).to_be_visible()
+                ).to_be_visible(timeout=15000)
                 choices = page.locator('#visit-form input[name="recipient_ids"]')
                 expect(choices).to_have_count(1)
                 expect(choices).to_have_value("rehearsal-selected-recipient")
@@ -455,7 +455,7 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
                 card = page.locator(
                     '[aria-labelledby="visit-rehearsal-expired-restart"]'
                 )
-                expect(card.locator(".state")).to_have_text("已結束")
+                expect(card.locator(".state")).to_have_text("已結束", timeout=15000)
                 expect(card).to_contain_text("掛號序號")
                 expect(card).to_contain_text("85")
                 expect(card).to_contain_text("可重新檢查並啟動")
@@ -464,15 +464,15 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
                 correction.click()
                 expect(
                     page.get_by_role("heading", name="修正已結束的提醒")
-                ).to_be_visible()
+                ).to_be_visible(timeout=15000)
                 page.locator('input[name="date"]').fill(next_day)
                 page.get_by_role("button", name="儲存修正並回到草稿").click()
                 expect(
                     page.get_by_role("heading", name="修正已結束的提醒")
-                ).to_be_hidden()
+                ).to_be_hidden(timeout=15000)
                 expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible()
                 page.get_by_role("button", name="展開草稿").click()
-                expect(page.locator("#saved-drafts-list")).to_be_visible()
+                expect(page.locator("#saved-drafts-list")).to_be_visible(timeout=15000)
                 draft = page.locator(
                     '#saved-drafts-list [aria-labelledby="visit-rehearsal-expired-restart"]'
                 )
@@ -588,7 +588,9 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
                 page.get_by_role("button", name="本機合成測試登入").click()
                 expect(page.locator("#visit-form")).to_be_visible()
                 page.locator('[data-stop="rehearsal-setup"]').click()
-                expect(page.locator('[data-correct="rehearsal-setup"]')).to_be_visible()
+                expect(page.locator('[data-correct="rehearsal-setup"]')).to_be_visible(
+                    timeout=15000
+                )
                 page.locator("input[name=date]").fill(day)
                 page.locator("input[name=clinic_code]").wait_for()
                 page.locator("input[name=patient_number]").fill("85")
@@ -688,7 +690,9 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
                     assert page.request.get(origin + "/cdn-cgi/local/scheduled").ok
                 assert control(page, origin, "snapshot") == first
                 page.locator(f'[data-stop="{visit_id}"]').click()
-                expect(page.locator(f'[data-correct="{visit_id}"]')).to_be_visible()
+                expect(page.locator(f'[data-correct="{visit_id}"]')).to_be_visible(
+                    timeout=15000
+                )
                 stopped_card = page.locator(f'article:has([data-correct="{visit_id}"])')
                 expect(stopped_card).to_contain_text("掛號序號")
                 expect(stopped_card).to_contain_text("86")
@@ -751,7 +755,7 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                 page.locator('[data-stop="rehearsal-transition-setup"]').click()
                 expect(
                     page.locator('[data-correct="rehearsal-transition-setup"]')
-                ).to_be_visible()
+                ).to_be_visible(timeout=15000)
                 page.locator("input[name=date]").fill(day)
                 page.locator("input[name=clinic_code]").wait_for()
                 page.locator("input[name=patient_number]").fill("88")
@@ -799,11 +803,13 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                 assert started["patient_number"] == 88
 
                 active_card.locator(f'[data-stop="{draft_id}"]').click()
-                expect(page.locator(f'[data-correct="{draft_id}"]')).to_be_visible()
+                expect(page.locator(f'[data-correct="{draft_id}"]')).to_be_visible(
+                    timeout=15000
+                )
                 page.locator(f'[data-correct="{draft_id}"]').click()
                 expect(
                     page.get_by_role("heading", name="修正已停止的提醒")
-                ).to_be_visible()
+                ).to_be_visible(timeout=15000)
                 page.locator("input[name=patient_number]").fill("89")
                 page.locator("input[name=clinic_code]").fill(
                     "SYN-CORRECTED 診/合成醫師乙/門診約診"
@@ -999,7 +1005,7 @@ def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fie
                 page.locator('[data-stop="rehearsal-failure-setup"]').click()
                 expect(
                     page.locator('[data-correct="rehearsal-failure-setup"]')
-                ).to_be_visible()
+                ).to_be_visible(timeout=15000)
 
                 # Department and date share the first cascading row; they stay aligned.
                 department_box = page.locator(

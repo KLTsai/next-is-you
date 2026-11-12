@@ -747,6 +747,9 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                 page.goto(origin)
                 page.get_by_role("button", name="本機合成測試登入").click()
                 page.locator('[data-stop="rehearsal-transition-setup"]').click()
+                expect(
+                    page.locator('[data-correct="rehearsal-transition-setup"]')
+                ).to_be_visible()
                 page.locator("input[name=date]").fill(day)
                 page.locator("input[name=clinic_code]").wait_for()
                 page.locator("input[name=patient_number]").fill("88")

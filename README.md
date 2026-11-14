@@ -27,7 +27,7 @@ Honest status as of today. The GitHub tracker is the authoritative source. Nothi
 
 **In progress**
 
-- [ ] Reusable hospital-adapter backend boundary (`HospitalReader` interface, hospital registry, capability descriptor) and a documented hospital-integration guide ([docs/ADDING-A-HOSPITAL.md](docs/ADDING-A-HOSPITAL.md)) - [#45](https://github.com/KLTsai/next-is-you/issues/45). The interface and registry have merged; the issue itself remains open pending final sign-off.
+- [ ] Reusable hospital-adapter backend boundary (`HospitalReader` interface, hospital registry, capability descriptor) and a documented hospital-integration guide ([docs/ADDING-A-HOSPITAL.md](docs/ADDING-A-HOSPITAL.md)) - [#45](https://github.com/KLTsai/next-is-you/issues/45). The interface, registry and guide have merged. Three things are still open: the frontend's hospital union type and its hard-coded 14-day schedule window still name one hospital's behavior, the two window messages still say "NTUH" to the user, and the synthetic-hospital degradation test the issue asks for does not exist.
 - [ ] Organizer-managed LINE enrollment and removal UI: merged and verified locally; a live walkthrough with a real family LINE account is still open - [#19](https://github.com/KLTsai/next-is-you/issues/19)
 - [ ] NTU ophthalmology reader: fixture and local integration evidence in place; the source's request contract and markup were captured by hand, but the reader's own live behavior is unverified - [#20](https://github.com/KLTsai/next-is-you/issues/20)
 - [ ] Private storage recovery and operator readiness - [#21](https://github.com/KLTsai/next-is-you/issues/21)
@@ -37,7 +37,7 @@ Honest status as of today. The GitHub tracker is the authoritative source. Nothi
 
 - [ ] Additional hospitals and departments beyond NTU main-campus ophthalmology. Structural discovery (departments, doctors, consultation rooms, URL patterns) can be automated via browsing or retrieval; each new hospital still needs one in-person verification comparing the public page's current-number against the physical room-light, plus human confirmation of ambiguous field semantics and hospital reuse terms.
 - [ ] Frontend UI/UX redesign using a mainstream industry web framework (examples: React, Vue, Svelte, or comparable). The current frontend ships as-is; no framework has been chosen.
-- [ ] CI/governance hardening: Dependabot, CodeQL scanning, branch protection, issue/PR templates, CODEOWNERS, and SECURITY.md. This work has not started; the design is still being considered, with no date or implementation commitment.
+- [ ] Repository governance hardening: Dependabot, CodeQL scanning, branch protection, issue/PR templates, CODEOWNERS, and SECURITY.md. This work has not started; the design is still being considered, with no date or implementation commitment. It is separate from the deployment pipeline, which is already in place - see [docs/CI-CD.md](docs/CI-CD.md).
 
 The Status section is the single place that describes what works today versus what is being built; features gated behind an open issue are not claimed anywhere else in this document.
 
@@ -93,7 +93,7 @@ To stop or hold:
 
 - **Stop a reminder**: in the UI, open the active reminder and confirm **停止提醒**. A notification already in flight may settle before Stop confirms. See the [stop and recovery notes in the HTTPS service doc](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback).
 - **Hold the whole service** (when the system is misbehaving): the owner, signed in, sets recovery hold through the authorized status API. The exact console snippet lives in the [HTTPS service manual acceptance section](docs/HTTPS-SERVICE.md#manual-deployed-acceptance). Recovery hold survives Worker restarts and must be set before any restore or code rollback.
-- **Rollback the deployment**: use the native Wrangler rollback procedure in the [stop, failure recovery and rollback section](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback). Only roll back to a version compatible with the current schema and preserved SQLite class; this README deliberately does not restate the exact commands.
+- **Rollback the deployment**: redeploy the last known-good candidate tag through **Promote candidate to production**, as described in the [release and rollback rules](docs/CI-CD.md#release-and-rollback-rules). If no candidate tag is usable, fall back to the native Wrangler procedure in the [stop, failure recovery and rollback section](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback). Either way, only roll back to a version compatible with the current schema and preserved SQLite class; rollback never reverses a D1 migration, and this README deliberately does not restate the exact commands.
 
 First-time deployment (secrets, Login channel registration, provisioning) is a separate owner setup; see [docs/HTTPS-SERVICE.md](docs/HTTPS-SERVICE.md).
 
@@ -148,6 +148,8 @@ Linked procedures:
 - [Pre-live checklist](docs/PRE-LIVE-CHECKLIST.md)
 - [Local manual checklist](docs/NIY-020-LOCAL-MANUAL-CHECKLIST.md)
 - [HTTPS service preparation](docs/HTTPS-SERVICE.md)
+- [CI, candidate deployment and release pipeline](docs/CI-CD.md)
+- [Deployed secrets inventory](docs/SECRETS.md)
 - [Research index](research/README.md), including the [NIY-021 findings summary](research/NIY-021-findings-summary.md)
 - [Issue-tracker conventions](docs/agents/issue-tracker.md); historical records are [archived](docs/archive/tickets/README.md)
 

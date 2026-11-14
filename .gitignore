@@ -13,6 +13,7 @@ __pycache__/
 .dev.vars
 .dev.vars.*
 .wrangler.production.jsonc
+.wrangler.production.jsonc.*
 
 # Local tool and worker state
 .claude/worktrees/

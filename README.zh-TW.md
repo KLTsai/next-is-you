@@ -27,7 +27,7 @@ Next is you 就是替你做這件事的小工具。擁有者在瀏覽器開啟�
 
 **進行中**
 
-- [ ] 可替換的醫院 adapter 後端邊界（`HospitalReader` 介面、醫院註冊表、能力描述）與新增醫院的文件指南（[docs/ADDING-A-HOSPITAL.md](docs/ADDING-A-HOSPITAL.md)） - [#45](https://github.com/KLTsai/next-is-you/issues/45)。介面與註冊表已經合併進主線；issue 本身仍是開啟狀態，尚待正式結案。
+- [ ] 可替換的醫院 adapter 後端邊界（`HospitalReader` 介面、醫院註冊表、能力描述）與新增醫院的文件指南（[docs/ADDING-A-HOSPITAL.md](docs/ADDING-A-HOSPITAL.md)） - [#45](https://github.com/KLTsai/next-is-you/issues/45)。介面、註冊表與指南已經合併進主線。仍有三件未完成：前端的醫院 union 型別與寫死的 14 天排班視窗仍帶著單一醫院的行為假設、兩則視窗提示文字仍對使用者寫出「NTUH」、以及 issue 要求的合成醫院降級測試尚未存在。
 - [ ] 管理者主導的 LINE 邀請與移除 UI：已合併並在本地驗證過；用真實家庭 LINE 帳號走一次完整流程仍待進行 - [#19](https://github.com/KLTsai/next-is-you/issues/19)
 - [ ] 台大眼科 reader：已具備 fixture 與本地整合證據；來源的請求契約與 markup 已人工實地擷取，但 reader 本身的線上行為尚未驗證 - [#20](https://github.com/KLTsai/next-is-you/issues/20)
 - [ ] 私人儲存復原與營運就緒 - [#21](https://github.com/KLTsai/next-is-you/issues/21)
@@ -37,7 +37,7 @@ Next is you 就是替你做這件事的小工具。擁有者在瀏覽器開啟�
 
 - [ ] 支援台大總院區眼科之外的其他醫院與科別。結構面的盤點（科別、醫師、診間、URL 格式）可用瀏覽或檢索方式自動化；但每新增一間醫院，仍需現場親自驗證一次，比對公開頁面上的目前叫號與診間實體燈號是否一致，並由人工確認含糊的欄位語意，以及該醫院對相關術語的使用方式。
 - [ ] 以主流業界 web framework（例如 React、Vue、Svelte 或同等級框架）重新設計前端 UI/UX。目前前端照現況提供使用，尚未選定框架。
-- [ ] CI/治理加固：Dependabot、CodeQL 掃描、分支保護、issue/PR 範本、CODEOWNERS，以及 SECURITY.md。這項工作尚未開始；設計仍待思考完整，目前沒有日期或實作承諾。
+- [ ] 版本庫治理加固：Dependabot、CodeQL 掃描、分支保護、issue/PR 範本、CODEOWNERS，以及 SECURITY.md。這項工作尚未開始；設計仍待思考完整，目前沒有日期或實作承諾。這與部署流程是兩件事，部署流程已經就位，見 [docs/CI-CD.md](docs/CI-CD.md)。
 
 此現況區段是本文件中唯一描述「今日可用」與「仍在建置」差異的地方；任何仍受未結 issue 把關的功能，不會在本文件其他段落被誇張宣稱。
 
@@ -93,7 +93,7 @@ Reader 只會保留它實際比對到的欄位（診間、醫師、clinic type�
 
 - **停止某則提醒**：在 UI 中打開目前的 reminder，確認 **停止提醒**。已在送出途中的通知可能會先完成，才確認停止。詳見 [HTTPS 服務文件的停止與復原段落](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback)。
 - **保留整個服務**（當系統出現異常時）：擁有者登入後，透過已授權的狀態 API 設定 recovery hold。對應的 console 片段在 [HTTPS 服務的手動驗收段落](docs/HTTPS-SERVICE.md#manual-deployed-acceptance)；recovery hold 會跨 Worker 重啟保留，且必須在任何還原或程式碼 rollback 之前先設定。
-- **部署 rollback**：使用 [stop, failure recovery and rollback 段落](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback)中原生的 Wrangler rollback 程序。只能 rollback 到與目前 schema 及已保留的 SQLite class 相容的版本；本 README 刻意不重述完整命令。
+- **部署 rollback**：透過 **Promote candidate to production** 重新部署上一個已知良好的 candidate tag，程序見 [release and rollback rules](docs/CI-CD.md#release-and-rollback-rules)。若沒有可用的 candidate tag，再退回 [stop, failure recovery and rollback 段落](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback)中原生的 Wrangler 程序。兩者都只能 rollback 到與目前 schema 及已保留的 SQLite class 相容的版本；rollback 不會逆轉 D1 migration，本 README 刻意不重述完整命令。
 
 首次部署（secrets、Login channel 註冊、resource 準備）屬於另一個擁有者設定流程，詳見 [docs/HTTPS-SERVICE.md](docs/HTTPS-SERVICE.md)。
 
@@ -148,6 +148,8 @@ git diff --check
 - [Pre-live checklist](docs/PRE-LIVE-CHECKLIST.md)
 - [本地手動 checklist](docs/NIY-020-LOCAL-MANUAL-CHECKLIST.md)
 - [HTTPS 服務準備](docs/HTTPS-SERVICE.md)
+- [CI、candidate 部署與發布流程](docs/CI-CD.md)
+- [已部署環境的 secrets 清冊](docs/SECRETS.md)
 - [Research 索引](research/README.md)，包含 [NIY-021 findings summary](research/NIY-021-findings-summary.md)
 - [Issue-tracker 慣例](docs/agents/issue-tracker.md)；歷史紀錄見[封存目錄](docs/archive/tickets/README.md)
 

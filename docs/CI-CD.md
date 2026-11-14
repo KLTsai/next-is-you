@@ -69,9 +69,23 @@ environment without copying production data:
 
    LINE supports more than one callback URL per channel. Do not replace the
    production callback.
-3. After the first Worker deployment, use masked local prompts to set the three
-   staging-only Worker secrets. Never place their values in GitHub Actions,
-   repository files, logs, or issue comments.
+3. After the first Worker deployment, set the staging Worker's
+   `LINE_LOGIN_REDIRECT_URI`. It is absent from the committed config on purpose,
+   so it has to be supplied once per Worker and is then preserved by the
+   `--keep-vars` that every later deploy already uses:
+
+   ```sh
+   uv run python -m pywrangler deploy --config wrangler.staging.jsonc --keep-vars \
+     --var "LINE_LOGIN_REDIRECT_URI:https://next-is-you-staging.<owner-subdomain>.workers.dev/auth/line/callback"
+   ```
+
+   Organizer login returns `503 Organizer LINE Login is not configured` until
+   this var and the three secrets below are all in place, because
+   `organizer_login_ready` in `src/worker.py` requires every one of them.
+
+4. Using masked local prompts, set the three Worker secrets on staging. Never
+   place their values in GitHub Actions, repository files, logs, or issue
+   comments.
 
    ```sh
    uv run python -m pywrangler secret put LINE_LOGIN_CHANNEL_SECRET --config wrangler.staging.jsonc
@@ -79,7 +93,14 @@ environment without copying production data:
    uv run python -m pywrangler secret put ORGANIZER_LINE_SUBJECTS --config wrangler.staging.jsonc
    ```
 
-   `ORGANIZER_LINE_SUBJECTS` may name only authorized staging organizers.
+   `LINE_LOGIN_CHANNEL_SECRET` is the production value, because both
+   environments use the shared Login channel. `SESSION_SIGNING_SECRET` must be a
+   new value that production does not use; it is what stops a staging session
+   from authenticating against production. `ORGANIZER_LINE_SUBJECTS` is normally
+   the same subject as production, since a LINE subject is stable per provider,
+   and may be narrowed to a staging-only organizer instead.
+   [docs/SECRETS.md](SECRETS.md) is the inventory for both environments.
+
    `LINE_CHANNEL_ACCESS_TOKEN` remains absent. The application keeps sending
    held in staging and production until Issue #22 authorizes a live pilot.
 

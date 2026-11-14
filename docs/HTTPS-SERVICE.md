@@ -1,5 +1,20 @@
 # Held HTTPS service preparation (Issue #18)
 
+> **This document is the first-time provisioning record, not the deployment
+> procedure.** It records how the production Worker, its D1 database and its
+> secrets were created and accepted for Issue #18, and it remains the reference
+> for provisioning a fresh environment. Ongoing deployment is owned by
+> [docs/CI-CD.md](CI-CD.md): a commit reaches staging through **Candidate
+> deploy** and production through **Promote candidate to production**, using the
+> committed `wrangler.staging.jsonc` and `wrangler.production.jsonc`.
+>
+> Do not hand-deploy production from a local `.wrangler.production.jsonc`. That
+> file declares `LINE_LOGIN_REDIRECT_URI`, which commit `6a4af1c` deliberately
+> removed from the committed config so the deployed value is preserved through
+> `--keep-vars` instead. A hand deployment would overwrite the live value, and
+> the account's `workers.dev` subdomain has since changed, so any older local
+> copy carries a dead URL.
+
 ## Scope and authorization
 
 [Issue #18](https://github.com/KLTsai/next-is-you/issues/18) owns this work.
@@ -258,7 +273,7 @@ to the extent noted per step below:
    Owner read-only query, re-run to re-verify:
 
    ```sh
-   uv run python -m pywrangler d1 execute next-is-you-production --remote --config .wrangler.production.jsonc --command 'SELECT COUNT(*) AS total FROM invitations'
+   uv run python -m pywrangler d1 execute next-is-you-production --remote --config wrangler.production.jsonc --command 'SELECT COUNT(*) AS total FROM invitations'
    ```
 
    Record the count before/after redeploying the same approved config/commit
@@ -310,13 +325,18 @@ To stop Cron too, set this Worker's `triggers.crons` to `[]` and deploy
 D1 and DO resources; do not delete or clear any environment. When restoring the
 schedule/origin, use the same IDs/name and verify both holds again.
 
+[docs/CI-CD.md](CI-CD.md) owns the primary rollback procedure: redeploy a prior
+candidate tag through **Promote candidate to production**, which restores a known
+deployed commit. The native Wrangler commands below remain the emergency path
+for when no candidate tag is usable.
+
 Before a change, record the last known-good held version. Owner commands below
 are generic rollback instructions, not yet exercised in this pass (list is a
 remote read; rollback changes the deployment):
 
 ```sh
-uv run python -m pywrangler deployments list --config .wrangler.production.jsonc
-uv run python -m pywrangler rollback <known-good-held-version-id> --config .wrangler.production.jsonc
+uv run python -m pywrangler deployments list --config wrangler.production.jsonc
+uv run python -m pywrangler rollback <known-good-held-version-id> --config wrangler.production.jsonc
 ```
 
 [Rollback](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/)

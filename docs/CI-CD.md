@@ -153,7 +153,10 @@ Release Please reads Conventional Commit messages:
 - `feat:` creates a minor version proposal.
 - `fix:` and `perf:` create a patch proposal.
 - `feat!:` or `BREAKING CHANGE:` creates a major version proposal.
-- `docs:` appears in the changelog but does not bump alone.
+- `docs:` proposes a patch version. It has a visible changelog section here, and
+  Release Please treats any commit with a visible section as releasable, so a
+  lone `docs:` commit is enough to open a release PR. Observed on 2026-11-14:
+  commit `1a7e76e` alone proposed 0.2.1.
 - `chore:`, `refactor:`, `test:`, `build:`, `ci:`, and `style:` do not bump a
   version.
 

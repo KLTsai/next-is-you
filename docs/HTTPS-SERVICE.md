@@ -1,9 +1,7 @@
-# Held HTTPS service preparation (Issue #18)
+# Private HTTPS service: provisioning and operation (Issue #18)
 
-> **This document is the first-time provisioning record, not the deployment
-> procedure.** It records how the production Worker, its D1 database and its
-> secrets were created and accepted for Issue #18, and it remains the reference
-> for provisioning a fresh environment. Ongoing deployment is owned by
+> **This document provisions and operates an environment. It is not the
+> deployment procedure for a change.** Ongoing deployment is owned by
 > [docs/CI-CD.md](CI-CD.md): a commit reaches staging through **Candidate
 > deploy** and production through **Promote candidate to production**, using the
 > committed `wrangler.staging.jsonc` and `wrangler.production.jsonc`.
@@ -14,6 +12,16 @@
 > `--keep-vars` instead. A hand deployment would overwrite the live value, and
 > the account's `workers.dev` subdomain has since changed, so any older local
 > copy carries a dead URL.
+
+Sections are grouped by what they are for, because they are not all the same
+kind of text:
+
+| Section | Kind |
+| --- | --- |
+| [Scope and authorization](#scope-and-authorization), [Free plan and origin decision](#free-plan-and-origin-decision) | Decisions this environment rests on |
+| [Local proof](#local-proof-before-any-remote-action), [Provisioning](#provisioning-a-fresh-environment), [Acceptance checks](#acceptance-checks) | Instructions, to follow in order |
+| [Stop, failure recovery and rollback](#stop-failure-recovery-and-rollback) | Operational procedure for a running environment |
+| [Recorded evidence](#recorded-evidence-for-the-owners-production-environment) | A dated log of one environment. Not an instruction |
 
 ## Scope and authorization
 
@@ -30,17 +38,16 @@ consent, cutoff, and recovery tests remain the behavior seams.
 Dependencies are the owner's Cloudflare Free account/resource authorization,
 agreed fixed HTTPS origin and privacy interpretation, private LINE configuration
 and organizer subject, then separately authorized deployment/manual acceptance.
-The held bootstrap was deployed as recorded in the owner evidence below; see
-the [README status](../README.md#status) for the current user-facing state.
+The held bootstrap was deployed as recorded in
+[Recorded evidence](#recorded-evidence-for-the-owners-production-environment);
+see the [README status](../README.md#status) for the current user-facing state.
 Deployment does not authorize live reads or reminder sends, and publication of
 repository changes does not authorize a new deployment.
 
 Non-goals: enabling sends, enabling the hospital reader in production before
 the Issue #22 pilot, LINE or handset acceptance, paid resources, domain purchase,
 another service/database, a storage rewrite, or a deployment automation layer.
-The [NTUH reader guide](NTUH-READER.md) owns reader scope and behavior. Full
-review, validation, documentation, lint, push, PR and CI are handed to
-no-mistakes after the implementation commit.
+The [NTUH reader guide](NTUH-READER.md) owns reader scope and behavior.
 
 ## Free plan and origin decision
 
@@ -80,7 +87,7 @@ domains for business-critical production. The static shell and health endpoint
 are public; organizer data and mutations require an allowlisted LINE session and
 mutations require CSRF. Recipient enrollment additionally requires an invitation,
 friendship verification and consent. The owner must explicitly agree whether
-this application-level privacy meets “private HTTPS.” No domain purchase or
+this application-level privacy meets "private HTTPS." No domain purchase or
 additional Access service is assumed. If network-level privacy is required,
 stop for a separate origin/access decision and callback rehearsal.
 
@@ -142,46 +149,40 @@ withdrawal, cutoff and recovery reconciliation. This is genuine local integratio
 with fixture identity plus fixture/mock evidence. It is not deployed integration,
 LINE provider acceptance or handset evidence.
 
-## Owner setup (recorded completed 2026-10-27/28)
+## Provisioning a fresh environment
 
-These steps were completed with the owner's explicit authorization of the selected
-account, new D1 database and Worker/DO resources, the fixed origin/privacy meaning,
-Workers Free with no plan purchase, and the organizer subject supplied privately.
-The subject belongs to the LINE provider used by this Login channel; a display
-name is not an identifier. The allowlist was not broadened to discover the
-identity. No private account data was inspected during preparation or this
-verification pass.
+These five steps create one environment from nothing. Every one of them needs
+the account owner's explicit authorization: the selected account, the new D1
+database and Worker/DO resources, the fixed origin and what privacy it is taken
+to mean, Workers Free with no plan purchase, and an organizer subject supplied
+privately. That subject belongs to the LINE provider used by this Login channel;
+a display name is not an identifier, and the allowlist must not be broadened to
+discover one.
 
-Deployment history confirms an initial 2026-10-23 deploy, three "Secret Change"
-events on 2026-10-27 matching the three required secrets, and that the version
-reported as live during the 2026-10-27/28 verification was from 2026-10-27.
-`wrangler secret list` confirmed
-`LINE_LOGIN_CHANNEL_SECRET`, `ORGANIZER_LINE_SUBJECTS`, and `SESSION_SIGNING_SECRET`
-are all provisioned (names only; values were never read). Steps 1-5 below are
-confirmed done on this evidence.
+The owner's own production environment was provisioned this way. What that run
+established, and what it did not, is in
+[Recorded evidence](#recorded-evidence-for-the-owners-production-environment).
 
-1. Locally copy the template to the ignored repository-root
-   `.wrangler.production.jsonc`. Set `name` to the approved unique Worker name,
-   and `account_id` to the authorized account ID. Keep public routes disabled
-   for initial setup. Never deploy either local/rehearsal config remotely.
-   Use this explicit production config on every command; no named environment
-   inherits test bindings. Local state and the new remote database are separate.
-2. The owner authenticated with native Wrangler and created only the approved D1
-   database. Commands below are **completed; remote state changes already applied**:
+1. Copy the template to the ignored repository-root `.wrangler.production.jsonc`.
+   Set `name` to the approved unique Worker name, and `account_id` to the
+   authorized account ID. Keep public routes disabled for initial setup. Never
+   deploy a local or rehearsal config remotely. Name this explicit production
+   config on every command; no named environment inherits test bindings. Local
+   state and the new remote database are separate.
+2. Authenticate with native Wrangler and create only the approved D1 database:
 
    ```sh
    uv run python -m pywrangler login
    uv run python -m pywrangler d1 create next-is-you-production --config .wrangler.production.jsonc
    ```
 
-   The returned resource ID was kept private and the template's zero UUID
-   replaced with it in the ignored config. If the owner chose another database
-   name, use that exact name both in the config and every command below. Stop if
-   Wrangler selects another account or requests a plan upgrade. Do not accept
-   resource auto-creation beyond the approved Worker, D1 and SQLite DO.
-3. The config was built and dry-run first. Migrations were then applied to the
-   one approved remote database and the service deployed with origin still
-   disabled. Commands below are **completed; remote state changes already applied**:
+   Keep the returned resource ID private and replace the template's zero UUID
+   with it in the ignored config. If another database name is chosen, use that
+   exact name both in the config and in every command below. Stop if Wrangler
+   selects another account or requests a plan upgrade. Do not accept resource
+   auto-creation beyond the approved Worker, D1 and SQLite DO.
+3. Build and dry-run the config first. Then apply migrations to the one approved
+   remote database and deploy the service with the origin still disabled:
 
    ```sh
    uv run python -m pywrangler d1 migrations apply next-is-you-production --remote --config .wrangler.production.jsonc
@@ -192,10 +193,10 @@ confirmed done on this evidence.
    storage, and the existing one-minute scheduled handler on this one Worker.
    No second service is needed. Missing auth settings deny login and protected
    APIs; every non-local-test runtime is held by code even if a push token exists.
-4. `LINE_LOGIN_CHANNEL_ID` and the exact approved `LINE_LOGIN_REDIRECT_URI` were
-   provisioned using this Worker's dashboard variables. The following were
-   provisioned using native masked interactive prompts or the dashboard's secret
-   controls. Commands are **completed; remote secret/version changes already applied**:
+4. Provision `LINE_LOGIN_CHANNEL_ID` and the exact approved
+   `LINE_LOGIN_REDIRECT_URI` as this Worker's dashboard variables. Provision the
+   three secrets through native masked interactive prompts or the dashboard's
+   secret controls:
 
    ```sh
    uv run python -m pywrangler secret put LINE_LOGIN_CHANNEL_SECRET --config .wrangler.production.jsonc
@@ -203,107 +204,78 @@ confirmed done on this evidence.
    uv run python -m pywrangler secret put ORGANIZER_LINE_SUBJECTS --config .wrangler.production.jsonc
    ```
 
-   An independently generated session signing secret of at least 32 UTF-8 bytes
-   was used. Values were pasted only into private masked controls, never shell
-   arguments, tracked files, logs, reports or chat. `LINE_CHANNEL_ACCESS_TOKEN`
-   was not provisioned for this bootstrap. Root `.env` and local `.dev.vars` are
-   not production provisioning sources. `NIY_ENVIRONMENT=production` and
-   `NIY006_LOCAL_TEST_MODE=0` are kept; neither is a secret.
-5. The owner registered the exact callback above in LINE Console (**completed**),
-   with an appropriate channel status/tester permission for their account. After
-   the agreed public-origin choice, `workers_dev: true` was set in the ignored
-   config and deployed again (**completed**). `preview_urls: false` is kept.
-   The exact URL Wrangler returned, account/plan, resource IDs, deployed
-   commit/version, migration versions and time were recorded privately.
+   Use an independently generated session signing secret of at least 32 UTF-8
+   bytes. Paste values only into private masked controls, never into shell
+   arguments, tracked files, logs, reports or chat. Do not provision
+   `LINE_CHANNEL_ACCESS_TOKEN` for a held bootstrap. Root `.env` and local
+   `.dev.vars` are not production provisioning sources. Keep
+   `NIY_ENVIRONMENT=production` and `NIY006_LOCAL_TEST_MODE=0`; neither is a
+   secret. [docs/SECRETS.md](SECRETS.md) is the inventory for both deployed
+   environments.
+5. Register the exact callback above in LINE Console, with an appropriate
+   channel status or tester permission for the account that will sign in. Once
+   the public-origin choice is agreed, set `workers_dev: true` in the ignored
+   config and deploy again, keeping `preview_urls: false`. Record the exact URL
+   Wrangler returns, the account and plan, resource IDs, deployed
+   commit/version, migration versions and the time, privately.
 
-## Manual deployed acceptance (completed 2026-10-27/28, to the extent noted per step)
+## Acceptance checks
 
-Daily use needs only a browser after owner setup. Open the exact stable URL.
-This pass was run directly against the live deployed origin on 2026-10-27/28,
-to the extent noted per step below:
+Run these against the live deployed origin once provisioning is complete. Daily
+use needs only a browser; open the exact stable URL. Report fixture/mock,
+genuine local, deployed, provider and handset results separately, and keep all
+[pre-live gates](PRE-LIVE-CHECKLIST.md) open for later exercises: a successful
+LINE Login proves nothing about reminder delivery.
 
-1. **Confirmed on 2026-10-27/28.** Current UI and JS/CSS load over HTTPS from
-   this same origin. `/api/healthz` returns `{"status":"ok","mode":"held-service"}`.
-   An unauthenticated `POST /api/organizer/invitations` returned `401`. Other
-   logged-out organizer API responses and the `503` response for missing or
-   invalid configuration were not exercised in this pass. The synthetic
-   `/__niy006_test/organizer-session` route returned `404`; the `/seed` and
-   `/snapshot` routes and synthetic login button were not independently
-   checked in this pass.
-2. **Confirmed on 2026-10-27: the owner completed a real LINE login and reached
-   organizer access.** The exact callback returned to this origin. The two
-   edge-case checks - an unauthorized second test account outside the allowlist
-   getting `403`, and a callback with missing state/code returning `401` - were
-   not exercised in this pass and remain unverified. Do not add an unauthorized
-   account to the allowlist. Do not capture callback codes, cookies, provider
-   tokens or patient information in evidence.
-3. **Confirmed on 2026-10-27:** the owner set recovery hold through the
-   authorized status API and the status endpoint reported the values below;
-   this was not freshly re-checked after that date. In the signed-in browser
-   console, inspect the existing authorized status API and establish recovery
-   hold. These application actions use the current session's CSRF cookie
-   without displaying it; re-run to re-verify:
-
-   ```js
-   const csrf = decodeURIComponent(document.cookie.split('; ').find(v => v.startsWith('__Host-ny_csrf='))?.split('=').slice(1).join('=') ?? '');
-   const hold = await fetch('/api/organizer/scheduler/recovery-hold', {method: 'POST', headers: {'x-csrf-token': csrf}});
-   console.log(hold.status); // 204; otherwise stop and investigate
-   console.log(await (await fetch('/api/organizer/scheduler/status')).json());
-   // held: true, configuration_hold: true, recovery_hold: true,
-   // hospital_reader_available: false
-   ```
-
+1. **Origin and fail-closed API.** The current UI and its JS/CSS load over HTTPS
+   from this same origin. `/api/healthz` returns
+   `{"status":"ok","mode":"held-service"}`. An unauthenticated
+   `POST /api/organizer/invitations` returns `401`, other logged-out organizer
+   API calls are refused, and missing or invalid configuration returns `503`.
+   The synthetic `/__niy006_test/organizer-session`, `/seed` and `/snapshot`
+   routes return `404`, and no synthetic login button is rendered.
+2. **LINE round trip.** Complete a real LINE login and reach organizer access,
+   with the exact callback returning to this origin. Check that a second test
+   account outside the allowlist gets `403`, and that a callback with missing
+   state or code returns `401`. Do not add an unauthorized account to the
+   allowlist. Do not capture callback codes, cookies, provider tokens or patient
+   information in evidence.
+3. **Recovery hold.** Set recovery hold through the authorized status API and
+   confirm the status endpoint reports `held: true`, `configuration_hold: true`,
+   `recovery_hold: true` and `hospital_reader_available: false`. The console
+   snippet is in
+   [Stop, failure recovery and rollback](#stop-failure-recovery-and-rollback).
    No production resume is allowed in this bootstrap, even with
    `{"reconciled":true}`. Do not call resume as an operational workaround.
-4. **Confirmed on 2026-10-28 that invitations are genuinely stored on the
-   remote D1 database:** the owner created one unused invitation through the
-   existing API, and a direct read-only query against the remote database
-   returned the expected row count. The specific before/after-redeploy
-   comparison below was not repeated in this pass, though the service has
-   already been redeployed multiple times historically with no indication of
-   data loss. To prove D1 persistence without synthetic login/consent, create
-   one unused owner invitation through the existing API, discard its private
-   URL, and record only the database row count in private operator evidence.
-   In the signed-in console, re-run to re-verify:
+4. **D1 persistence.** Prove it without synthetic login or consent: create one
+   unused owner invitation through the existing API, discard its private URL,
+   and record only the row count in private operator evidence. In the signed-in
+   console:
 
    ```js
    console.log((await fetch('/api/organizer/invitations', {method: 'POST', headers: {'x-csrf-token': csrf}})).status); // 201
    ```
 
-   Owner read-only query, re-run to re-verify:
+   Owner read-only query:
 
    ```sh
    uv run python -m pywrangler d1 execute next-is-you-production --remote --config wrangler.production.jsonc --command 'SELECT COUNT(*) AS total FROM invitations'
    ```
 
-   Record the count before/after redeploying the same approved config/commit
-   to repeat that stronger comparison. Reload the same URL and check recovery
-   hold is still true. The recorded query confirms invitation rows were stored
-   in remote D1; the hold was reported by the status endpoint on 2026-10-27.
-   Neither check establishes survival across a deployment. This pass did not
-   establish restored-backup consistency or live notification deduplication.
-   Do not rename the Worker, DO class, binding or singleton, or replace D1.
-5. **Deferred - not run in this pass**, consistent with this issue's acceptance
-   wording of deferring full live workload measurements to ticket 08. Confirm
-   Cron is configured and observe a successful held scheduled invocation
-   using native Cloudflare metrics. Record HTTP/Cron CPU, startup errors, DO
-   requests/duration/storage and D1 rows read/written/storage and errors. Compare
-   remaining account quota to the table above. Do not dump request headers or
-   private payloads into logs. A local scheduled hook is not deployed Cron proof.
-   Production Start remains held and does not read the live hospital until the
-   Issue #22 pilot; the [NTUH reader guide](NTUH-READER.md) owns the reader gate.
-   Real consented recipient and Start/provider journeys remain gated by the
-   pre-live checklist.
-
-The owner setup and acceptance pass above are complete to the extent marked
-for each step as of 2026-10-27/28; a recorded stable URL and deployed evidence
-exist privately. The LINE round-trip edge cases (step 2), the before/after-redeploy
-D1 comparison (step 4), and the Cron/metrics check (step 5) remain unexercised
-and are deferred, consistent with this issue's acceptance wording of deferring
-full live workload measurements to ticket 08. Report fixture/mock, genuine
-local, deployed, provider and handset results separately; LINE Login success
-proves no reminder delivery. Keep all [pre-live gates](PRE-LIVE-CHECKLIST.md)
-open for later exercises.
+   Record that count before and after redeploying the same approved config and
+   commit; only the comparison establishes survival across a deployment. Reload
+   the same URL and check recovery hold is still true. Do not rename the Worker,
+   DO class, binding or singleton, and do not replace D1.
+5. **Cron and platform metrics.** Confirm Cron is configured and observe a
+   successful held scheduled invocation using native Cloudflare metrics. Record
+   HTTP and Cron CPU, startup errors, DO requests/duration/storage, and D1 rows
+   read/written/storage and errors. Compare remaining account quota to the
+   [Free-plan table](#free-plan-and-origin-decision). Do not dump request
+   headers or private payloads into logs. A local scheduled hook is not deployed
+   Cron proof. Production Start remains held and does not read the live hospital
+   until the Issue #22 pilot; the [NTUH reader guide](NTUH-READER.md) owns the
+   reader gate, and real consented recipient and Start/provider journeys remain
+   gated by the pre-live checklist.
 
 ## Stop, failure recovery and rollback
 
@@ -313,26 +285,37 @@ directory. On the deployed service closing the browser does not stop Cron. UI
 already started may settle first. If Stop fails, retry and inspect the saved
 state. It is not a retraction of an accepted LINE notification.
 
+To hold the whole service, the signed-in owner sets recovery hold through the
+authorized status API. These application actions use the current session's CSRF
+cookie without displaying it:
+
+```js
+const csrf = decodeURIComponent(document.cookie.split('; ').find(v => v.startsWith('__Host-ny_csrf='))?.split('=').slice(1).join('=') ?? '');
+const hold = await fetch('/api/organizer/scheduler/recovery-hold', {method: 'POST', headers: {'x-csrf-token': csrf}});
+console.log(hold.status); // 204; otherwise stop and investigate
+console.log(await (await fetch('/api/organizer/scheduler/status')).json());
+// held: true, configuration_hold: true, recovery_hold: true,
+// hospital_reader_available: false
+```
+
 The configuration hold is enforced by this version's code, and recovery hold is
-stored separately in the named DO. Set recovery hold before any restore, code
-rollback or later live experiment and verify the status API. If auth is broken,
-keep the held version deployed and fix only its private settings. To take the
-HTTP service offline, set `workers_dev: false`, keep `preview_urls: false`,
-then deploy the same held code/config after owner authorization (**remote
-change; not performed in this pass**). This disables public browsing, not Cron.
-To stop Cron too, set this Worker's `triggers.crons` to `[]` and deploy
-(**remote change; not performed in this pass**). Preserve
-D1 and DO resources; do not delete or clear any environment. When restoring the
-schedule/origin, use the same IDs/name and verify both holds again.
+stored separately in the named DO, so it survives Worker restarts. Set recovery
+hold before any restore, code rollback or later live experiment and verify the
+status API. If auth is broken, keep the held version deployed and fix only its
+private settings.
+
+To take the HTTP service offline, set `workers_dev: false`, keep
+`preview_urls: false`, then deploy the same held code and config after owner
+authorization. This disables public browsing, not Cron. To stop Cron too, set
+this Worker's `triggers.crons` to `[]` and deploy. Preserve D1 and DO resources;
+do not delete or clear any environment. When restoring the schedule or origin,
+use the same IDs and name and verify both holds again.
 
 [docs/CI-CD.md](CI-CD.md) owns the primary rollback procedure: redeploy a prior
 candidate tag through **Promote candidate to production**, which restores a known
 deployed commit. The native Wrangler commands below remain the emergency path
-for when no candidate tag is usable.
-
-Before a change, record the last known-good held version. Owner commands below
-are generic rollback instructions, not yet exercised in this pass (list is a
-remote read; rollback changes the deployment):
+for when no candidate tag is usable. Before a change, record the last known-good
+held version:
 
 ```sh
 uv run python -m pywrangler deployments list --config wrangler.production.jsonc
@@ -354,3 +337,40 @@ reconciliation with preserved event IDs/retry keys before any future authorized
 release. Enabling live sends requires a later accepted implementation and
 provider/source gates; this task deliberately provides no production release
 switch.
+
+## Recorded evidence for the owner's production environment
+
+This section is a record of one environment, the owner's production Worker. It
+is not an instruction, and nothing here should be repeated by anyone setting up
+their own copy.
+
+**Provisioning.** Deployment history confirms an initial deploy on 2026-10-23,
+three "Secret Change" events on 2026-10-27 matching the three required secrets,
+and that the version live during the 2026-10-27/28 verification was from
+2026-10-27. `wrangler secret list` confirmed `LINE_LOGIN_CHANNEL_SECRET`,
+`ORGANIZER_LINE_SUBJECTS` and `SESSION_SIGNING_SECRET` are all provisioned
+(names only; values were never read). Provisioning steps 1-5 are complete on
+this evidence. The owner authorized the account, the resources, the fixed origin
+and its privacy meaning, and Workers Free with no plan purchase, and supplied the
+organizer subject privately. The allowlist was not broadened to discover that
+identity, and no private account data was inspected during preparation or
+verification.
+
+**Acceptance**, run directly against the live deployed origin on 2026-10-27/28:
+
+| Check | Result |
+| --- | --- |
+| 1 Origin and fail-closed API | **Partly confirmed.** UI and JS/CSS loaded over HTTPS from the same origin, `/api/healthz` returned `{"status":"ok","mode":"held-service"}`, an unauthenticated `POST /api/organizer/invitations` returned `401`, and `/__niy006_test/organizer-session` returned `404`. Other logged-out organizer responses, the `503` for missing or invalid configuration, the `/seed` and `/snapshot` routes and the synthetic login button were not exercised. |
+| 2 LINE round trip | **Partly confirmed, 2026-10-27.** The owner completed a real LINE login and reached organizer access, and the exact callback returned to this origin. The `403` for an account outside the allowlist and the `401` for a callback with missing state or code were not exercised and remain unverified. |
+| 3 Recovery hold | **Confirmed, 2026-10-27.** The owner set recovery hold and the status endpoint reported the four expected values. Not re-checked since that date. |
+| 4 D1 persistence | **Partly confirmed, 2026-10-28.** The owner created one unused invitation through the existing API and a direct read-only query against the remote database returned the expected row count. The before/after-redeploy comparison was not repeated, though the service has been redeployed several times since with no indication of data loss. |
+| 5 Cron and platform metrics | **Deferred, not run**, consistent with this issue's acceptance wording, which defers full live workload measurement to ticket 08. |
+
+What this pass did not establish: survival of data across a deployment,
+restored-backup consistency, and live notification deduplication. No deployed
+CPU, startup latency, memory, quota usage or provider measurement exists for
+this environment.
+
+Taking the HTTP service offline, stopping Cron, and the native Wrangler rollback
+commands have never been exercised here. A recorded stable URL and the deployed
+evidence exist privately.

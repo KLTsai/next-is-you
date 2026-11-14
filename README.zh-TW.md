@@ -92,7 +92,7 @@ Reader 只會保留它實際比對到的欄位（診間、醫師、clinic type�
 停止或保留：
 
 - **停止某則提醒**：在 UI 中打開目前的 reminder，確認 **停止提醒**。已在送出途中的通知可能會先完成，才確認停止。詳見 [HTTPS 服務文件的停止與復原段落](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback)。
-- **保留整個服務**（當系統出現異常時）：擁有者登入後，透過已授權的狀態 API 設定 recovery hold。對應的 console 片段在 [HTTPS 服務的手動驗收段落](docs/HTTPS-SERVICE.md#manual-deployed-acceptance)；recovery hold 會跨 Worker 重啟保留，且必須在任何還原或程式碼 rollback 之前先設定。
+- **保留整個服務**（當系統出現異常時）：擁有者登入後，透過已授權的狀態 API 設定 recovery hold。對應的 console 片段在 [HTTPS 服務的停止與復原段落](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback)；recovery hold 會跨 Worker 重啟保留，且必須在任何還原或程式碼 rollback 之前先設定。
 - **部署 rollback**：透過 **Promote candidate to production** 重新部署上一個已知良好的 candidate tag，程序見 [release and rollback rules](docs/CI-CD.md#release-and-rollback-rules)。若沒有可用的 candidate tag，再退回 [stop, failure recovery and rollback 段落](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback)中原生的 Wrangler 程序。兩者都只能 rollback 到與目前 schema 及已保留的 SQLite class 相容的版本；rollback 不會逆轉 D1 migration，本 README 刻意不重述完整命令。
 
 首次部署（secrets、Login channel 註冊、resource 準備）屬於另一個擁有者設定流程，詳見 [docs/HTTPS-SERVICE.md](docs/HTTPS-SERVICE.md)。

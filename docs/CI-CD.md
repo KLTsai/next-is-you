@@ -15,6 +15,30 @@ The GitHub Release page is therefore a public statement of the version that is
 actually accepted for production use. Candidate tags are engineering deployment
 records, not releases.
 
+## At a glance
+
+```mermaid
+flowchart LR
+  C["New commits<br/>on main"] --> RP["Release Please<br/>proposes X.Y.Z"]
+  RP --> M["Merge the<br/>release PR"]
+  M --> CD["Candidate deploy<br/>to staging"]
+  CD --> P["Promote<br/>to production"]
+  P --> T["Tag vX.Y.Z<br/>+ GitHub Release"]
+  T -.->|"where the next changelog starts"| RP
+```
+
+Two things move through that loop and must end up in step. Merging the release
+PR writes the version into `package.json` and the release manifest. Only
+promotion creates the matching `vX.Y.Z` tag, and Release Please reads that tag
+to know where the next changelog begins.
+
+Between those two steps the version exists and its tag does not, so Release
+Please has no boundary and stops proposing versions. That gap is expected while
+a candidate is being checked on staging, and it is a stall once it outlives
+that check. `npm run check:release` answers which one the repository is in, and
+[A merged release PR must be promoted](#a-merged-release-pr-must-be-promoted)
+covers what a stall looks like and how to clear it.
+
 ## Everyday flow
 
 1. Work on a short-lived branch and merge a reviewed, green PR to `main`.

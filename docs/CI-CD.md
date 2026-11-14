@@ -118,6 +118,34 @@ The deployment branch policies must therefore be:
 | `staging` | branch `main` | Candidate deployment creates its record tag after successful staging. |
 | `prod` | tag `candidate-v*` | Promotion executes from the immutable accepted candidate. |
 
+## A merged release PR must be promoted
+
+Release Please finds the boundary for the next changelog by deriving a tag name
+from the version in `.github/.release-please-manifest.json` and looking for a
+GitHub Release with exactly that tag. With `skip-github-release: true` it never
+creates that Release itself; **Promote candidate to production** does, after a
+successful production deployment.
+
+So merging a release PR and then not promoting it stalls versioning. The
+manifest moves to the new version, Release Please starts looking for a tag that
+only promotion can create, finds nothing, and falls back to scanning the whole
+history. Every proposal it then opens carries a changelog covering every commit
+in the repository. Earlier runs abort outright, because the merged release PR
+still holds its `autorelease: pending` label:
+
+```text
+There are untagged, merged release PRs outstanding - aborting
+```
+
+Neither `last-release-sha` nor the `autorelease` labels restore the boundary.
+Only the Release for the manifest's current version does. If versioning has
+stalled this way, promote the outstanding version rather than hand-tagging it,
+and discard any release PR opened while the boundary was missing.
+
+This happened once, between 2026-11-01 and 2026-11-14: promotion could not
+succeed because of the signature check fixed in `25ad420`, so `v0.2.0` was never
+created and no version was proposed for two weeks.
+
 ## Release and rollback rules
 
 Release Please reads Conventional Commit messages:

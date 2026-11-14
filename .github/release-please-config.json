@@ -8,7 +8,7 @@
       "package-name": "next-is-you",
       "changelog-path": "CHANGELOG.md",
       "release-type": "node",
-      "last-release-sha": "5a96d4ffa64658227e64ce6bde1601f2fafd51a5",
+      "last-release-sha": "c8917859bd978bae71d98bbbb5fae7b7e521b1ce",
       "changelog-sections": [
         { "type": "feat", "section": "Features" },
         { "type": "fix", "section": "Bug Fixes" },

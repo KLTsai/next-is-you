@@ -42,7 +42,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git tag --verify "$GITHUB_REF_NAME"
+          # An annotated tag object, which is what Candidate deploy records. A
+          # lightweight tag or a branch resolves to "commit" and is rejected.
+          # Not `git tag --verify`: that checks a GPG signature, and candidate
+          # tags are annotated but unsigned, so it can never pass.
+          if [[ "$(git cat-file -t "$GITHUB_REF_NAME")" != "tag" ]]; then
+            echo "Promotion requires an annotated candidate tag: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
           version="$(node -p "require('./package.json').version")"
           short_commit="$(git rev-parse --short=12 HEAD)"
           expected="candidate-v${version}-${short_commit}"

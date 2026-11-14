@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/KLTsai/next-is-you/compare/v0.2.0...v0.2.1) (2026-11-14)
+
+
+### Documentation
+
+* **ci-cd:** correct the bump rule for docs commits ([5c7c02f](https://github.com/KLTsai/next-is-you/commit/5c7c02f026c79a5e0a1d7d93f224e217f12bf644))
+* **ci-cd:** record why a merged release PR must be promoted ([1a7e76e](https://github.com/KLTsai/next-is-you/commit/1a7e76e084790c211db39433706e6ae20b00475e))
+
 ## [0.2.0](https://github.com/KLTsai/next-is-you/compare/v0.1.0...v0.2.0) (2026-10-31)
 
 

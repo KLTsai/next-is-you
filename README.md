@@ -141,6 +141,8 @@ git diff --check
 
 These are fixture/mock and local automated evidence; they do not contact a live hospital or LINE, deploy, or prove handset delivery. See the [CI workflow](.github/workflows/ci.yml) for the gates it runs.
 
+Separately, `npm run check:release` answers one question: does the current version have a tag? Release Please needs that tag to know where the next changelog starts, and only promotion creates it, so a release PR merged and left unpromoted stalls versioning silently. This is deliberately **not** part of the CI gates above: the moments right after merging a release PR and before promoting it are a normal, expected state, so failing CI there would cry wolf on every release. Run it when you want to know whether a release is still open. [docs/CI-CD.md](docs/CI-CD.md) explains the stall.
+
 Linked procedures:
 
 - [Complete rehearsal guide](docs/LOCAL-REHEARSAL.md)

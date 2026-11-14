@@ -138,9 +138,25 @@ There are untagged, merged release PRs outstanding - aborting
 ```
 
 Neither `last-release-sha` nor the `autorelease` labels restore the boundary.
-Only the Release for the manifest's current version does. If versioning has
-stalled this way, promote the outstanding version rather than hand-tagging it,
-and discard any release PR opened while the boundary was missing.
+Only a `vX.Y.Z` matching the manifest's current version does, and promotion is
+what creates it. If versioning has stalled this way, promote the outstanding
+version rather than hand-tagging it, and discard any release PR opened while the
+boundary was missing. Hand-tagging makes it worse: promotion skips creating the
+GitHub Release when the tag already exists, leaving a tag with no release.
+
+`npm run check:release` reports whether the current version has that tag. It is
+deliberately not one of the CI gates, because the window between merging a
+release PR and promoting it is an expected state and a failing gate there would
+cry wolf on every release.
+
+A plain Git tag is enough. Release Please asks the Releases API first, and when
+a path comes back missing it falls back to `backfillReleasesFromTags`, which
+scans tags. Measured on 2026-11-14 against this repository: with only a
+lightweight `v0.2.1` tag and no GitHub Release, a dry run reported
+`release for path: ., version: 0.2.1` and considered 0 commits; with the tag
+removed it fell back to 102. The Release is still worth publishing, because it
+is the public statement this pipeline exists to make, but versioning does not
+depend on it.
 
 This happened once, between 2026-11-01 and 2026-11-14: promotion could not
 succeed because of the signature check fixed in `25ad420`, so `v0.2.0` was never

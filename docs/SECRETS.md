@@ -31,8 +31,11 @@ channel rather than owning a separate channel.
   subject is stable per provider, so the owner's subject is identical on the
   shared channel. Staging may narrow the list further if a staging-only
   organizer is wanted.
-- `LINE_CHANNEL_ACCESS_TOKEN` is **absent in both**. Its absence is what keeps
-  reminder sends held, and it stays absent until Issue #22 authorizes a pilot.
+- `LINE_CHANNEL_ACCESS_TOKEN` is **absent in both**, and stays absent until
+  Issue #22 authorizes a pilot. Its absence is a second layer, not the hold
+  itself: `_held()` in `src/next_is_you/send_gate.py` returns true for every
+  runtime that is not the local test mode, so providing this token would not
+  release sends in either deployed environment.
 - `LINE_LOGIN_REDIRECT_URI` differs because it embeds each Worker's own origin.
 
 ## Current inventory

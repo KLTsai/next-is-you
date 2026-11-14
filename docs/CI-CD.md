@@ -22,6 +22,11 @@ records, not releases.
    `package.json`, `CHANGELOG.md`, and the release manifest, but does not create
    a tag or GitHub Release.
 3. Review and merge that Release PR. Its merge commit is the version candidate.
+   Its CI needs deliberate attention: the PR is pushed by `github-actions[bot]`,
+   so CI runs are created but held for manual approval, and an unapproved run
+   finishes with no jobs and leaves no failing check on the PR to warn you.
+   Approve the run, or verify the branch locally with the README's
+   CI-equivalent commands, before merging.
 4. In **Actions -> Candidate deploy**, run the workflow from `main` and enter
    the full 40-character SHA of that merge commit. The workflow verifies the
    commit is already on `main`, applies migrations to the staging D1 database,
@@ -121,10 +126,12 @@ The deployment branch policies must therefore be:
 ## A merged release PR must be promoted
 
 Release Please finds the boundary for the next changelog by deriving a tag name
-from the version in `.github/.release-please-manifest.json` and looking for a
-GitHub Release with exactly that tag. With `skip-github-release: true` it never
-creates that Release itself; **Promote candidate to production** does, after a
-successful production deployment.
+from the version in `.github/.release-please-manifest.json` and looking for that
+tag. It asks the Releases API first, and when a path comes back missing it falls
+back to `backfillReleasesFromTags`, which scans plain Git tags, so either one
+restores the boundary. With `skip-github-release: true` it creates neither;
+**Promote candidate to production** creates both, after a successful production
+deployment.
 
 So merging a release PR and then not promoting it stalls versioning. The
 manifest moves to the new version, Release Please starts looking for a tag that
@@ -138,6 +145,9 @@ There are untagged, merged release PRs outstanding - aborting
 ```
 
 Neither `last-release-sha` nor the `autorelease` labels restore the boundary.
+Both were tried on 2026-11-14 and neither worked, so `last-release-sha` was
+removed from `.github/release-please-config.json` rather than left behind as a
+setting that looks like it governs the boundary.
 Only a `vX.Y.Z` matching the manifest's current version does, and promotion is
 what creates it. If versioning has stalled this way, promote the outstanding
 version rather than hand-tagging it, and discard any release PR opened while the
@@ -149,10 +159,8 @@ deliberately not one of the CI gates, because the window between merging a
 release PR and promoting it is an expected state and a failing gate there would
 cry wolf on every release.
 
-A plain Git tag is enough. Release Please asks the Releases API first, and when
-a path comes back missing it falls back to `backfillReleasesFromTags`, which
-scans tags. Measured on 2026-11-14 against this repository: with only a
-lightweight `v0.2.1` tag and no GitHub Release, a dry run reported
+A plain Git tag is enough, as measured on 2026-11-14 against this repository:
+with only a lightweight `v0.2.1` tag and no GitHub Release, a dry run reported
 `release for path: ., version: 0.2.1` and considered 0 commits; with the tag
 removed it fell back to 102. The Release is still worth publishing, because it
 is the public statement this pipeline exists to make, but versioning does not

@@ -80,7 +80,7 @@ This is a convenience reminder, not a safety-critical system. The clinic room's 
 
 ## For the owner (daily use)
 
-Daily use is browser-only. The owner's stable origin is a fixed `workers.dev` URL set up during the first-time deployment; use the bookmark saved during that setup.
+Daily use is browser-only. The owner's stable origin is a fixed `workers.dev` URL recorded privately during the first-time deployment. It moves if the Cloudflare account's `workers.dev` subdomain changes, which has happened once, so re-bookmark from the `PROD_WORKER_URL` repository variable rather than trusting an older bookmark.
 
 1. Open the stable URL in any browser.
 2. Create a draft for today's visit.

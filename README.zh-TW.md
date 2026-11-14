@@ -80,7 +80,7 @@ Reader 只會保留它實際比對到的欄位（診間、醫師、clinic type�
 
 ## 擁有者的日常使用
 
-日常使用只需要瀏覽器。擁有者的穩定來源網址是一個固定的 `workers.dev` URL，於首次部署時建立；請使用當時存下的書籤。
+日常使用只需要瀏覽器。擁有者的穩定來源網址是一個固定的 `workers.dev` URL，於首次部署時私下記錄。若 Cloudflare 帳號的 `workers.dev` subdomain 變更，這個網址會跟著變，而這已經發生過一次；請以 `PROD_WORKER_URL` 這個 repository variable 為準重新加書籤，不要沿用更早的舊書籤。
 
 1. 用任何瀏覽器開啟那個穩定網址。
 2. 為當天的門診建立草稿。

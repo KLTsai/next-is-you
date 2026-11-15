@@ -1,0 +1,74 @@
+{
+  "nothing_pending": {
+    "main": {"sha": "abc1234000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "abc1234000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.2.0": "1110000000000000000000000000000000000000", "v0.2.1": "2220000000000000000000000000000000000000"},
+    "releases": ["v0.2.0", "v0.2.1"],
+    "release_pr": null
+  },
+  "release_pr_open": {
+    "main": {"sha": "abc1234000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "abc1234000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.2.1": "2220000000000000000000000000000000000000"},
+    "releases": ["v0.2.1"],
+    "release_pr": {"number": 75, "version": "0.2.2", "changes": 3}
+  },
+  "tagged_not_promoted": {
+    "main": {"sha": "abc1234000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "abc1234000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.2.1": "2220000000000000000000000000000000000000", "v0.3.0": "abc1234000000000000000000000000000000000"},
+    "releases": ["v0.2.1"],
+    "release_pr": null
+  },
+  "tagged_staging_elsewhere": {
+    "main": {"sha": "fff9999000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "fff9999000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.2.1": "2220000000000000000000000000000000000000", "v0.3.0": "abc1234000000000000000000000000000000000"},
+    "releases": ["v0.2.1"],
+    "release_pr": null
+  },
+  "staging_behind_main": {
+    "main": {"sha": "abc1234000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "def5678000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.2.1": "2220000000000000000000000000000000000000"},
+    "releases": ["v0.2.1"],
+    "release_pr": null
+  },
+  "staging_never_deployed": {
+    "main": {"sha": "abc1234000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": null,
+    "staging_paused": false,
+    "tags": {},
+    "releases": [],
+    "release_pr": null
+  },
+  "staging_paused": {
+    "main": {"sha": "abc1234000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "def5678000000000000000000000000000000000",
+    "staging_paused": true,
+    "tags": {"v0.2.1": "2220000000000000000000000000000000000000"},
+    "releases": ["v0.2.1"],
+    "release_pr": null
+  },
+  "main_checks_red": {
+    "main": {"sha": "abc1234000000000000000000000000000000000", "checks": "failure", "failed": ["lint", "backend"]},
+    "staging_sha": "def5678000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.2.1": "2220000000000000000000000000000000000000"},
+    "releases": ["v0.2.1"],
+    "release_pr": {"number": 75, "version": "0.2.2", "changes": 1}
+  },
+  "main_checks_running": {
+    "main": {"sha": "abc1234000000000000000000000000000000000", "checks": "pending", "failed": []},
+    "staging_sha": "def5678000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.2.1": "2220000000000000000000000000000000000000"},
+    "releases": ["v0.2.1"],
+    "release_pr": null
+  }
+}

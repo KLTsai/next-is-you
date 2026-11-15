@@ -141,6 +141,8 @@ git diff --check
 
 These are fixture/mock and local automated evidence; they do not contact a live hospital or LINE, deploy, or prove handset delivery. See the [CI workflow](.github/workflows/ci.yml) for the gates it runs.
 
+To see where delivery stands, run `npm run status` (needs `gh` signed in and `uv`; read-only). It prints the commit on `main` and whether its checks passed, the commit staging is showing and whether it equals `main`, the version in production (the latest published Release), the next proposed version with its release PR and change count, any version that is tagged but not yet a Release, and exactly one next step. If a fact cannot be read it names that fact on stderr and exits non-zero rather than printing a partial report. The rules live in `scripts/delivery_state.py` as a pure function over a snapshot of facts, tested from recorded snapshots by `tests/test_delivery_state.py` in the pytest gate above.
+
 Separately, `npm run check:release` answers one question: does the current version have a tag? Release Please needs that tag to know where the next changelog starts, and only promotion creates it, so a release PR merged and left unpromoted stalls versioning silently. This is deliberately **not** part of the CI gates above: the moments right after merging a release PR and before promoting it are a normal, expected state, so failing CI there would cry wolf on every release. Run it when you want to know whether a release is still open. [docs/CI-CD.md](docs/CI-CD.md) explains the stall.
 
 Linked procedures:

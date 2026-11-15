@@ -141,6 +141,8 @@ git diff --check
 
 這些是 fixture/mock 與本地自動化證據；不會連到真實醫院或 LINE、不會部署、也不證明手機端送達。CI 實際跑的 gate 見 [CI workflow](.github/workflows/ci.yml)。
 
+想知道交付現況，執行 `npm run status`（需要已登入的 `gh` 與 `uv`；唯讀）。它會印出 `main` 上的 commit 與其檢查是否通過、staging 目前顯示的 commit 與是否等於 `main`、production 的版本（最新已發布的 Release）、下一個提議版本與其 release PR 和變更數量、已打 tag 但尚未成為 Release 的版本，以及剛好一個下一步。若有任何事實讀不到，它會在 stderr 指名該事實並以非零狀態結束，不會印出看似完整的部分報告。規則寫在 `scripts/delivery_state.py`，是針對事實快照的純函式，由 `tests/test_delivery_state.py` 以錄製的快照在上面的 pytest gate 中測試。
+
 另外，`npm run check:release` 只回答一個問題：目前的版本號有沒有對應的 tag？Release Please 靠那個 tag 判斷下一份更新紀錄從哪裡開始，而只有 promotion 會建立它，所以一個合併後沒有 promote 的 release PR 會讓版本機制無聲停擺。這條刻意**不**放進上面的 CI gate：剛合併 release PR、還沒 promote 的那段時間本來就是正常的中間狀態，讓 CI 在那時失敗等於每次發布都誤報。想知道有沒有未完成的發布時再跑它。停擺的完整說明見 [docs/CI-CD.md](docs/CI-CD.md)。
 
 相關文件：

@@ -6,7 +6,7 @@ version is formally offered to users.
 
 | Gate | Trigger | Outcome |
 | --- | --- | --- |
-| CI (`.github/workflows/ci.yml`) | Pull request push, and push to `main` | One run per change with seven named gates, then on `main` Release Please, which opens a Release PR with a SemVer version and changelog. It does not tag or publish. |
+| CI (`.github/workflows/ci.yml`) | Pull request push, and push to `main` | One run per change with seven named gates, then on `main` Release Please, which opens a Release PR with a SemVer version and changelog. Merging that PR tags the merge commit `vX.Y.Z` and leaves a draft GitHub Release, which is not published. |
 | Candidate deploy (`.github/workflows/candidate-deploy.yml`) | Manual dispatch | An immutable `candidate-vX.Y.Z-<commit>` tag after that commit deploys to staging. |
 | Promote candidate (`.github/workflows/production-deploy.yml`) | Manual dispatch from a candidate tag | The same commit deploys to production, then receives `vX.Y.Z` and a GitHub Release. |
 
@@ -68,9 +68,12 @@ release proposal. Release behavior itself is unchanged.
 
 1. Work on a short-lived branch and merge a reviewed, green PR to `main`.
 2. Release Please, the last job of the run on `main`, opens or updates `chore(main): release X.Y.Z`. It updates
-   `package.json`, `CHANGELOG.md`, and the release manifest, but does not create
-   a tag or GitHub Release.
-3. Review and merge that Release PR. Its merge commit is the version candidate.
+   `package.json`, `CHANGELOG.md`, and the release manifest. Opening the PR
+   creates no tag and no Release.
+3. Review and merge that Release PR. Its merge commit is the version, and the
+   next Release Please run tags it `vX.Y.Z`, creates a draft GitHub Release (not
+   published), and relabels the merged PR `autorelease: tagged`
+   (see [Release PR merge](#release-pr-merge-creates-the-tag)).
    Its CI needs deliberate attention: the PR is pushed by `github-actions[bot]`,
    so CI runs are created but held for manual approval, and an unapproved run
    finishes with no jobs and leaves no failing check on the PR to warn you.
@@ -171,6 +174,36 @@ The deployment branch policies must therefore be:
 | --- | --- | --- |
 | `staging` | branch `main` | Candidate deployment creates its record tag after successful staging. |
 | `prod` | tag `candidate-v*` | Promotion executes from the immutable accepted candidate. |
+
+## Release PR merge creates the tag
+
+`.github/release-please-config.json` sets `"draft": true` and
+`"force-tag-creation": true`, and the action is not given `skip-github-release`.
+The Release Please run triggered by the merge of a release PR then, per the
+library source (`release-please` 17.6.0, bundled by the pinned action v5.0.0):
+
+1. creates the `refs/tags/vX.Y.Z` reference on the merge commit (a 422 because
+   the tag already exists is ignored, so a re-run is harmless);
+2. creates a draft GitHub Release for that tag, which GitHub does not show
+   publicly and which is not a published Release;
+3. comments on the merged PR and swaps its label from `autorelease: pending`
+   to `autorelease: tagged`.
+
+`force-tag-creation` is a Release Please config option, not an action input:
+GitHub does not create the Git tag for a draft release until it is published,
+so without it the draft would leave Release Please without a boundary. With the
+tag in place the next changelog starts after the version, whether or not the
+draft is ever published.
+
+Publishing the draft is the Promote step's job and is not done by CI. Until
+then the version is tagged and is not a Release. The tag appears on the next run
+of CI on `main` after the merge, not inside the merge itself.
+
+Interim caveat until the new Promote lands: the candidate flow below still
+exists, and **Promote candidate to production** skips creating its Release when
+the tag already exists, so promoting a version created this way would deploy it
+and leave only the draft. Do not release in that window. The sections below
+describe the behavior before this change.
 
 ## A merged release PR must be promoted
 

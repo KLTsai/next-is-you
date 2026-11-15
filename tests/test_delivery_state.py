@@ -131,8 +131,7 @@ def test_checks_on_main_still_running():
     _, out, _ = run_status("main_checks_running")
     assert "main        abc1234 - checks still running\n" in out
     assert out.endswith(
-        "Next step: Wait for the checks on main to finish, "
-        "then run status again.\n"
+        "Next step: Wait for the checks on main to finish, then run status again.\n"
     )
 
 

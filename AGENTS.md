@@ -19,6 +19,12 @@ Conversation with the captain may mix Traditional Chinese and English when it ha
 
 Keep this file to durable, repository-wide guidance. Put active scope and status in the configured issue tracker and task-specific procedures in their owning docs.
 
+## Working on main
+
+- Documentation-only changes may go straight to `main`. Changes to code, migrations, workflows, or deployment configuration go through a pull request the captain merges. An agent without the captain's direct instruction always uses a pull request.
+- Reserve `feat`, `fix`, and `perf` commit types for changes a user of the product can notice. Use `ci`, `chore`, `test`, `build`, `refactor`, `style`, or `docs` for everything else.
+- Only the captain, in person, merges the release PR and runs Promote. Never do either, even when asked.
+
 ## Agent skills
 
 ### Issue tracker

@@ -139,7 +139,7 @@ uv run pytest -q
 git diff --check
 ```
 
-These are fixture/mock and local automated evidence; they do not contact a live hospital or LINE, deploy, or prove handset delivery. See the [CI workflow](.github/workflows/ci.yml) for the gates it runs.
+These are fixture/mock and local automated evidence; they do not contact a live hospital or LINE, deploy, or prove handset delivery. See the [CI workflow](.github/workflows/ci.yml): each pull request push or push to `main` is one run with seven named gates (formatting and lint, type check, frontend tests, build, migration check, backend and browser tests, diff hygiene) and a summary of each outcome; on `main`, Release Please follows the gates. Tag pushes start no run. [docs/CI-CD.md](docs/CI-CD.md#one-change-one-run) describes it.
 
 Separately, `npm run check:release` answers one question: does the current version have a tag? Release Please needs that tag to know where the next changelog starts, and only promotion creates it, so a release PR merged and left unpromoted stalls versioning silently. This is deliberately **not** part of the CI gates above: the moments right after merging a release PR and before promoting it are a normal, expected state, so failing CI there would cry wolf on every release. Run it when you want to know whether a release is still open. [docs/CI-CD.md](docs/CI-CD.md) explains the stall.
 

@@ -3,8 +3,12 @@
 > **This document provisions and operates an environment. It is not the
 > deployment procedure for a change.** Ongoing deployment is owned by
 > [docs/CI-CD.md](CI-CD.md): a commit reaches staging automatically after
-> a green push to `main` and production through **Promote**, using the
-> committed `wrangler.staging.jsonc` and `wrangler.production.jsonc`.
+> a green push to `main` (the `Deploy staging` job in
+> `.github/workflows/ci.yml`, GitHub environment `staging`) and production
+> through **Promote** (`.github/workflows/promote.yml`, GitHub environment
+> `prod`), using the committed `wrangler.staging.jsonc` and
+> `wrangler.production.jsonc`. Both environments accept deployments from branch
+> `main` only. [docs/SECRETS.md](SECRETS.md) lists what each one holds.
 >
 > Do not hand-deploy production from a local `.wrangler.production.jsonc`. That
 > file declares `LINE_LOGIN_REDIRECT_URI`, which commit `6a4af1c` deliberately
@@ -71,7 +75,7 @@ named gate. The production hold returns before scheduler preparation, hospital
 access or LINE sends; it also defers scheduler cleanup. Do not store patient data
 in this bootstrap. Full live workload/retention measurement belongs to ticket 08.
 
-The Free plan is a candidate for this held bootstrap, not proven sufficient for
+The Free plan is the proposed plan for this held bootstrap, not proven sufficient for
 this Python/FastAPI app's deployed CPU, startup, memory, or workload. Check those
 metrics after authorized deployment; a quota/startup failure is a stop condition,
 not an invitation to enable Paid. The local dry run proves compilation only.
@@ -80,7 +84,7 @@ The 2026-10-03 native dry run with pywrangler 1.17.4 / Wrangler 4.147.0 reported
 No deployed CPU, startup latency, memory, quota usage or provider measurements
 are available. Local wall-clock test timing is not a Free-plan CPU measurement.
 
-Candidate origin: `https://<approved-worker-name>.<owner-subdomain>.workers.dev`.
+Proposed origin: `https://<approved-worker-name>.<owner-subdomain>.workers.dev`.
 [Cloudflare documents](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/)
 that this origin is public, suitable for personal/hobby use, and recommends custom
 domains for business-critical production. The static shell and health endpoint
@@ -311,8 +315,9 @@ this Worker's `triggers.crons` to `[]` and deploy. Preserve D1 and DO resources;
 do not delete or clear any environment. When restoring the schedule or origin,
 use the same IDs and name and verify both holds again.
 
-[docs/CI-CD.md](CI-CD.md) owns the primary rollback procedure: run **Promote**
-with an earlier version number, which restores a known deployed commit. The
+[docs/CI-CD.md](CI-CD.md#rollback) owns the primary rollback procedure: run
+**Promote** with an earlier version number, which restores a known deployed
+commit's code only. The
 native Wrangler commands below remain the emergency path for when Promote is
 unusable. Before a change, record the last known-good
 held version:

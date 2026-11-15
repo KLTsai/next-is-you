@@ -19,8 +19,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import Callable, TextIO
 
-# Repository variable that pauses automatic staging deployment. It does not
-# exist while the candidate flow is in place, and absent means not paused.
+# Repository variable that pauses automatic staging deployment. Absent means
+# not paused.
 PAUSE_VARIABLE = "STAGING_DEPLOY_PAUSED"
 
 VERSION_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")

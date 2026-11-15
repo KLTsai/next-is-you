@@ -1,36 +1,45 @@
 # CI / CD
 
-This repository keeps four decisions separate: whether code is correct, which
-version is prepared, which exact commit was accepted in staging, and which
-version is formally offered to users.
-
-| Gate | Trigger | Outcome |
-| --- | --- | --- |
-| CI (`.github/workflows/ci.yml`) | Pull request push, and push to `main` | One run per change with seven named gates, then on `main` Release Please, which opens a Release PR with a SemVer version and changelog. Merging that PR tags the merge commit `vX.Y.Z` and leaves a draft GitHub Release, which is not published. |
-| Deploy staging (job in `ci.yml`) | Push to `main`, after every gate | Deploys that exact commit to staging and records a GitHub deployment. Skipped for documentation-only pushes and while paused. |
-| Promote (`.github/workflows/promote.yml`) | Manual dispatch from `main`, with a version number | The promote guard accepts or refuses. On accept, that version's exact commit deploys to production and its GitHub Release is published. |
-
-The GitHub Release page is therefore a public statement of the version that is
-actually in production. A tagged version with no published Release was never
-promoted.
+Delivery has three captain actions and one command. Merge a pull request, and
+staging follows by itself. Merge the release PR, and that commit becomes a
+version. Run Promote with the version number, and it becomes the Release in
+production. `npm run status` prints where everything stands and the next step.
+Terms follow [GLOSSARY.md](../GLOSSARY.md); the reasons for the design are in
+[ADR 0001](adr/0001-version-at-release-commit-staging-follows-main.md).
 
 ## At a glance
 
 ```mermaid
 flowchart LR
-  C["New commits<br/>on main"] --> S["Staging follows<br/>main"]
-  C --> RP["Release Please<br/>proposes X.Y.Z"]
+  PR["Merge a<br/>pull request"] --> CI["CI run on main<br/>7 named gates"]
+  CI -- "green" --> S["Staging<br/>follows main"]
+  CI -- "green" --> RP["Release Please<br/>opens or updates<br/>the release PR"]
   RP --> M["Merge the<br/>release PR"]
-  M --> T["Tag vX.Y.Z<br/>+ draft Release"]
+  M --> T["Tag vX.Y.Z<br/>(a version)"]
   T --> P["Promote vX.Y.Z"]
-  S --> P
-  P --> R["Production +<br/>published Release"]
+  S -- "must show<br/>that commit" --> P
+  P --> R["Production<br/>+ published Release"]
+  P -. "an earlier version<br/>is Rollback" .-> R
 ```
 
-The tag appears when the release PR is merged, so Release Please always has a
+A version is born when the release PR merges, so Release Please always has a
 changelog boundary. Promote is the only step that puts a version in production
-and the only step that publishes its Release. `npm run status` shows where each
-of these stands.
+and the only step that publishes its Release. A tagged version with no
+published Release is pending or was rejected; it never reached users.
+
+## The captain's actions
+
+Each action lists what the captain sees. "Page" is where to look; "Control" is
+what to press. Run `npm run status` at any point for the same facts in one
+place.
+
+| Action | Page and control | Success | Pending | Failure | Stop | Recovery |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Merge a pull request** | Pull request page, **Merge pull request**. Result on **Actions -> CI** and the repository **Deployments** list (environment `staging`). | The run on `main` is green. `Deploy staging` is green and the new deployment names the commit. | The run is in progress, or `Deploy staging` shows pending behind an earlier staging deployment. Nothing to do. | A gate is red and named on the run page; `Deploy staging` is skipped and staging keeps its previous commit. Or `Deploy staging` is red: a migration or deploy step failed. | Pause staging before merging (last row). Or cancel the run in **Actions -> CI -> Cancel workflow**, which does not undo a step already finished. | Fix forward with a new pull request. A flaky gate: **Re-run failed jobs**. A failed staging step: see [Recovery from a failed staging migration](#staging-follows-main). |
+| **Merge the release PR** | Pull request `chore(main): release X.Y.Z`, **Merge pull request**. Result on **Actions -> CI** (Release Please job), the **Tags** list, and the **Releases** page. | The merge commit is tagged `vX.Y.Z`, the PR is labelled `autorelease: tagged`, and a draft Release exists, visible to the captain only. No Release is published. | Its own checks are held for approval (the PR is pushed by `github-actions[bot]`), then the run on `main` is in progress. The tag appears when that run's Release Please job finishes. | A gate on the merge commit is red, so Release Please does not run and no tag exists. | Do not merge. Leaving the PR open collects more changes into the same version; closing it makes Release Please open a fresh one. After merging, rejecting the version needs no action: do not promote it. | Fix forward and re-run the failed jobs; Release Please tags once every gate is green. A rejected version keeps its tag, its changelog section and no Release; its fix ships as the next version. |
+| **Promote** | **Actions -> Promote -> Run workflow**, **Use workflow from: Branch: main**, enter the version, **Run workflow**. Result on the run page and the **Releases** page. | Both jobs green. The run summary names the commit; the Release is published; `npm run status` shows the version as production. | The run is queued behind another Promote (group `production-deploy`; only the newest waiting run is kept). Nothing to do. | `Promote guard` is red: the summary shows `Refused:` and `To clear it:`, and nothing deployed. Or `Deploy` is red at a migration or deploy step: no Release is published. | Cancel the run in **Actions -> Promote -> Cancel workflow** before `Deploy` starts. After production migrations have applied, there is no clean stop: roll forward. | Do the clearing action and run Promote again. Running it again for the same version is harmless: applied migrations are skipped and a published Release is left unchanged. If production is wrong meanwhile, use the native rollback below. |
+| **Rollback** | Same as Promote, with an earlier version number. | Promote succeeds for the earlier version, and production runs its code. Its Release was already published, so none is created. | As for Promote. | As for Promote. Usually the guard refusing because staging shows another commit. | As for Promote. | Re-run that version's run in **Actions -> CI** so staging shows it, then run Promote. To go forward again, repeat for the newer version. The native rollback is the emergency path if Promote is unusable. Code only: D1 and Durable Object state stay as they are. |
+| **Pause staging** | **Settings -> Secrets and variables -> Actions -> Variables**, create `STAGING_DEPLOY_PAUSED` with the value `true`. | The next push to `main` passes its gates, shows `Deploy staging` as skipped, and the run is green. `npm run status` reports that automatic staging deployment is paused. | A staging job already queued or running when you set the variable still deploys: the variable is read when the run starts. Wait for it to finish before relying on the pause. | A value other than `true`, or a typo in the name, pauses nothing; the next push deploys. | Delete the variable, or set it to anything but `true`. | Resume, then push or re-run the **CI** run of the commit you want shown on staging. Promote refuses while staging shows another commit, so a forgotten pause surfaces there and in `npm run status`. |
 
 ## One change, one run
 
@@ -64,8 +73,8 @@ On a push to `main`, the same run deploys that commit to staging once every gate
 has passed. The `Deploy staging` job needs all seven gates and the `Staging
 scope` job, and it deploys `github.sha`, the pushed commit, never the branch
 head. Re-running an earlier run therefore returns staging to that earlier
-commit. The job builds, applies the staging D1 migrations, then runs `pywrangler deploy --config wrangler.staging.jsonc
---keep-vars`. It uses the `staging` environment, so GitHub records a deployment
+commit. The job builds, applies the staging D1 migrations, then runs
+`pywrangler deploy --config wrangler.staging.jsonc --keep-vars`. It uses the `staging` environment, so GitHub records a deployment
 for that commit; that record, not any tag, is the source of truth for what
 staging is showing. The job summary also names the commit.
 
@@ -82,13 +91,16 @@ deployment still leaves a successful run:
 | Waiting behind another staging deployment | Pending | In progress | Nothing. Deployments run one at a time in the `staging-deploy` group. GitHub keeps only the newest waiting run, so an older waiting one is cancelled and staging ends on the latest commit. |
 | A gate fails | Skipped | Failed, naming the gate | Fix the gate. Staging keeps its previous commit. |
 | Documentation-only push (every changed file is `*.md`) | Skipped | Success | Nothing. Staging keeps its commit. An unknown range, such as a forced push, counts as not documentation-only. |
-| Repository variable `STAGING_DEPLOY_PAUSED` is `true` | Skipped | Success | Gates still run. Clear the variable, then push or re-run the run of the commit you want. |
+| Repository variable `STAGING_DEPLOY_PAUSED` is exactly `true` | Skipped | Success | Gates still run. Delete the variable, then push or re-run the run of the commit you want. |
 | Staging migration or deploy step fails | Failed | Failed | See below. |
 
 Pausing and resuming: set `STAGING_DEPLOY_PAUSED` to `true` in **Settings ->
 Secrets and variables -> Actions -> Variables** to pause, and delete it or set
-anything else to resume. The variable is read when the job is evaluated, so
-resume takes effect on the next push or re-run, not retroactively.
+anything else to resume. Hold staging still this way before a long check or a
+storage recovery rehearsal. The variable is read when a run starts, so a pause
+does not stop a staging job already queued, and a resume takes effect on the
+next push or re-run, not retroactively. `npm run status` says while staging is
+paused.
 
 Recovery from a failed staging migration: migrations are forward-only and D1
 applies each migration file atomically, so a failure leaves the database at the
@@ -102,23 +114,33 @@ cannot be repaired can be recreated and the migrations re-applied.
 
 ## Everyday flow
 
-1. Work on a short-lived branch and merge a reviewed, green PR to `main`.
-   Staging then updates by itself (see [Staging follows main](#staging-follows-main)).
-2. Release Please, the last job of the run on `main`, opens or updates `chore(main): release X.Y.Z`. It updates
-   `package.json`, `CHANGELOG.md`, and the release manifest. Opening the PR
-   creates no tag and no Release.
-3. Review and merge that Release PR. Its merge commit is the version, and the
-   next Release Please run tags it `vX.Y.Z`, creates a draft GitHub Release (not
-   published), and relabels the merged PR `autorelease: tagged`
+1. Land work on `main`. Documentation-only changes may be pushed straight to
+   `main`. Changes to code, migrations, workflows, or deployment configuration
+   arrive through a pull request the captain merges, because a commit on `main`
+   reaches staging and its database within minutes. An agent without the
+   captain's direct instruction always opens a pull request. Staging then
+   updates by itself (see [Staging follows main](#staging-follows-main)).
+2. Release Please, the last job of the run on `main`, opens or updates
+   `chore(main): release X.Y.Z`. It updates `package.json`, `CHANGELOG.md`, and
+   the release manifest. Opening the PR creates no tag and no Release. A range
+   of only `docs`, `chore`, `ci`, `test`, `build`, `refactor`, and `style`
+   commits opens none.
+3. Review and merge that release PR. Its merge commit is the version, and the
+   Release Please run that follows tags it `vX.Y.Z`, creates a draft GitHub
+   Release (not published), and relabels the merged PR `autorelease: tagged`
    (see [Release PR merge](#release-pr-merge-creates-the-tag)).
-   Its CI needs deliberate attention: the PR is pushed by `github-actions[bot]`,
-   so CI runs are created but held for manual approval, and an unapproved run
-   finishes with no jobs and leaves no failing check on the PR to warn you.
-   Approve the run, or verify the branch locally with the README's
-   CI-equivalent commands, before merging.
+   Its checks need deliberate attention: the PR is pushed by
+   `github-actions[bot]`, so CI runs are created but held for manual approval,
+   and an unapproved run finishes with no jobs and leaves no failing check on
+   the PR to warn you. Approve the run, or verify the branch locally with the
+   README's CI-equivalent commands, before merging. The merge commit is checked
+   on `main`, and Promote refuses it until those checks pass.
 4. Check the version on staging. If staging is not showing it, re-run the run
    of that version's commit in **Actions -> CI**.
 5. Run **Promote** with the version number (see [Promote](#promote)).
+
+Only the captain, in person, merges the release PR and runs Promote. Nothing on
+the hosting plan enforces this; it is a written rule in `AGENTS.md`.
 
 Do not use a production deployment as a staging test. `workers.dev` URLs are
 publicly reachable, so staging protects production users and data through a
@@ -132,7 +154,7 @@ Access policy if network-level access control is required.
 
 The staging D1 database is `next-is-you-staging` in APAC. Its stable binding is
 recorded in `wrangler.staging.jsonc`; it is distinct from production. The first
-first successful staging deployment creates the `next-is-you-staging` Worker and its
+successful staging deployment creates the `next-is-you-staging` Worker and its
 separate `SystemSendGate` Durable Object namespace.
 
 Before the first staging deployment, configure the staging Worker and GitHub
@@ -191,9 +213,9 @@ environment without copying production data:
 
 `staging` runs deployments from `main`. `prod` runs Promote, which is
 dispatched from `main`. Keep the production environment's existing Cloudflare
-secrets and its protection settings. Replace its old candidate-tag deployment
-policy (`candidate-v*`) with the branch `main`, because candidate tags no longer
-exist as a deployment path and formal release tags never deployed anything.
+secrets and its protection settings. Its deployment policy must be the branch
+`main`. Before this design it was the tag pattern `candidate-v*`, which deploys
+nothing now and must be replaced (see [Captain steps](#captain-steps)).
 
 The deployment branch policies must therefore be:
 
@@ -284,15 +306,9 @@ applies production migrations, deploys production, and then publishes the
 GitHub Release. The Release step runs only after a successful deployment and is
 keyed on the Release being absent or a draft: a draft made by Release Please is
 published with its changelog notes; a Release that is already published (for
-example `v0.2.0` and `v0.2.1`, made before this design) is left alone.
-
-| Outcome | What the captain sees | What to do |
-| --- | --- | --- |
-| Success | Both jobs green. The `Deploy` summary names the commit, the status and the Release state. The Release is published. | Nothing. `npm run status` shows the version as production. |
-| Pending | `Deploy` waits in the `production-deploy` group behind another Promote. | Nothing. Runs go one at a time. |
-| Refusal | `Promote guard` fails. The run summary shows `Refused:` and `To clear it:`. Nothing deployed. | Do the clearing action, then run Promote again. |
-| Failure | `Deploy` fails at a migration or deploy step. No Release is published. | Read the failing step, fix forward or correct the cause, then run Promote again. If production is wrong in the meantime, use the native rollback below. |
-| Recovery | A failed run, or a retry after a network failure. | Run Promote again with the same version. Applied migrations are skipped, the Worker redeploys the same commit, and a published Release is left unchanged. |
+example `v0.2.0` and `v0.2.1`, made before this design) is left alone. What the
+captain sees, and what to do, is in [The captain's
+actions](#the-captains-actions).
 
 ## Rollback
 
@@ -300,36 +316,28 @@ Rollback is Promote with an earlier version, including `v0.2.0` and `v0.2.1`,
 which predate this design. It restores code only. Production migrations are
 forward-only, so it does not reverse D1 schema or Durable Object state; write a
 forward migration if the data model needs repair. The same guard applies, so
-staging must show the earlier version first: re-run that version's pipeline run
-in **Actions -> CI**, then run Promote. If that run cannot be re-run, for
-example because it predates the current workflow, the guard cannot be
-satisfied; use the native emergency procedure:
+staging must show the earlier version first: re-run that version's run in
+**Actions -> CI**, then run Promote. If that run cannot be re-run, for example
+because it predates the current workflow, the guard cannot be satisfied; use the
+native emergency procedure:
 
 ```sh
 uv run python -m pywrangler rollback --config wrangler.production.jsonc
 ```
 
-| Outcome | What the captain sees | What to do |
-| --- | --- | --- |
-| Success | Promote succeeds for the earlier version. Its Release was already published, so none is created. | Nothing. Production runs the earlier code. |
-| Pending | As for Promote. | Nothing. |
-| Refusal | As for Promote, usually staging showing another commit. | Re-run the earlier version's pipeline run, then run Promote again. |
-| Failure | As for Promote. | As for Promote; the native rollback is the emergency path. |
-| Recovery (roll forward) | Production runs the earlier version and `main` is ahead. | Re-run the pipeline run of the version you want back, check staging, run Promote for it. |
-
 ## Captain steps
 
 1. Once, before the first Promote: **Settings -> Environments -> prod ->
-   Deployment branches and tags**. Change the selected-branches-and-tags rule
-   from the tag pattern `candidate-v*` to **branch `main`**. Leave **staging**
-   restricted to branch `main`.
+   Deployment branches and tags**. If the rule is still the tag pattern
+   `candidate-v*`, change it to **branch `main`**. Leave **staging** restricted
+   to branch `main`.
 2. Release: merge the release PR, check the version on staging, then **Actions ->
    Promote -> Run workflow**, **Use workflow from: Branch: main**, enter the
    version, and run.
 3. One rollback rehearsal: run **Promote** with an earlier version (after
-   re-running its pipeline run in **Actions -> CI** if staging does not show
-   it), confirm production runs it, then re-run the pipeline run of the newer
-   version and run **Promote** with that version to restore it.
+   re-running its run in **Actions -> CI** if staging does not show it), confirm
+   production runs it, then re-run the run of the newer version and run
+   **Promote** with that version to restore it.
 
 ## Evidence boundaries
 

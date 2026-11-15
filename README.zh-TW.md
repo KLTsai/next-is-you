@@ -93,7 +93,7 @@ Reader 只會保留它實際比對到的欄位（診間、醫師、clinic type�
 
 - **停止某則提醒**：在 UI 中打開目前的 reminder，確認 **停止提醒**。已在送出途中的通知可能會先完成，才確認停止。詳見 [HTTPS 服務文件的停止與復原段落](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback)。
 - **保留整個服務**（當系統出現異常時）：擁有者登入後，透過已授權的狀態 API 設定 recovery hold。對應的 console 片段在 [HTTPS 服務的停止與復原段落](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback)；recovery hold 會跨 Worker 重啟保留，且必須在任何還原或程式碼 rollback 之前先設定。
-- **部署 rollback**：由 captain 以較早的版本號執行 **Promote**，程序見 [release and rollback rules](docs/CI-CD.md#release-and-rollback-rules)。若 Promote 本身無法使用，再退回 [stop, failure recovery and rollback 段落](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback)中原生的 Wrangler 程序。兩者都只能 rollback 到與目前 schema 及已保留的 SQLite class 相容的版本；rollback 不會逆轉 D1 migration，本 README 刻意不重述完整命令。
+- **部署 rollback**：由 captain 以較早的版本號執行 **Promote**，程序見 [CI/CD 指南的 rollback 段落](docs/CI-CD.md#rollback)。Rollback 只還原程式碼。若 Promote 本身無法使用，再退回 [stop, failure recovery and rollback 段落](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback)中原生的 Wrangler 程序。兩者都只能 rollback 到與目前 schema 及已保留的 SQLite class 相容的版本；rollback 不會逆轉 D1 migration，本 README 刻意不重述完整命令。
 
 首次部署（secrets、Login channel 註冊、resource 準備）屬於另一個擁有者設定流程，詳見 [docs/HTTPS-SERVICE.md](docs/HTTPS-SERVICE.md)。
 
@@ -139,7 +139,9 @@ uv run pytest -q
 git diff --check
 ```
 
-這些是 fixture/mock 與本地自動化證據；不會連到真實醫院或 LINE、不會部署、也不證明手機端送達。CI 實際跑的 gate 見 [CI workflow](.github/workflows/ci.yml)。
+這些是 fixture/mock 與本地自動化證據；不會連到真實醫院或 LINE、不會部署、也不證明手機端送達。請見 [CI workflow](.github/workflows/ci.yml)：每次 pull request push 或 push 到 `main` 都只有一次 run，內含七個具名 gate（格式與 lint、型別檢查、前端測試、build、migration 檢查、後端與瀏覽器測試、diff hygiene）以及每個 gate 結果的摘要；在 `main` 上，Release Please 在這些 gate 之後執行。推送 tag 不會觸發任何 run。[docs/CI-CD.md](docs/CI-CD.md#one-change-one-run) 有完整說明。
+
+交付流程依 [docs/CI-CD.md](docs/CI-CD.md)：push 到 `main` 且全部 gate 通過後，staging 會自動部署；合併 release PR 會讓該 commit 成為帶有 `vX.Y.Z` tag 的版本；captain 以版本號執行 **Promote**，將它部署到 production 並發布其 Release。僅文件的 push 不會動到 staging，把 repository variable `STAGING_DEPLOY_PAUSED` 設為 `true` 可暫停自動部署 staging。只有 captain 會合併 release PR 與執行 Promote。
 
 想知道交付現況，執行 `npm run status`（需要已登入的 `gh` 與 `uv`；唯讀）。它會印出 `main` 上的 commit 與其檢查是否通過、staging 目前顯示的 commit 與是否等於 `main`、production 的版本（最新已發布的 Release）、下一個提議版本與其 release PR 和變更數量、已打 tag 但尚未成為 Release 的版本，以及剛好一個下一步。若有任何事實讀不到，它會在 stderr 指名該事實並以非零狀態結束，不會印出看似完整的部分報告。規則寫在 `scripts/delivery_state.py`，是針對事實快照的純函式，由 `tests/test_delivery_state.py` 以錄製的快照在上面的 pytest gate 中測試。同一個模組也包含 promote guard：`uv run python scripts/delivery_state.py guard <version>` 會印出 `Accepted` 或一個拒絕原因與排除它的動作，Promote workflow 執行的正是這條命令。
 

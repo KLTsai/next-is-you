@@ -305,3 +305,141 @@ def test_unreadable_fact_stops_the_guard_without_a_verdict():
         "promote cannot be decided: could not read version commit checks "
         "(gh exited 1)\n"
     )
+
+
+# ---------------------------------------------------------------------------
+# Reading layer, with the GitHub calls replaced
+# ---------------------------------------------------------------------------
+
+GATES = [
+    "Formatting and lint",
+    "Type check",
+    "Frontend tests",
+    "Build",
+    "Migration check",
+    "Backend and browser tests",
+    "Diff hygiene",
+]
+
+
+def check_run(name, status="completed", conclusion="success", run_id=1):
+    return {"name": name, "status": status, "conclusion": conclusion, "id": run_id}
+
+
+def green_gates():
+    return [check_run(name, run_id=i + 10) for i, name in enumerate(GATES)]
+
+
+def fake_checks(monkeypatch, runs):
+    monkeypatch.setattr(
+        delivery_state, "_gh_json", lambda fact, endpoint: {"check_runs": runs}
+    )
+    return delivery_state._read_checks("checks", "abc")
+
+
+def test_checks_ignore_the_promote_workflows_own_run(monkeypatch):
+    runs = [*green_gates(), check_run("Promote guard", "in_progress", None, 99)]
+    assert fake_checks(monkeypatch, runs) == ("success", ())
+
+
+def test_checks_ignore_a_cancelled_staging_deploy(monkeypatch):
+    runs = [*green_gates(), check_run("Deploy staging", conclusion="cancelled")]
+    assert fake_checks(monkeypatch, runs) == ("success", ())
+
+
+def test_checks_ignore_release_please_and_summary(monkeypatch):
+    runs = [
+        *green_gates(),
+        check_run("Release Please", conclusion="failure"),
+        check_run("Summary", conclusion="failure"),
+    ]
+    assert fake_checks(monkeypatch, runs) == ("success", ())
+
+
+def test_a_failed_gate_is_named(monkeypatch):
+    runs = green_gates()
+    runs[1] = check_run("Type check", conclusion="failure", run_id=11)
+    assert fake_checks(monkeypatch, runs) == ("failure", ("Type check",))
+
+
+def test_a_missing_or_unfinished_gate_is_pending(monkeypatch):
+    assert fake_checks(monkeypatch, green_gates()[:-1]) == ("pending", ())
+    runs = green_gates()
+    runs[0] = check_run("Formatting and lint", "in_progress", None, 10)
+    assert fake_checks(monkeypatch, runs) == ("pending", ())
+
+
+def test_a_rerun_gate_counts_by_its_latest_run(monkeypatch):
+    runs = [
+        *green_gates(),
+        check_run("Build", conclusion="failure", run_id=1),
+    ]
+    assert fake_checks(monkeypatch, runs) == ("success", ())
+
+
+def test_production_is_the_promoted_version_after_a_rollback():
+    code, out, _ = run_status("rolled_back")
+    assert code == 0
+    assert "production  v0.2.1\n" in out
+    # v0.3.0 is published and newer than production: it is not pending.
+    assert "tagged" not in out
+
+
+def test_latest_production_deployment_sha_is_read(monkeypatch):
+    seen = []
+
+    def fake(fact, endpoint):
+        seen.append(endpoint)
+        if "/statuses" in endpoint:
+            return [{"state": "success"}]
+        return [{"id": 1, "sha": "aaa"}]
+
+    monkeypatch.setattr(delivery_state, "_gh_json", fake)
+    assert delivery_state._read_production_sha() == "aaa"
+    assert "environment=prod&" in seen[0]
+
+
+def test_staging_deployment_stops_at_the_first_success(monkeypatch):
+    calls = []
+
+    def fake(fact, endpoint):
+        calls.append(endpoint)
+        if "/statuses" in endpoint:
+            return [{"state": "success"}]
+        return [{"id": 1, "sha": "aaa"}, {"id": 2, "sha": "bbb"}]
+
+    monkeypatch.setattr(delivery_state, "_gh_json", fake)
+    assert delivery_state._read_staging_sha() == "aaa"
+    assert len(calls) == 2
+
+
+def test_releases_are_read_across_every_page(monkeypatch):
+    pages = [
+        [{"tag_name": "v0.1.0", "draft": False}],
+        [{"tag_name": "v0.2.0", "draft": False}],
+    ]
+    monkeypatch.setattr(delivery_state, "_run", lambda fact, args: json.dumps(pages))
+    assert delivery_state._read_releases() == frozenset({"v0.1.0", "v0.2.0"})
+
+
+@pytest.mark.parametrize(
+    ("files", "expected"),
+    [
+        ([{"filename": "a.md"}], True),
+        ([{"filename": "docs/a.md"}, {"filename": "b.md"}], True),
+        ([{"filename": "a.py"}], False),
+        ([], False),
+        # A rename from a product file to Markdown still removes a product file.
+        ([{"filename": "a.md", "previous_filename": "a.py"}], False),
+        ([{"filename": "a.md", "previous_filename": "old.md"}], True),
+    ],
+)
+def test_staging_gap_docs_only_reads_both_sides_of_a_rename(
+    monkeypatch, files, expected
+):
+    monkeypatch.setattr(
+        delivery_state,
+        "_gh_json",
+        lambda fact, endpoint: {"status": "ahead", "files": files},
+    )
+    assert delivery_state._read_staging_gap_docs_only("s", "m") is expected

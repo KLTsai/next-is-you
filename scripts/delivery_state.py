@@ -25,6 +25,27 @@ PAUSE_VARIABLE = "STAGING_DEPLOY_PAUSED"
 
 VERSION_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 
+# The names of the CI gate jobs (the `name:` of each job in ci.yml). A commit's
+# checks are exactly these and nothing else.
+GATES = (
+    "Formatting and lint",
+    "Type check",
+    "Frontend tests",
+    "Build",
+    "Migration check",
+    "Backend and browser tests",
+    "Diff hygiene",
+)
+
+
+def is_docs_only(paths: list[str]) -> bool:
+    """Whether a change touching exactly these paths is documentation only.
+
+    The one definition of the rule. Pass both sides of a rename. An empty
+    change is not documentation only.
+    """
+    return bool(paths) and all(path.endswith(".md") for path in paths)
+
 
 class FactUnreadable(Exception):
     """A fact the report needs could not be read."""
@@ -73,6 +94,9 @@ class Snapshot:
     release_pr: ReleasePR | None
     # Whether every commit between staging and main touched only documentation.
     staging_gap_docs_only: bool = False
+    # Commit of the latest successful production deployment. Production is the
+    # version at this commit, which is not the newest Release after a rollback.
+    production_sha: str | None = None
     # Facts about the commits of the versions the guard was asked about.
     commits: dict[str, CommitFacts] = field(default_factory=dict)
 
@@ -81,6 +105,7 @@ class Snapshot:
         pr = data["release_pr"]
         return cls(
             staging_gap_docs_only=data.get("staging_gap_docs_only", False),
+            production_sha=data.get("production_sha"),
             commits={
                 sha: CommitFacts(
                     on_main=facts["on_main"],
@@ -128,7 +153,21 @@ def _row(label: str, value: str) -> str:
 def build_report(snapshot: Snapshot) -> Report:
     main = snapshot.main
     releases = sorted(snapshot.releases, key=_version_key)
-    production = releases[-1] if releases else None
+    # What production runs is what was last deployed to it. Without a usable
+    # deployment record, fall back to the newest published Release.
+    deployed = sorted(
+        (
+            tag
+            for tag in releases
+            if snapshot.production_sha
+            and snapshot.tags.get(tag) == snapshot.production_sha
+        ),
+        key=_version_key,
+    )
+    if deployed:
+        production = deployed[-1]
+    else:
+        production = releases[-1] if releases else None
     unreleased = sorted(
         (tag for tag in snapshot.tags if tag not in snapshot.releases),
         key=_version_key,
@@ -332,16 +371,27 @@ def _read_checks(fact: str, sha: str) -> tuple[str, tuple[str, ...]]:
     runs = _gh_json(
         fact, f"repos/{{owner}}/{{repo}}/commits/{sha}/check-runs?per_page=100"
     )["check_runs"]
+    # Only the gates count. Other runs on the same commit (the Promote guard
+    # itself, a staging deployment, Release Please, the Summary) say nothing
+    # about whether the commit is good.
+    latest: dict[str, dict] = {}
+    for run in runs:
+        name = run["name"]
+        if name in GATES and (name not in latest or run["id"] > latest[name]["id"]):
+            latest[name] = run
     failed = tuple(
-        run["name"]
-        for run in runs
-        if run["status"] == "completed"
-        and run["conclusion"]
+        name
+        for name in GATES
+        if name in latest
+        and latest[name]["status"] == "completed"
+        and latest[name]["conclusion"]
         in {"failure", "cancelled", "timed_out", "action_required"}
     )
     if failed:
         return "failure", failed
-    if not runs or any(run["status"] != "completed" for run in runs):
+    if len(latest) < len(GATES) or any(
+        run["status"] != "completed" for run in latest.values()
+    ):
         return "pending", ()
     return "success", ()
 
@@ -365,9 +415,9 @@ def _read_commit_facts(sha: str) -> CommitFacts:
 def _read_staging_gap_docs_only(staging_sha: str | None, main_sha: str) -> bool:
     """Whether every commit between staging and main changed only Markdown.
 
-    The same rule as scripts/docs_only_push.sh, which decides the push that
-    skips the staging deployment. It is read from the API here because a local
-    clone may not hold either commit. Anything unclear answers False.
+    The same rule (is_docs_only) as the push that skips the staging deployment.
+    It is read from the API here because a local clone may not hold either
+    commit. Anything unclear answers False.
     """
     if staging_sha is None or staging_sha == main_sha:
         return False
@@ -376,16 +426,45 @@ def _read_staging_gap_docs_only(staging_sha: str | None, main_sha: str) -> bool:
         fact, f"repos/{{owner}}/{{repo}}/compare/{staging_sha}...{main_sha}"
     )
     files = compare.get("files", [])
-    if compare["status"] != "ahead" or not files or len(files) >= 300:
+    if compare["status"] != "ahead" or len(files) >= 300:
         return False
-    return all(f["filename"].endswith(".md") for f in files)
+    paths = [
+        path
+        for f in files
+        for path in (f["filename"], f.get("previous_filename"))
+        if path
+    ]
+    return is_docs_only(paths)
 
 
-def _read_staging_sha() -> str | None:
-    fact = "staging deployment"
-    deployments = _gh_json(
-        fact, "repos/{owner}/{repo}/deployments?environment=staging&per_page=20"
+def docs_only_push(before: str, after: str) -> bool:
+    """Whether a push from `before` to `after` changed only documentation.
+
+    An unknown range (new branch, forced push, missing commit) answers False so
+    that staging deploys rather than silently skipping unreviewed work.
+    """
+    if not re.fullmatch(r"[0-9a-fA-F]{40,64}", before) or set(before) == {"0"}:
+        return False
+    for sha in (before, after):
+        if subprocess.run(
+            ["git", "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True
+        ).returncode:
+            return False
+    diff = subprocess.run(
+        ["git", "diff", "--no-renames", "--name-only", before, after],
+        capture_output=True,
+        text=True,
     )
+    return diff.returncode == 0 and is_docs_only(diff.stdout.splitlines())
+
+
+def _latest_deployment_sha(fact: str, environment: str) -> str | None:
+    """The commit of the newest successful deployment to an environment."""
+    deployments = _gh_json(
+        fact,
+        f"repos/{{owner}}/{{repo}}/deployments?environment={environment}&per_page=10",
+    )
+    # Newest first, so the first success is the answer.
     for deployment in deployments:
         statuses = _gh_json(
             fact, f"repos/{{owner}}/{{repo}}/deployments/{deployment['id']}/statuses"
@@ -393,6 +472,14 @@ def _read_staging_sha() -> str | None:
         if statuses and statuses[0]["state"] == "success":
             return deployment["sha"]
     return None
+
+
+def _read_staging_sha() -> str | None:
+    return _latest_deployment_sha("staging deployment", "staging")
+
+
+def _read_production_sha() -> str | None:
+    return _latest_deployment_sha("production deployment", "prod")
 
 
 def _is_truthy(value: str) -> bool:
@@ -450,9 +537,22 @@ def published_release_tags(listing: list[dict]) -> frozenset[str]:
 
 
 def _read_releases() -> frozenset[str]:
-    return published_release_tags(
-        _gh_json("published releases", "repos/{owner}/{repo}/releases?per_page=100")
+    fact = "published releases"
+    out = _run(
+        fact,
+        [
+            "gh",
+            "api",
+            "--paginate",
+            "--slurp",
+            "repos/{owner}/{repo}/releases?per_page=100",
+        ],
     )
+    try:
+        pages = json.loads(out)
+    except json.JSONDecodeError as error:
+        raise FactUnreadable(fact, f"unparseable response: {error}") from error
+    return published_release_tags([r for page in pages for r in page])
 
 
 def _read_release_pr() -> ReleasePR | None:
@@ -489,6 +589,7 @@ def read_snapshot() -> Snapshot:
     return Snapshot(
         main=main,
         staging_sha=staging_sha,
+        production_sha=_read_production_sha(),
         staging_paused=_read_paused(),
         tags=_read_tags(),
         releases=_read_releases(),
@@ -551,7 +652,13 @@ def main(argv: list[str]) -> int:
         return run_status(read_snapshot, sys.stdout, sys.stderr)
     if len(argv) == 2 and argv[0] == "guard":
         return run_guard(read_guard_snapshot, argv[1], sys.stdout, sys.stderr)
-    sys.stderr.write("usage: delivery_state.py status | guard <version>\n")
+    if argv == ["docs-only-push"]:
+        before, after = os.environ.get("BEFORE", ""), os.environ.get("AFTER", "")
+        sys.stdout.write("true\n" if docs_only_push(before, after) else "false\n")
+        return 0
+    sys.stderr.write(
+        "usage: delivery_state.py status | guard <version> | docs-only-push\n"
+    )
     return 2
 
 

@@ -290,8 +290,12 @@ Promote is **Actions -> Promote -> Run workflow**, from `main`, with one input:
 the version, for example `v0.3.0`. Only the captain runs it. Its `Promote guard`
 job runs `python3 scripts/delivery_state.py guard <version>`, the same command
 the captain can run locally, and writes the verdict to the run summary. The
-rules are not repeated in the workflow. The guard refuses, with one reason and
-the action that clears it, when:
+rules are not repeated in the workflow. A dispatch from any other ref fails the
+`Require main` job. "Checks" means the seven CI gate jobs only: the Promote
+run itself, a staging deployment (including a cancelled, superseded one) and
+Release Please never count. `npm run status` reports production as the version
+last deployed to the `prod` environment, so it stays correct after a rollback.
+The guard refuses, with one reason and the action that clears it, when:
 
 | Reason | Clearing action |
 | --- | --- |

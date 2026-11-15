@@ -19,6 +19,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A dispatch from any other ref would skip every job below and look green.
+  require-main:
+    name: Require main
+    if: ${{ github.ref != 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Promote must be dispatched from main, not ${GITHUB_REF}." >&2
+          echo "Run it again with 'Use workflow from: Branch: main'." >&2
+          exit 1
+
   guard:
     name: Promote guard
     if: ${{ github.ref == 'refs/heads/main' }}

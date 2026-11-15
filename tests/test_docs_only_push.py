@@ -82,6 +82,13 @@ def test_non_markdown_file_under_docs_is_not_docs_only(repo: Path) -> None:
     assert run(repo, base, head) == "false"
 
 
+def test_rename_from_a_product_file_to_markdown_is_not_docs_only(repo: Path) -> None:
+    base = commit(repo, {"app.py": "print('a body long enough to be a rename')\n" * 5})
+    git(repo, "mv", "app.py", "app.md")
+    head = commit(repo, {})
+    assert run(repo, base, head) == "false"
+
+
 def test_unknown_range_is_not_docs_only(repo: Path) -> None:
     head = commit(repo, {"README.md": "x"})
     assert run(repo, ZERO, head) == "false"

@@ -139,7 +139,7 @@ uv run pytest -q
 git diff --check
 ```
 
-These are fixture/mock and local automated evidence; they do not contact a live hospital or LINE, deploy, or prove handset delivery. See the [CI workflow](.github/workflows/ci.yml) for the gates it runs.
+These are fixture/mock and local automated evidence; they do not contact a live hospital or LINE, deploy, or prove handset delivery. See the [CI workflow](.github/workflows/ci.yml): each pull request push or push to `main` is one run with seven named gates (formatting and lint, type check, frontend tests, build, migration check, backend and browser tests, diff hygiene) and a summary of each outcome; on `main`, Release Please follows the gates. Tag pushes start no run. [docs/CI-CD.md](docs/CI-CD.md#one-change-one-run) describes it.
 
 To see where delivery stands, run `npm run status` (needs `gh` signed in and `uv`; read-only). It prints the commit on `main` and whether its checks passed, the commit staging is showing and whether it equals `main`, the version in production (the latest published Release), the next proposed version with its release PR and change count, any version that is tagged but not yet a Release, and exactly one next step. If a fact cannot be read it names that fact on stderr and exits non-zero rather than printing a partial report. The rules live in `scripts/delivery_state.py` as a pure function over a snapshot of facts, tested from recorded snapshots by `tests/test_delivery_state.py` in the pytest gate above.
 

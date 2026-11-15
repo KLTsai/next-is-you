@@ -6,8 +6,8 @@ version is formally offered to users.
 
 | Gate | Trigger | Outcome |
 | --- | --- | --- |
-| CI (`.github/workflows/ci.yml`) | Push and pull request | Build, lint, type, migration, and test evidence for a change. |
-| Release Please (`.github/workflows/release-please.yml`) | Push to `main` | A Release PR with a SemVer version and changelog. It does not tag or publish. |
+| CI (`.github/workflows/ci.yml`) | Pull request push, and push to `main` | One run per change with seven named gates, then on `main` Release Please, which opens a Release PR with a SemVer version and changelog. Merging that PR tags the merge commit `vX.Y.Z` and leaves a draft GitHub Release, which is not published. |
+| Deploy staging (job in `ci.yml`) | Push to `main`, after every gate | Deploys that exact commit to staging and records a GitHub deployment. Skipped for documentation-only pushes and while paused. |
 | Candidate deploy (`.github/workflows/candidate-deploy.yml`) | Manual dispatch | An immutable `candidate-vX.Y.Z-<commit>` tag after that commit deploys to staging. |
 | Promote candidate (`.github/workflows/production-deploy.yml`) | Manual dispatch from a candidate tag | The same commit deploys to production, then receives `vX.Y.Z` and a GitHub Release. |
 
@@ -39,13 +39,85 @@ that check. `npm run check:release` answers which one the repository is in, and
 [A merged release PR must be promoted](#a-merged-release-pr-must-be-promoted)
 covers what a stall looks like and how to clear it.
 
+## One change, one run
+
+`.github/workflows/ci.yml` is the only automatic workflow. A push to a pull
+request branch starts exactly one run, a push to `main` starts exactly one run,
+and a tag push starts none. A branch without a pull request has no run until one
+is opened, because running on both branch pushes and pull requests is what made
+every pull request push appear twice.
+
+Each check is its own job, so a red run names the gate that failed and the other
+gates still report their own result:
+
+| Gate | What it runs |
+| --- | --- |
+| Formatting and lint | `ruff format --check` and `ruff check` |
+| Type check | `npm run typecheck` |
+| Frontend tests | `npm run test:ui` |
+| Build | `npm run build` |
+| Migration check | `scripts/check_migrations.py` |
+| Backend and browser tests | `npm run build`, Playwright Chromium, then `pytest -q` |
+| Diff hygiene | `scripts/check_ci_diff.sh` |
+
+After the gates, a Summary job lists each gate and its outcome on the run page,
+and fails the run if any gate did not succeed. On `main` only, the Release
+Please job runs after every gate has passed, so a red gate also holds back the
+release proposal. Release behavior itself is unchanged.
+
+## Staging follows main
+
+On a push to `main`, the same run deploys that commit to staging once every gate
+has passed. The `Deploy staging` job needs all seven gates and the `Staging
+scope` job, and it deploys `github.sha`, the pushed commit, never the branch
+head. Re-running an earlier run therefore returns staging to that earlier
+commit. The job reuses the candidate deployment's steps: build, apply the
+staging D1 migrations, then `pywrangler deploy --config wrangler.staging.jsonc
+--keep-vars`. It uses the `staging` environment, so GitHub records a deployment
+for that commit; that record, not any tag, is the source of truth for what
+staging is showing. The job summary also names the commit.
+
+Staging is unchanged in what it may do: its configuration still holds sends, has
+no LINE access token, and reads no hospital data (see
+[Evidence boundaries](#evidence-boundaries)).
+
+Skips are decided on the `Deploy staging` job, not by path filters, so a skipped
+deployment still leaves a successful run:
+
+| Situation | Staging job | Run | What to do |
+| --- | --- | --- | --- |
+| Product-changing push, gates green | Runs and succeeds | Success | Nothing. The staging deployment names the commit. |
+| Waiting behind another staging deployment | Pending | In progress | Nothing. Deployments run one at a time and share the `staging-deploy` group with the manual candidate deploy. GitHub keeps only the newest waiting run, so an older waiting one is cancelled and staging ends on the latest commit. |
+| A gate fails | Skipped | Failed, naming the gate | Fix the gate. Staging keeps its previous commit. |
+| Documentation-only push (every changed file is `*.md`) | Skipped | Success | Nothing. Staging keeps its commit. An unknown range, such as a forced push, counts as not documentation-only. |
+| Repository variable `STAGING_DEPLOY_PAUSED` is `true` | Skipped | Success | Gates still run. Clear the variable, then push or re-run the run of the commit you want. |
+| Staging migration or deploy step fails | Failed | Failed | See below. |
+
+Pausing and resuming: set `STAGING_DEPLOY_PAUSED` to `true` in **Settings ->
+Secrets and variables -> Actions -> Variables** to pause, and delete it or set
+anything else to resume. The variable is read when the job is evaluated, so
+resume takes effect on the next push or re-run, not retroactively.
+
+Recovery from a failed staging migration: migrations are forward-only and D1
+applies each migration file atomically, so a failure leaves the database at the
+last migration that fully applied and the Worker still on its previous code. Read
+the failing step in the run, then either fix forward with a new commit, which
+deploys automatically once its gates pass, or correct the cause outside the
+repository (for example the Cloudflare token) and re-run only the failed job.
+Do not edit an applied migration. If staging has to be held while you
+investigate, pause it first. Staging holds no real data, so a database that
+cannot be repaired can be recreated and the migrations re-applied.
+
 ## Everyday flow
 
 1. Work on a short-lived branch and merge a reviewed, green PR to `main`.
-2. Release Please opens or updates `chore(main): release X.Y.Z`. It updates
-   `package.json`, `CHANGELOG.md`, and the release manifest, but does not create
-   a tag or GitHub Release.
-3. Review and merge that Release PR. Its merge commit is the version candidate.
+2. Release Please, the last job of the run on `main`, opens or updates `chore(main): release X.Y.Z`. It updates
+   `package.json`, `CHANGELOG.md`, and the release manifest. Opening the PR
+   creates no tag and no Release.
+3. Review and merge that Release PR. Its merge commit is the version, and the
+   next Release Please run tags it `vX.Y.Z`, creates a draft GitHub Release (not
+   published), and relabels the merged PR `autorelease: tagged`
+   (see [Release PR merge](#release-pr-merge-creates-the-tag)).
    Its CI needs deliberate attention: the PR is pushed by `github-actions[bot]`,
    so CI runs are created but held for manual approval, and an unapproved run
    finishes with no jobs and leaves no failing check on the PR to warn you.
@@ -147,6 +219,36 @@ The deployment branch policies must therefore be:
 | `staging` | branch `main` | Candidate deployment creates its record tag after successful staging. |
 | `prod` | tag `candidate-v*` | Promotion executes from the immutable accepted candidate. |
 
+## Release PR merge creates the tag
+
+`.github/release-please-config.json` sets `"draft": true` and
+`"force-tag-creation": true`, and the action is not given `skip-github-release`.
+The Release Please run triggered by the merge of a release PR then, per the
+library source (`release-please` 17.6.0, bundled by the pinned action v5.0.0):
+
+1. creates the `refs/tags/vX.Y.Z` reference on the merge commit (a 422 because
+   the tag already exists is ignored, so a re-run is harmless);
+2. creates a draft GitHub Release for that tag, which GitHub does not show
+   publicly and which is not a published Release;
+3. comments on the merged PR and swaps its label from `autorelease: pending`
+   to `autorelease: tagged`.
+
+`force-tag-creation` is a Release Please config option, not an action input:
+GitHub does not create the Git tag for a draft release until it is published,
+so without it the draft would leave Release Please without a boundary. With the
+tag in place the next changelog starts after the version, whether or not the
+draft is ever published.
+
+Publishing the draft is the Promote step's job and is not done by CI. Until
+then the version is tagged and is not a Release. The tag appears on the next run
+of CI on `main` after the merge, not inside the merge itself.
+
+Interim caveat until the new Promote lands: the candidate flow below still
+exists, and **Promote candidate to production** skips creating its Release when
+the tag already exists, so promoting a version created this way would deploy it
+and leave only the draft. Do not release in that window. The sections below
+describe the behavior before this change.
+
 ## A merged release PR must be promoted
 
 Release Please finds the boundary for the next changelog by deriving a tag name
@@ -201,12 +303,14 @@ Release Please reads Conventional Commit messages:
 - `feat:` creates a minor version proposal.
 - `fix:` and `perf:` create a patch proposal.
 - `feat!:` or `BREAKING CHANGE:` creates a major version proposal.
-- `docs:` proposes a patch version. It has a visible changelog section here, and
-  Release Please treats any commit with a visible section as releasable, so a
-  lone `docs:` commit is enough to open a release PR. Observed on 2026-11-14:
-  commit `1a7e76e` alone proposed 0.2.1.
-- `chore:`, `refactor:`, `test:`, `build:`, `ci:`, and `style:` do not bump a
-  version.
+- `docs:`, `chore:`, `refactor:`, `test:`, `build:`, `ci:`, and `style:` do not
+  bump a version. Reserve `feat:`, `fix:`, and `perf:` for changes a user of the
+  product can notice.
+- `docs:` is a hidden changelog type: a documentation-only push opens no release
+  PR and does not change an open one. Before 2026-11-15 it had a visible
+  section, and commit `1a7e76e` alone proposed 0.2.1.
+- A breaking-change marker or a `Release-As` footer can still release on a
+  hidden type, so avoid them on non-user-facing commits.
 
 Production migrations are forward-only. A rollback redeploys a prior candidate
 tag from **Promote candidate to production**. It changes the Worker code only;

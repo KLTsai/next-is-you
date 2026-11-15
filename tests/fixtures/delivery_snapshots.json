@@ -70,5 +70,14 @@
     "tags": {"v0.2.1": "2220000000000000000000000000000000000000"},
     "releases": ["v0.2.1"],
     "release_pr": null
+  },
+  "staging_behind_docs_only": {
+    "main": {"sha": "abc1234000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "def5678000000000000000000000000000000000",
+    "staging_gap_docs_only": true,
+    "staging_paused": false,
+    "tags": {"v0.2.1": "2220000000000000000000000000000000000000"},
+    "releases": ["v0.2.1"],
+    "release_pr": null
   }
 }

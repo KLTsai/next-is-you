@@ -1,0 +1,110 @@
+{
+  "accept": {
+    "main": {"sha": "ccc3333000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "aaa1111000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.2.1": "2220000000000000000000000000000000000000", "v0.3.0": "aaa1111000000000000000000000000000000000"},
+    "releases": ["v0.2.1"],
+    "release_pr": null,
+    "commits": {"aaa1111000000000000000000000000000000000": {"on_main": true, "checks": "success", "failed": []}}
+  },
+  "unknown_version": {
+    "main": {"sha": "ccc3333000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "aaa1111000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.2.1": "2220000000000000000000000000000000000000"},
+    "releases": ["v0.2.1"],
+    "release_pr": null,
+    "commits": {}
+  },
+  "not_on_main": {
+    "main": {"sha": "ccc3333000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "aaa1111000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.2.1": "2220000000000000000000000000000000000000", "v0.3.0": "aaa1111000000000000000000000000000000000"},
+    "releases": ["v0.2.1"],
+    "release_pr": null,
+    "commits": {"aaa1111000000000000000000000000000000000": {"on_main": false, "checks": "success", "failed": []}}
+  },
+  "checks_red": {
+    "main": {"sha": "ccc3333000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "aaa1111000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.2.1": "2220000000000000000000000000000000000000", "v0.3.0": "aaa1111000000000000000000000000000000000"},
+    "releases": ["v0.2.1"],
+    "release_pr": null,
+    "commits": {"aaa1111000000000000000000000000000000000": {"on_main": true, "checks": "failure", "failed": ["Backend and browser tests", "Type check"]}}
+  },
+  "checks_unfinished": {
+    "main": {"sha": "ccc3333000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "aaa1111000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.2.1": "2220000000000000000000000000000000000000", "v0.3.0": "aaa1111000000000000000000000000000000000"},
+    "releases": ["v0.2.1"],
+    "release_pr": null,
+    "commits": {"aaa1111000000000000000000000000000000000": {"on_main": true, "checks": "pending", "failed": []}}
+  },
+  "staging_later": {
+    "main": {"sha": "ccc3333000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "bbb2222000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.2.1": "2220000000000000000000000000000000000000", "v0.3.0": "aaa1111000000000000000000000000000000000", "v0.3.1": "bbb2222000000000000000000000000000000000"},
+    "releases": ["v0.2.1"],
+    "release_pr": null,
+    "commits": {"aaa1111000000000000000000000000000000000": {"on_main": true, "checks": "success", "failed": []}}
+  },
+  "staging_earlier": {
+    "main": {"sha": "ccc3333000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "2220000000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.2.1": "2220000000000000000000000000000000000000", "v0.3.0": "aaa1111000000000000000000000000000000000"},
+    "releases": ["v0.2.1"],
+    "release_pr": null,
+    "commits": {"aaa1111000000000000000000000000000000000": {"on_main": true, "checks": "success", "failed": []}}
+  },
+  "staging_never_deployed": {
+    "main": {"sha": "ccc3333000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": null,
+    "staging_paused": false,
+    "tags": {"v0.3.0": "aaa1111000000000000000000000000000000000"},
+    "releases": [],
+    "release_pr": null,
+    "commits": {"aaa1111000000000000000000000000000000000": {"on_main": true, "checks": "success", "failed": []}}
+  },
+  "staging_paused_elsewhere": {
+    "main": {"sha": "ccc3333000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "bbb2222000000000000000000000000000000000",
+    "staging_paused": true,
+    "tags": {"v0.3.0": "aaa1111000000000000000000000000000000000", "v0.3.1": "bbb2222000000000000000000000000000000000"},
+    "releases": ["v0.3.0"],
+    "release_pr": null,
+    "commits": {"aaa1111000000000000000000000000000000000": {"on_main": true, "checks": "success", "failed": []}}
+  },
+  "repromote_production": {
+    "main": {"sha": "ccc3333000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "bbb2222000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.3.0": "aaa1111000000000000000000000000000000000", "v0.3.1": "bbb2222000000000000000000000000000000000"},
+    "releases": ["v0.3.0", "v0.3.1"],
+    "release_pr": null,
+    "commits": {"bbb2222000000000000000000000000000000000": {"on_main": true, "checks": "success", "failed": []}}
+  },
+  "rollback_earlier": {
+    "main": {"sha": "ccc3333000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "aaa1111000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.3.0": "aaa1111000000000000000000000000000000000", "v0.3.1": "bbb2222000000000000000000000000000000000"},
+    "releases": ["v0.3.0", "v0.3.1"],
+    "release_pr": null,
+    "commits": {"aaa1111000000000000000000000000000000000": {"on_main": true, "checks": "success", "failed": []}}
+  },
+  "rollback_pre_design": {
+    "main": {"sha": "ccc3333000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "1110000000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.2.0": "1110000000000000000000000000000000000000", "v0.2.1": "2220000000000000000000000000000000000000", "v0.3.0": "aaa1111000000000000000000000000000000000"},
+    "releases": ["v0.2.0", "v0.2.1", "v0.3.0"],
+    "release_pr": null,
+    "commits": {"1110000000000000000000000000000000000000": {"on_main": true, "checks": "success", "failed": []}}
+  }
+}

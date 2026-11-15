@@ -184,7 +184,6 @@ jobs:
       - diff-hygiene
       - staging-scope
     runs-on: ubuntu-latest
-    # Shared with the manual candidate deployment so the two never overlap.
     # Waiting runs queue instead of cancelling the deployment in progress.
     concurrency:
       group: staging-deploy

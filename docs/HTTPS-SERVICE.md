@@ -2,8 +2,8 @@
 
 > **This document provisions and operates an environment. It is not the
 > deployment procedure for a change.** Ongoing deployment is owned by
-> [docs/CI-CD.md](CI-CD.md): a commit reaches staging through **Candidate
-> deploy** and production through **Promote candidate to production**, using the
+> [docs/CI-CD.md](CI-CD.md): a commit reaches staging automatically after
+> a green push to `main` and production through **Promote**, using the
 > committed `wrangler.staging.jsonc` and `wrangler.production.jsonc`.
 >
 > Do not hand-deploy production from a local `.wrangler.production.jsonc`. That
@@ -311,10 +311,10 @@ this Worker's `triggers.crons` to `[]` and deploy. Preserve D1 and DO resources;
 do not delete or clear any environment. When restoring the schedule or origin,
 use the same IDs and name and verify both holds again.
 
-[docs/CI-CD.md](CI-CD.md) owns the primary rollback procedure: redeploy a prior
-candidate tag through **Promote candidate to production**, which restores a known
-deployed commit. The native Wrangler commands below remain the emergency path
-for when no candidate tag is usable. Before a change, record the last known-good
+[docs/CI-CD.md](CI-CD.md) owns the primary rollback procedure: run **Promote**
+with an earlier version number, which restores a known deployed commit. The
+native Wrangler commands below remain the emergency path for when Promote is
+unusable. Before a change, record the last known-good
 held version:
 
 ```sh

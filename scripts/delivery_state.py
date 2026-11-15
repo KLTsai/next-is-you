@@ -2,21 +2,21 @@
 
 Layout, top to bottom:
 
-1. Core. Pure functions from a Snapshot of facts to a report and one next step.
-   The promote guard (ticket #73) is meant to be a second entry point over this
-   same Snapshot and rules, so it belongs in this section.
+1. Core. Pure functions from a Snapshot of facts to a report and one next step
+   (`status`), and to a verdict on one version (`guard`, the promote guard).
 2. Fact reading. The only code that talks to GitHub and Git. A fact that cannot
    be read raises FactUnreadable, naming itself.
-3. Command line. `status` is the only command today.
+3. Command line. `status` and `guard <version>`.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, TextIO
 
 # Repository variable that pauses automatic staging deployment. It does not
@@ -55,6 +55,15 @@ class ReleasePR:
 
 
 @dataclass(frozen=True)
+class CommitFacts:
+    """What the promote guard needs to know about one version's commit."""
+
+    on_main: bool
+    checks: str  # "success", "failure" or "pending"
+    failed: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class Snapshot:
     main: MainState
     staging_sha: str | None  # latest successful staging deployment, if any
@@ -62,11 +71,24 @@ class Snapshot:
     tags: dict[str, str]  # "vX.Y.Z" -> commit
     releases: frozenset[str]  # published (not draft) "vX.Y.Z" releases
     release_pr: ReleasePR | None
+    # Whether every commit between staging and main touched only documentation.
+    staging_gap_docs_only: bool = False
+    # Facts about the commits of the versions the guard was asked about.
+    commits: dict[str, CommitFacts] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict) -> Snapshot:
         pr = data["release_pr"]
         return cls(
+            staging_gap_docs_only=data.get("staging_gap_docs_only", False),
+            commits={
+                sha: CommitFacts(
+                    on_main=facts["on_main"],
+                    checks=facts["checks"],
+                    failed=tuple(facts["failed"]),
+                )
+                for sha, facts in data.get("commits", {}).items()
+            },
             main=MainState(
                 sha=data["main"]["sha"],
                 checks=data["main"]["checks"],
@@ -131,6 +153,10 @@ def build_report(snapshot: Snapshot) -> Report:
         staging_text = "none - nothing deployed"
     elif staging_is_main:
         staging_text = f"{_short(main.sha)} - same as main"
+    elif snapshot.staging_gap_docs_only:
+        staging_text = (
+            f"{_short(snapshot.staging_sha)} - differs from main, documentation only"
+        )
     else:
         staging_text = f"{_short(snapshot.staging_sha)} - differs from main"
 
@@ -175,7 +201,9 @@ def _next_step(snapshot: Snapshot, pending: list[str], staging_is_main: bool) ->
             "Automatic staging deployment is paused. "
             "Resume it when you finish checking."
         )
-    if not staging_is_main:
+    # Documentation-only pushes never deploy staging, so a gap made only of
+    # them is expected and asks for nothing.
+    if not staging_is_main and not snapshot.staging_gap_docs_only:
         return (
             "Staging is not showing main. "
             "Deploy main to staging, then run status again."
@@ -187,6 +215,93 @@ def _next_step(snapshot: Snapshot, pending: list[str], staging_is_main: bool) ->
             "or leave it open to collect more changes."
         )
     return "Nothing to do."
+
+
+@dataclass(frozen=True)
+class Verdict:
+    version: str
+    commit: str | None = None  # set when accepted
+    reason: str | None = None  # set when refused
+    action: str | None = None  # set when refused
+
+    @property
+    def accepted(self) -> bool:
+        return self.reason is None
+
+    def render(self) -> str:
+        if self.accepted:
+            return f"Accepted: {self.version} at {self.commit}\n"
+        return f"Refused: {self.reason}\nTo clear it: {self.action}\n"
+
+
+def normalize_version(text: str) -> str:
+    """Accept "0.3.0" as well as "v0.3.0"; anything else is returned as typed."""
+    stripped = text.strip()
+    return f"v{stripped}" if re.fullmatch(r"\d+\.\d+\.\d+", stripped) else stripped
+
+
+def promote_guard(snapshot: Snapshot, version: str) -> Verdict:
+    """Decide whether a version may be promoted. One refusal reason at a time.
+
+    Promoting an earlier version is rollback and the version already in
+    production is a retry, so neither is special: every version faces the same
+    four questions, in this order.
+    """
+    version = normalize_version(version)
+    commit = snapshot.tags.get(version)
+    if commit is None:
+        return Verdict(
+            version,
+            reason=f"{version} is not a version.",
+            action=(
+                "Enter an existing version. "
+                "Versions are created by merging the release PR."
+            ),
+        )
+    facts = snapshot.commits[commit]
+    short = _short(commit)
+    if not facts.on_main:
+        return Verdict(
+            version,
+            reason=f"{version} is at {short}, which is not on main.",
+            action="Do not promote it. Merge the release PR on main to cut a new version.",
+        )
+    if facts.checks == "failure":
+        failed = ", ".join(facts.failed)
+        detail = f"failed ({failed})" if failed else "failed"
+        return Verdict(
+            version,
+            reason=f"the checks on {version} ({short}) {detail}.",
+            action=(
+                "If the failure is not real, re-run that commit's pipeline run. "
+                "Otherwise fix main and release a new version."
+            ),
+        )
+    if facts.checks != "success":
+        return Verdict(
+            version,
+            reason=f"the checks on {version} ({short}) are still running.",
+            action="Wait for them to finish, then run Promote again.",
+        )
+    if snapshot.staging_sha != commit:
+        shown = _short(snapshot.staging_sha) if snapshot.staging_sha else "nothing"
+        rerun = (
+            f"re-run the pipeline run of commit {short} so staging shows it, "
+            "check it, then run Promote again."
+        )
+        if snapshot.staging_paused:
+            rerun = (
+                f"Resume automatic staging deployment (unset {PAUSE_VARIABLE}), "
+                + rerun
+            )
+        else:
+            rerun = rerun[0].upper() + rerun[1:]
+        return Verdict(
+            version,
+            reason=f"staging is showing {shown}, not {version} ({short}).",
+            action=rerun,
+        )
+    return Verdict(version, commit=commit)
 
 
 # ---------------------------------------------------------------------------
@@ -213,9 +328,7 @@ def _gh_json(fact: str, endpoint: str):
         raise FactUnreadable(fact, f"unparseable response: {error}") from error
 
 
-def _read_main() -> MainState:
-    fact = "main commit checks"
-    sha = _gh_json("main commit", "repos/{owner}/{repo}/commits/main")["sha"]
+def _read_checks(fact: str, sha: str) -> tuple[str, tuple[str, ...]]:
     runs = _gh_json(
         fact, f"repos/{{owner}}/{{repo}}/commits/{sha}/check-runs?per_page=100"
     )["check_runs"]
@@ -227,10 +340,45 @@ def _read_main() -> MainState:
         in {"failure", "cancelled", "timed_out", "action_required"}
     )
     if failed:
-        return MainState(sha, "failure", failed)
+        return "failure", failed
     if not runs or any(run["status"] != "completed" for run in runs):
-        return MainState(sha, "pending")
-    return MainState(sha, "success")
+        return "pending", ()
+    return "success", ()
+
+
+def _read_main() -> MainState:
+    sha = _gh_json("main commit", "repos/{owner}/{repo}/commits/main")["sha"]
+    checks, failed = _read_checks("main commit checks", sha)
+    return MainState(sha, checks, failed)
+
+
+def _read_commit_facts(sha: str) -> CommitFacts:
+    fact = "version commit"
+    # main is ahead of (or is) a commit that is on main.
+    compare = _gh_json(
+        fact, f"repos/{{owner}}/{{repo}}/compare/{sha}...main?per_page=1"
+    )
+    checks, failed = _read_checks("version commit checks", sha)
+    return CommitFacts(compare["status"] in {"ahead", "identical"}, checks, failed)
+
+
+def _read_staging_gap_docs_only(staging_sha: str | None, main_sha: str) -> bool:
+    """Whether every commit between staging and main changed only Markdown.
+
+    The same rule as scripts/docs_only_push.sh, which decides the push that
+    skips the staging deployment. It is read from the API here because a local
+    clone may not hold either commit. Anything unclear answers False.
+    """
+    if staging_sha is None or staging_sha == main_sha:
+        return False
+    fact = "staging gap"
+    compare = _gh_json(
+        fact, f"repos/{{owner}}/{{repo}}/compare/{staging_sha}...{main_sha}"
+    )
+    files = compare.get("files", [])
+    if compare["status"] != "ahead" or not files or len(files) >= 300:
+        return False
+    return all(f["filename"].endswith(".md") for f in files)
 
 
 def _read_staging_sha() -> str | None:
@@ -247,8 +395,16 @@ def _read_staging_sha() -> str | None:
     return None
 
 
+def _is_truthy(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes"}
+
+
 def _read_paused() -> bool:
     fact = f"pause variable {PAUSE_VARIABLE}"
+    # A workflow cannot read repository variables through the API with its own
+    # token, so it passes the variable in through the environment instead.
+    if PAUSE_VARIABLE in os.environ:
+        return _is_truthy(os.environ[PAUSE_VARIABLE])
     try:
         result = subprocess.run(
             [
@@ -266,11 +422,7 @@ def _read_paused() -> bool:
         if "404" in result.stderr:
             return False
         raise FactUnreadable(fact, result.stderr.strip() or "gh failed")
-    return json.loads(result.stdout).get("value", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-    }
+    return _is_truthy(json.loads(result.stdout).get("value", ""))
 
 
 def _read_tags() -> dict[str, str]:
@@ -288,14 +440,18 @@ def _read_tags() -> dict[str, str]:
     return tags
 
 
-def _read_releases() -> frozenset[str]:
-    releases = _gh_json(
-        "published releases", "repos/{owner}/{repo}/releases?per_page=100"
-    )
+def published_release_tags(listing: list[dict]) -> frozenset[str]:
+    """Tags of published Releases. A draft is a tag that is not yet a Release."""
     return frozenset(
         r["tag_name"]
-        for r in releases
+        for r in listing
         if not r["draft"] and VERSION_TAG.fullmatch(r["tag_name"])
+    )
+
+
+def _read_releases() -> frozenset[str]:
+    return published_release_tags(
+        _gh_json("published releases", "repos/{owner}/{repo}/releases?per_page=100")
     )
 
 
@@ -328,13 +484,32 @@ def _read_release_pr() -> ReleasePR | None:
 
 
 def read_snapshot() -> Snapshot:
+    main = _read_main()
+    staging_sha = _read_staging_sha()
     return Snapshot(
-        main=_read_main(),
-        staging_sha=_read_staging_sha(),
+        main=main,
+        staging_sha=staging_sha,
         staging_paused=_read_paused(),
         tags=_read_tags(),
         releases=_read_releases(),
         release_pr=_read_release_pr(),
+        staging_gap_docs_only=_read_staging_gap_docs_only(staging_sha, main.sha),
+    )
+
+
+def read_guard_snapshot(version: str) -> Snapshot:
+    """The facts the promote guard needs. Reads nothing about the release PR."""
+    main = _read_main()
+    tags = _read_tags()
+    commit = tags.get(normalize_version(version))
+    return Snapshot(
+        main=main,
+        staging_sha=_read_staging_sha(),
+        staging_paused=_read_paused(),
+        tags=tags,
+        releases=_read_releases(),
+        release_pr=None,
+        commits={commit: _read_commit_facts(commit)} if commit else {},
     )
 
 
@@ -355,11 +530,29 @@ def run_status(reader: Callable[[], Snapshot], out: TextIO, err: TextIO) -> int:
     return 0
 
 
-def main(argv: list[str]) -> int:
-    if argv != ["status"]:
-        sys.stderr.write("usage: delivery_state.py status\n")
+def run_guard(
+    reader: Callable[[str], Snapshot], version: str, out: TextIO, err: TextIO
+) -> int:
+    """Exit 0 when the version may be promoted, 1 when refused, 2 when unknown."""
+    try:
+        snapshot = reader(version)
+    except FactUnreadable as error:
+        err.write(
+            f"promote cannot be decided: could not read {error.fact} ({error.detail})\n"
+        )
         return 2
-    return run_status(read_snapshot, sys.stdout, sys.stderr)
+    verdict = promote_guard(snapshot, version)
+    out.write(verdict.render())
+    return 0 if verdict.accepted else 1
+
+
+def main(argv: list[str]) -> int:
+    if argv == ["status"]:
+        return run_status(read_snapshot, sys.stdout, sys.stderr)
+    if len(argv) == 2 and argv[0] == "guard":
+        return run_guard(read_guard_snapshot, argv[1], sys.stdout, sys.stderr)
+    sys.stderr.write("usage: delivery_state.py status | guard <version>\n")
+    return 2
 
 
 if __name__ == "__main__":

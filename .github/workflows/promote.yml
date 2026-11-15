@@ -1,0 +1,161 @@
+name: Promote
+
+# The captain's release action. Dispatch it from main with a version number.
+# The promote guard decides whether the version may go to production. The rules
+# live in scripts/delivery_state.py and this file only runs them. Running it
+# for the version already in production is harmless, and running it with an
+# earlier version is how production is rolled back (code only; migrations are
+# forward-only).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to put in production, for example v0.3.0
+        required: true
+        type: string
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Promote guard
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+      deployments: read
+    outputs:
+      tag: ${{ steps.guard.outputs.tag }}
+      commit: ${{ steps.guard.outputs.commit }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # Passed in because a workflow token cannot read repository variables.
+      STAGING_DEPLOY_PAUSED: ${{ vars.STAGING_DEPLOY_PAUSED }}
+      REQUESTED_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Ask the promote guard
+        id: guard
+        shell: bash
+        run: |
+          set -uo pipefail
+          status=0
+          python3 scripts/delivery_state.py guard "$REQUESTED_VERSION" \
+            >guard.out 2>guard.err || status=$?
+          {
+            echo "## Promote ${REQUESTED_VERSION}"
+            echo
+            echo '```'
+            cat guard.out guard.err
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat guard.out guard.err
+          if [[ "$status" -ne 0 ]]; then
+            exit "$status"
+          fi
+          read -r _ tag _ commit < guard.out
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy ${{ needs.guard.outputs.tag }} to production
+    needs: guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    environment:
+      name: prod
+      url: ${{ vars.PROD_WORKER_URL }}
+    env:
+      CI: "true"
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TAG: ${{ needs.guard.outputs.tag }}
+      COMMIT: ${{ needs.guard.outputs.commit }}
+    steps:
+      # The exact commit the guard accepted, never the head of main.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.guard.outputs.commit }}
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.3"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install Python dependencies
+        run: uv sync --group dev --locked
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Build frontend assets
+        run: npm run build
+      - name: Apply D1 migrations (remote)
+        run: uv run python -m pywrangler d1 migrations apply next-is-you-production --remote --config wrangler.production.jsonc
+      - name: Deploy Worker
+        run: uv run python -m pywrangler deploy --config wrangler.production.jsonc --keep-vars
+      # Runs only when every step above succeeded, so a failed deployment
+      # publishes no Release. Keyed on the Release being absent or a draft, not
+      # on the tag: a version with a published Release (v0.2.0, v0.2.1, or one
+      # promoted before) is left exactly as it is.
+      - name: Publish the GitHub Release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The listing is used because a lookup by tag does not return drafts.
+          found="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"${TAG}\") | .draft")"
+          state=absent
+          if [[ "$found" == *true* ]]; then
+            state=draft
+          elif [[ "$found" == *false* ]]; then
+            state=published
+          fi
+          case "$state" in
+            published)
+              echo "The Release for $TAG is already published."
+              ;;
+            draft)
+              # Release Please wrote this draft's notes from the changelog.
+              gh release edit "$TAG" --draft=false
+              ;;
+            absent)
+              # Not expected for a version cut by Release Please. Take the notes
+              # from the changelog section of the deployed commit.
+              number="${TAG#v}"
+              awk -v n="$number" '
+                /^## / { if (found) exit; found = index($0, "[" n "]") > 0; next }
+                found { print }
+              ' CHANGELOG.md > release-notes.md
+              if [[ ! -s release-notes.md ]]; then
+                echo "No changelog section for $number." >&2
+                exit 1
+              fi
+              gh release create "$TAG" --verify-tag --title "$TAG" --notes-file release-notes.md
+              ;;
+          esac
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+      - name: Record deployment summary
+        if: always()
+        env:
+          RELEASE_STATE: ${{ steps.release.outputs.state }}
+        run: |
+          {
+            echo "### Production promotion: ${TAG}"
+            echo ""
+            echo "- Commit: ${COMMIT}"
+            echo "- Worker: next-is-you-held"
+            echo "- D1 database: next-is-you-production"
+            echo "- Status: ${{ job.status }}"
+            echo "- URL: ${{ vars.PROD_WORKER_URL }}"
+            echo "- GitHub Release: ${RELEASE_STATE:-not published}"
+          } >> "$GITHUB_STEP_SUMMARY"

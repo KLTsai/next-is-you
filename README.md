@@ -93,7 +93,7 @@ To stop or hold:
 
 - **Stop a reminder**: in the UI, open the active reminder and confirm **停止提醒**. A notification already in flight may settle before Stop confirms. See the [stop and recovery notes in the HTTPS service doc](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback).
 - **Hold the whole service** (when the system is misbehaving): the owner, signed in, sets recovery hold through the authorized status API. The exact console snippet lives in the [HTTPS service stop and recovery section](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback). Recovery hold survives Worker restarts and must be set before any restore or code rollback.
-- **Rollback the deployment**: redeploy the last known-good candidate tag through **Promote candidate to production**, as described in the [release and rollback rules](docs/CI-CD.md#release-and-rollback-rules). If no candidate tag is usable, fall back to the native Wrangler procedure in the [stop, failure recovery and rollback section](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback). Either way, only roll back to a version compatible with the current schema and preserved SQLite class; rollback never reverses a D1 migration, and this README deliberately does not restate the exact commands.
+- **Rollback the deployment**: the captain runs **Promote** with an earlier version number, as described in the [release and rollback rules](docs/CI-CD.md#release-and-rollback-rules). If Promote itself is unusable, fall back to the native Wrangler procedure in the [stop, failure recovery and rollback section](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback). Either way, only roll back to a version compatible with the current schema and preserved SQLite class; rollback never reverses a D1 migration, and this README deliberately does not restate the exact commands.
 
 First-time deployment (secrets, Login channel registration, provisioning) is a separate owner setup; see [docs/HTTPS-SERVICE.md](docs/HTTPS-SERVICE.md).
 
@@ -141,9 +141,7 @@ git diff --check
 
 These are fixture/mock and local automated evidence; they do not contact a live hospital or LINE, deploy, or prove handset delivery. See the [CI workflow](.github/workflows/ci.yml): each pull request push or push to `main` is one run with seven named gates (formatting and lint, type check, frontend tests, build, migration check, backend and browser tests, diff hygiene) and a summary of each outcome; on `main`, Release Please follows the gates. Tag pushes start no run. [docs/CI-CD.md](docs/CI-CD.md#one-change-one-run) describes it.
 
-To see where delivery stands, run `npm run status` (needs `gh` signed in and `uv`; read-only). It prints the commit on `main` and whether its checks passed, the commit staging is showing and whether it equals `main`, the version in production (the latest published Release), the next proposed version with its release PR and change count, any version that is tagged but not yet a Release, and exactly one next step. If a fact cannot be read it names that fact on stderr and exits non-zero rather than printing a partial report. The rules live in `scripts/delivery_state.py` as a pure function over a snapshot of facts, tested from recorded snapshots by `tests/test_delivery_state.py` in the pytest gate above.
-
-Separately, `npm run check:release` answers one question: does the current version have a tag? Release Please needs that tag to know where the next changelog starts, and only promotion creates it, so a release PR merged and left unpromoted stalls versioning silently. This is deliberately **not** part of the CI gates above: the moments right after merging a release PR and before promoting it are a normal, expected state, so failing CI there would cry wolf on every release. Run it when you want to know whether a release is still open. [docs/CI-CD.md](docs/CI-CD.md) explains the stall.
+To see where delivery stands, run `npm run status` (needs `gh` signed in and `uv`; read-only). It prints the commit on `main` and whether its checks passed, the commit staging is showing and whether it equals `main`, the version in production (the latest published Release), the next proposed version with its release PR and change count, any version that is tagged but not yet a Release, and exactly one next step. If a fact cannot be read it names that fact on stderr and exits non-zero rather than printing a partial report. The rules live in `scripts/delivery_state.py` as a pure function over a snapshot of facts, tested from recorded snapshots by `tests/test_delivery_state.py` in the pytest gate above. The same module holds the promote guard: `uv run python scripts/delivery_state.py guard <version>` prints `Accepted` or one refusal reason with the action that clears it, which is exactly what the Promote workflow runs.
 
 Linked procedures:
 
@@ -152,7 +150,7 @@ Linked procedures:
 - [Pre-live checklist](docs/PRE-LIVE-CHECKLIST.md)
 - [Local manual checklist](docs/NIY-020-LOCAL-MANUAL-CHECKLIST.md)
 - [HTTPS service preparation](docs/HTTPS-SERVICE.md)
-- [CI, candidate deployment and release pipeline](docs/CI-CD.md)
+- [CI, staging, Promote and release pipeline](docs/CI-CD.md)
 - [Deployed secrets inventory](docs/SECRETS.md)
 - [Research index](research/README.md), including the [NIY-021 findings summary](research/NIY-021-findings-summary.md)
 - [Issue-tracker conventions](docs/agents/issue-tracker.md); historical records are [archived](docs/archive/tickets/README.md)

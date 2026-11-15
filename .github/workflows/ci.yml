@@ -1,39 +1,112 @@
 name: CI
 
+# One change is one run. Pull request pushes and pushes to main each start one
+# run; tag pushes start none, because `branches` filters them out. Each gate is
+# its own job so a red run names the gate that failed and the others still
+# report their own result.
 on:
   push:
+    branches:
+      - main
   pull_request:
 
 permissions:
   contents: read
 
 jobs:
-  deterministic-gates:
+  format-lint:
+    name: Formatting and lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: "0.12.3"
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
+      - run: uv sync --group dev --locked
+      - run: uv run ruff format --check src tests
+      - run: uv run ruff check src tests
+
+  typecheck:
+    name: Type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
-      - run: uv sync --group dev --locked
       - run: npm ci
-      - run: uv run ruff format --check src tests
-      - run: uv run ruff check src tests
       - run: npm run typecheck
+
+  frontend-tests:
+    name: Frontend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
       - run: npm run test:ui
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+  migrations:
+    name: Migration check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.3"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: uv sync --group dev --locked
+      - run: uv run python scripts/check_migrations.py
+
+  backend-browser-tests:
+    name: Backend and browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.3"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: uv sync --group dev --locked
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
       - run: npm run build
       - run: uv run playwright install --with-deps chromium
-      - run: uv run python scripts/check_migrations.py
       - run: uv run pytest -q
+
+  diff-hygiene:
+    name: Diff hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Check pushed or pull request diff whitespace
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
@@ -43,3 +116,55 @@ jobs:
           PUSH_AFTER_SHA: ${{ github.event.after }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: bash scripts/check_ci_diff.sh
+
+  summary:
+    name: Summary
+    if: ${{ always() }}
+    needs:
+      - format-lint
+      - typecheck
+      - frontend-tests
+      - build
+      - migrations
+      - backend-browser-tests
+      - diff-hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write the gate summary
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          {
+            echo "## Gates"
+            echo
+            echo "| Gate | Outcome |"
+            echo "| --- | --- |"
+            echo "$NEEDS" | jq -r 'to_entries[] | "| \(.key) | \(.value.result) |"'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if echo "$NEEDS" | jq -e '[.[].result] | all(. == "success")' >/dev/null; then
+            exit 0
+          fi
+          echo "At least one gate did not succeed." >&2
+          exit 1
+
+  release-please:
+    name: Release Please
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs:
+      - format-lint
+      - typecheck
+      - frontend-tests
+      - build
+      - migrations
+      - backend-browser-tests
+      - diff-hygiene
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: googleapis/release-please-action@a02a34c4d625f9be7cb89156071d8567266a2445 # v4.1.3
+        with:
+          config-file: .github/release-please-config.json
+          manifest-file: .github/.release-please-manifest.json
+          skip-github-release: true

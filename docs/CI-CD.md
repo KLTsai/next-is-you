@@ -6,8 +6,7 @@ version is formally offered to users.
 
 | Gate | Trigger | Outcome |
 | --- | --- | --- |
-| CI (`.github/workflows/ci.yml`) | Push and pull request | Build, lint, type, migration, and test evidence for a change. |
-| Release Please (`.github/workflows/release-please.yml`) | Push to `main` | A Release PR with a SemVer version and changelog. It does not tag or publish. |
+| CI (`.github/workflows/ci.yml`) | Pull request push, and push to `main` | One run per change with seven named gates, then on `main` Release Please, which opens a Release PR with a SemVer version and changelog. It does not tag or publish. |
 | Candidate deploy (`.github/workflows/candidate-deploy.yml`) | Manual dispatch | An immutable `candidate-vX.Y.Z-<commit>` tag after that commit deploys to staging. |
 | Promote candidate (`.github/workflows/production-deploy.yml`) | Manual dispatch from a candidate tag | The same commit deploys to production, then receives `vX.Y.Z` and a GitHub Release. |
 
@@ -39,10 +38,36 @@ that check. `npm run check:release` answers which one the repository is in, and
 [A merged release PR must be promoted](#a-merged-release-pr-must-be-promoted)
 covers what a stall looks like and how to clear it.
 
+## One change, one run
+
+`.github/workflows/ci.yml` is the only automatic workflow. A push to a pull
+request branch starts exactly one run, a push to `main` starts exactly one run,
+and a tag push starts none. A branch without a pull request has no run until one
+is opened, because running on both branch pushes and pull requests is what made
+every pull request push appear twice.
+
+Each check is its own job, so a red run names the gate that failed and the other
+gates still report their own result:
+
+| Gate | What it runs |
+| --- | --- |
+| Formatting and lint | `ruff format --check` and `ruff check` |
+| Type check | `npm run typecheck` |
+| Frontend tests | `npm run test:ui` |
+| Build | `npm run build` |
+| Migration check | `scripts/check_migrations.py` |
+| Backend and browser tests | `npm run build`, Playwright Chromium, then `pytest -q` |
+| Diff hygiene | `scripts/check_ci_diff.sh` |
+
+After the gates, a Summary job lists each gate and its outcome on the run page,
+and fails the run if any gate did not succeed. On `main` only, the Release
+Please job runs after every gate has passed, so a red gate also holds back the
+release proposal. Release behavior itself is unchanged.
+
 ## Everyday flow
 
 1. Work on a short-lived branch and merge a reviewed, green PR to `main`.
-2. Release Please opens or updates `chore(main): release X.Y.Z`. It updates
+2. Release Please, the last job of the run on `main`, opens or updates `chore(main): release X.Y.Z`. It updates
    `package.json`, `CHANGELOG.md`, and the release manifest, but does not create
    a tag or GitHub Release.
 3. Review and merge that Release PR. Its merge commit is the version candidate.

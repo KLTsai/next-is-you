@@ -7,6 +7,7 @@ version is formally offered to users.
 | Gate | Trigger | Outcome |
 | --- | --- | --- |
 | CI (`.github/workflows/ci.yml`) | Pull request push, and push to `main` | One run per change with seven named gates, then on `main` Release Please, which opens a Release PR with a SemVer version and changelog. Merging that PR tags the merge commit `vX.Y.Z` and leaves a draft GitHub Release, which is not published. |
+| Deploy staging (job in `ci.yml`) | Push to `main`, after every gate | Deploys that exact commit to staging and records a GitHub deployment. Skipped for documentation-only pushes and while paused. |
 | Candidate deploy (`.github/workflows/candidate-deploy.yml`) | Manual dispatch | An immutable `candidate-vX.Y.Z-<commit>` tag after that commit deploys to staging. |
 | Promote candidate (`.github/workflows/production-deploy.yml`) | Manual dispatch from a candidate tag | The same commit deploys to production, then receives `vX.Y.Z` and a GitHub Release. |
 
@@ -63,6 +64,49 @@ After the gates, a Summary job lists each gate and its outcome on the run page,
 and fails the run if any gate did not succeed. On `main` only, the Release
 Please job runs after every gate has passed, so a red gate also holds back the
 release proposal. Release behavior itself is unchanged.
+
+## Staging follows main
+
+On a push to `main`, the same run deploys that commit to staging once every gate
+has passed. The `Deploy staging` job needs all seven gates and the `Staging
+scope` job, and it deploys `github.sha`, the pushed commit, never the branch
+head. Re-running an earlier run therefore returns staging to that earlier
+commit. The job reuses the candidate deployment's steps: build, apply the
+staging D1 migrations, then `pywrangler deploy --config wrangler.staging.jsonc
+--keep-vars`. It uses the `staging` environment, so GitHub records a deployment
+for that commit; that record, not any tag, is the source of truth for what
+staging is showing. The job summary also names the commit.
+
+Staging is unchanged in what it may do: its configuration still holds sends, has
+no LINE access token, and reads no hospital data (see
+[Evidence boundaries](#evidence-boundaries)).
+
+Skips are decided on the `Deploy staging` job, not by path filters, so a skipped
+deployment still leaves a successful run:
+
+| Situation | Staging job | Run | What to do |
+| --- | --- | --- | --- |
+| Product-changing push, gates green | Runs and succeeds | Success | Nothing. The staging deployment names the commit. |
+| Waiting behind another staging deployment | Pending | In progress | Nothing. Deployments run one at a time and share the `staging-deploy` group with the manual candidate deploy. GitHub keeps only the newest waiting run, so an older waiting one is cancelled and staging ends on the latest commit. |
+| A gate fails | Skipped | Failed, naming the gate | Fix the gate. Staging keeps its previous commit. |
+| Documentation-only push (every changed file is `*.md`) | Skipped | Success | Nothing. Staging keeps its commit. An unknown range, such as a forced push, counts as not documentation-only. |
+| Repository variable `STAGING_DEPLOY_PAUSED` is `true` | Skipped | Success | Gates still run. Clear the variable, then push or re-run the run of the commit you want. |
+| Staging migration or deploy step fails | Failed | Failed | See below. |
+
+Pausing and resuming: set `STAGING_DEPLOY_PAUSED` to `true` in **Settings ->
+Secrets and variables -> Actions -> Variables** to pause, and delete it or set
+anything else to resume. The variable is read when the job is evaluated, so
+resume takes effect on the next push or re-run, not retroactively.
+
+Recovery from a failed staging migration: migrations are forward-only and D1
+applies each migration file atomically, so a failure leaves the database at the
+last migration that fully applied and the Worker still on its previous code. Read
+the failing step in the run, then either fix forward with a new commit, which
+deploys automatically once its gates pass, or correct the cause outside the
+repository (for example the Cloudflare token) and re-run only the failed job.
+Do not edit an applied migration. If staging has to be held while you
+investigate, pause it first. Staging holds no real data, so a database that
+cannot be repaired can be recreated and the migrations re-applied.
 
 ## Everyday flow
 

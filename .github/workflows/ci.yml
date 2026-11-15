@@ -147,6 +147,94 @@ jobs:
           echo "At least one gate did not succeed." >&2
           exit 1
 
+  staging-scope:
+    name: Staging scope
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Decide whether the push changed only documentation
+        id: scope
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: echo "docs_only=$(bash scripts/docs_only_push.sh)" >> "$GITHUB_OUTPUT"
+
+  deploy-staging:
+    name: Deploy staging
+    # Skips are decided here, at job level, so a skipped deployment still leaves
+    # a successful run. A failed gate skips this job too, because it needs them.
+    # Pause with the repository variable STAGING_DEPLOY_PAUSED set to "true".
+    if: >-
+      ${{ github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
+      && needs.staging-scope.outputs.docs_only != 'true'
+      && vars.STAGING_DEPLOY_PAUSED != 'true' }}
+    needs:
+      - format-lint
+      - typecheck
+      - frontend-tests
+      - build
+      - migrations
+      - backend-browser-tests
+      - diff-hygiene
+      - staging-scope
+    runs-on: ubuntu-latest
+    # Shared with the manual candidate deployment so the two never overlap.
+    # Waiting runs queue instead of cancelling the deployment in progress.
+    concurrency:
+      group: staging-deploy
+      cancel-in-progress: false
+    environment:
+      name: staging
+      url: ${{ vars.STAGING_WORKER_URL }}
+    env:
+      CI: "true"
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      # github.sha is the pushed commit, so a re-run of an earlier run deploys
+      # that earlier commit, never the current branch head.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.3"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install Python dependencies
+        run: uv sync --group dev --locked
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Build frontend assets
+        run: npm run build
+      - name: Apply D1 migrations (staging)
+        run: uv run python -m pywrangler d1 migrations apply next-is-you-staging --remote --config wrangler.staging.jsonc
+      - name: Deploy Worker (staging)
+        run: uv run python -m pywrangler deploy --config wrangler.staging.jsonc --keep-vars
+      - name: Record deployment summary
+        if: always()
+        run: |
+          {
+            echo "### Staging deployment"
+            echo ""
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- Worker: next-is-you-staging"
+            echo "- D1 database: next-is-you-staging"
+            echo "- Status: ${{ job.status }}"
+            echo "- URL: ${{ vars.STAGING_WORKER_URL }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   release-please:
     name: Release Please
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}

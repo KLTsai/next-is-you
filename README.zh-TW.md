@@ -143,7 +143,7 @@ git diff --check
 
 交付流程依 [docs/CI-CD.md](docs/CI-CD.md)：push 到 `main` 且全部 gate 通過後，staging 會自動部署；合併 release PR 會讓該 commit 成為帶有 `vX.Y.Z` tag 的版本；captain 以版本號執行 **Promote**，將它部署到 production 並發布其 Release。僅文件的 push 不會動到 staging，把 repository variable `STAGING_DEPLOY_PAUSED` 設為 `true` 可暫停自動部署 staging。只有 captain 會合併 release PR 與執行 Promote。
 
-想知道交付現況，執行 `npm run status`（需要已登入的 `gh` 與 `uv`；唯讀）。它會印出 `main` 上的 commit 與其檢查是否通過、staging 目前顯示的 commit 與是否等於 `main`、production 的版本（最新已發布的 Release）、下一個提議版本與其 release PR 和變更數量、已打 tag 但尚未成為 Release 的版本，以及剛好一個下一步。若有任何事實讀不到，它會在 stderr 指名該事實並以非零狀態結束，不會印出看似完整的部分報告。規則寫在 `scripts/delivery_state.py`，是針對事實快照的純函式，由 `tests/test_delivery_state.py` 以錄製的快照在上面的 pytest gate 中測試。同一個模組也包含 promote guard：`uv run python scripts/delivery_state.py guard <version>` 會印出 `Accepted` 或一個拒絕原因與排除它的動作，Promote workflow 執行的正是這條命令。
+想知道交付現況，執行 `npm run status`（需要已登入的 `gh` 與 `uv`；唯讀）。它會印出 `main` 上的 commit 與其檢查是否通過、staging 目前顯示的 commit 與是否等於 `main`、production 的版本（最新一次成功的 Promote run 所部署的版本，所以 rollback 後也正確）、下一個提議版本與其 release PR 和變更數量、已打 tag 但尚未成為 Release 的版本，以及剛好一個下一步。若有任何事實讀不到，它會在 stderr 指名該事實並以非零狀態結束，不會印出看似完整的部分報告。規則寫在 `scripts/delivery_state.py`，是針對事實快照的純函式，由 `tests/test_delivery_state.py` 以錄製的快照在上面的 pytest gate 中測試。同一個模組也包含 promote guard：`uv run python scripts/delivery_state.py guard <version>` 會印出 `Accepted` 或一個拒絕原因與排除它的動作，Promote workflow 執行的正是這條命令。
 
 相關文件：
 

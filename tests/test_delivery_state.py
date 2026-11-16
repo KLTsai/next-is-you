@@ -385,7 +385,7 @@ def test_production_is_the_promoted_version_after_a_rollback():
     assert "tagged" not in out
 
 
-def test_latest_production_deployment_sha_is_read(monkeypatch):
+def test_latest_deployment_sha_is_read_for_the_environment(monkeypatch):
     seen = []
 
     def fake(fact, endpoint):
@@ -395,7 +395,7 @@ def test_latest_production_deployment_sha_is_read(monkeypatch):
         return [{"id": 1, "sha": "aaa"}]
 
     monkeypatch.setattr(delivery_state, "_gh_json", fake)
-    assert delivery_state._read_production_sha() == "aaa"
+    assert delivery_state._latest_deployment_sha("production", "prod") == "aaa"
     assert "environment=prod&" in seen[0]
 
 
@@ -443,3 +443,49 @@ def test_staging_gap_docs_only_reads_both_sides_of_a_rename(
         lambda fact, endpoint: {"status": "ahead", "files": files},
     )
     assert delivery_state._read_staging_gap_docs_only("s", "m") is expected
+
+
+# Production after a rollback. The deployment record GitHub keeps for the prod
+# environment names the commit Promote was dispatched from (the head of main),
+# not the commit it deployed, so production must be read from the Promote run.
+V022 = "5c9f7471cf4fd3d83cb9fb11c88505b3e6380dc0"
+V023 = "d52eef8d68409365adf24f154e0cd2cc454794c3"
+TAGS = {"v0.2.2": V022, "v0.2.3": V023}
+
+
+def fake_production(monkeypatch, *, promote_runs, deploy_job_names, deployment_sha):
+    def fake_gh(fact, endpoint):
+        if "workflows/promote.yml/runs" in endpoint:
+            return {"workflow_runs": [{"id": run} for run in promote_runs]}
+        if endpoint.endswith("/jobs"):
+            return {"jobs": [{"name": name} for name in deploy_job_names]}
+        if "deployments?environment=prod" in endpoint:
+            return [{"id": 1, "sha": deployment_sha}]
+        if endpoint.endswith("/deployments/1/statuses"):
+            return [{"state": "success"}]
+        raise AssertionError(f"unexpected endpoint {endpoint}")
+
+    monkeypatch.setattr(delivery_state, "_gh_json", fake_gh)
+
+
+def test_production_is_the_version_the_last_promote_deployed(monkeypatch):
+    # v0.2.3 was promoted, then v0.2.2 was promoted as a rollback. Both Promote
+    # runs were dispatched from main, so the deployment record says v0.2.3.
+    fake_production(
+        monkeypatch,
+        promote_runs=[2, 1],
+        deploy_job_names=[
+            "Promote guard",
+            "Require main",
+            "Deploy v0.2.2 to production",
+        ],
+        deployment_sha=V023,
+    )
+    assert delivery_state._read_production_sha(TAGS) == V022
+
+
+def test_production_falls_back_to_the_deployment_before_any_promote(monkeypatch):
+    fake_production(
+        monkeypatch, promote_runs=[], deploy_job_names=[], deployment_sha=V022
+    )
+    assert delivery_state._read_production_sha(TAGS) == V022

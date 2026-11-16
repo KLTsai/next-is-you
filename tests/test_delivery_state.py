@@ -777,12 +777,13 @@ def test_an_unexpected_head_of_main_stops_staging_order(monkeypatch):
     assert "deploy=" not in out.getvalue()
 
 
-def ci_jobs() -> dict[str, tuple[str, list[str]]]:
-    """Each job in ci.yml as id -> (display name, the job ids it needs).
+def workflow_jobs(path: Path) -> dict[str, tuple[str, list[str]]]:
+    """Each job in a workflow file as id -> (check name, the job ids it needs).
 
-    Read as text: the project has no YAML parser.
+    Read as text: the project has no YAML parser. A job without a `name` goes
+    by its id, which is what GitHub calls its check.
     """
-    body = (ROOT / ".github/workflows/ci.yml").read_text().split("\njobs:\n", 1)[1]
+    body = path.read_text().split("\njobs:\n", 1)[1]
     jobs = {}
     for block in re.split(r"(?m)^(?=  [\w-]+:\n)", body):
         job = re.match(r"  ([\w-]+):\n", block)
@@ -791,10 +792,15 @@ def ci_jobs() -> dict[str, tuple[str, list[str]]]:
         name = re.search(r"(?m)^    name: (.+)$", block)
         needs = re.search(r"(?m)^    needs:\n((?:      - .+\n)+)", block)
         jobs[job[1]] = (
-            name[1] if name else job[1],
+            # Quotes and a trailing comment are YAML, not part of the name.
+            re.sub(r"\s+#.*$", "", name[1]).strip("\"'") if name else job[1],
             re.findall(r"      - (.+)", needs[1]) if needs else [],
         )
     return jobs
+
+
+def ci_jobs() -> dict[str, tuple[str, list[str]]]:
+    return workflow_jobs(ROOT / ".github/workflows/ci.yml")
 
 
 def test_the_gate_names_are_the_jobs_the_workflow_gates_on():
@@ -810,6 +816,48 @@ def test_the_gate_names_are_the_jobs_the_workflow_gates_on():
 def test_nothing_deploys_or_releases_without_every_gate(job):
     jobs = ci_jobs()
     assert set(jobs["summary"][1]) <= set(jobs[job][1])
+
+
+def jobs_carrying_a_gate_name(workflows: Path) -> dict[str, list[str]]:
+    """Each gate name -> every job, in any workflow file, whose check has it."""
+    holders: dict[str, list[str]] = {gate: [] for gate in delivery_state.GATES}
+    for path in sorted([*workflows.glob("*.yml"), *workflows.glob("*.yaml")]):
+        jobs = workflow_jobs(path)
+        assert jobs, f"no jobs could be read from {path.name}"
+        for job, (name, _) in jobs.items():
+            if name in holders:
+                holders[name].append(f"{path.name}: {job}")
+    return holders
+
+
+def test_each_gate_name_belongs_to_one_job_across_the_workflows():
+    # A check is matched to a gate by its name alone, and the newest check of
+    # a name wins. A second job carrying a gate's name, in any workflow, would
+    # be read as that gate: a green one finishing later hides the failed gate.
+    jobs = ci_jobs()
+    assert jobs_carrying_a_gate_name(ROOT / ".github/workflows") == {
+        jobs[job][0]: [f"ci.yml: {job}"] for job in jobs["summary"][1]
+    }
+
+
+@pytest.mark.parametrize(
+    ("file", "job", "holder"),
+    [
+        ("docs.yml", "  site:\n    name: Build\n", "docs.yml: site"),
+        ("docs.yml", "  Build:\n    runs-on: ubuntu-latest\n", "docs.yml: Build"),
+        ("promote.yml", "  again:\n    name: Build\n", "promote.yml: again"),
+        ("ci.yml", '  again:\n    name: "Build"  # twice\n', "ci.yml: again"),
+    ],
+    ids=["another workflow", "a job id", "the Promote workflow", "CI itself, quoted"],
+)
+def test_a_second_job_carrying_a_gate_name_is_found(tmp_path, file, job, holder):
+    workflows = tmp_path / "workflows"
+    shutil.copytree(ROOT / ".github/workflows", workflows)
+    target = workflows / file
+    text = target.read_text() if target.exists() else "name: Docs\non: push\n\njobs:\n"
+    target.write_text(text + job)
+    found = jobs_carrying_a_gate_name(workflows)["Build"]
+    assert sorted(found) == sorted(["ci.yml: build", holder])
 
 
 def run_gate_summary(tmp_path, results: dict[str, str]) -> tuple[int, str]:

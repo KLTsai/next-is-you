@@ -9,8 +9,12 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -333,7 +337,7 @@ def green_gates():
 
 def fake_checks(monkeypatch, runs):
     monkeypatch.setattr(
-        delivery_state, "_gh_json", lambda fact, endpoint: {"check_runs": runs}
+        delivery_state, "_gh_pages", lambda fact, endpoint: [{"check_runs": runs}]
     )
     return delivery_state._read_checks("checks", "abc")
 
@@ -363,6 +367,36 @@ def test_a_failed_gate_is_named(monkeypatch):
     assert fake_checks(monkeypatch, runs) == ("failure", ("Type check",))
 
 
+@pytest.mark.parametrize(
+    "conclusion",
+    ["skipped", "neutral", "stale", "startup_failure", "cancelled", "timed_out"],
+)
+def test_a_gate_that_finished_without_succeeding_is_not_green(monkeypatch, conclusion):
+    # Green means every gate succeeded, not that none of them is known to fail.
+    # The gate is named with how it ended, so the captain is not sent looking
+    # for a red job that is not there.
+    runs = green_gates()
+    runs[4] = check_run("Migration check", conclusion=conclusion, run_id=14)
+    assert fake_checks(monkeypatch, runs) == (
+        "failure",
+        (f"Migration check: {conclusion}",),
+    )
+
+
+def test_checks_are_read_across_every_page(monkeypatch):
+    gates = green_gates()
+    pages = [{"check_runs": gates[:6]}, {"check_runs": gates[6:]}]
+    seen = []
+
+    def fake_run(fact, args):
+        seen.append(args)
+        return json.dumps(pages)
+
+    monkeypatch.setattr(delivery_state, "_run", fake_run)
+    assert delivery_state._read_checks("checks", "abc") == ("success", ())
+    assert "--paginate" in seen[0]
+
+
 def test_a_missing_or_unfinished_gate_is_pending(monkeypatch):
     assert fake_checks(monkeypatch, green_gates()[:-1]) == ("pending", ())
     runs = green_gates()
@@ -376,6 +410,38 @@ def test_a_rerun_gate_counts_by_its_latest_run(monkeypatch):
         check_run("Build", conclusion="failure", run_id=1),
     ]
     assert fake_checks(monkeypatch, runs) == ("success", ())
+
+
+# The pause variable. ci.yml skips Deploy staging on
+# `vars.STAGING_DEPLOY_PAUSED != 'true'`, and Actions compares strings ignoring
+# letter case and nothing else. Status and the guard must call the same values
+# paused, or they report a pause while staging keeps deploying.
+@pytest.mark.parametrize(
+    ("value", "paused"),
+    [
+        ("true", True),
+        ("TRUE", True),
+        ("True", True),
+        ("", False),
+        ("false", False),
+        ("yes", False),
+        ("1", False),
+        (" true", False),
+        ("true\n", False),
+    ],
+)
+def test_only_the_value_true_pauses_as_in_the_workflow(monkeypatch, value, paused):
+    monkeypatch.setenv("STAGING_DEPLOY_PAUSED", value)
+    assert delivery_state._read_paused() is paused
+
+
+def test_the_workflows_apply_the_pause_rule_the_module_reads():
+    ci = (ROOT / ".github/workflows/ci.yml").read_text()
+    assert ci.count("vars.STAGING_DEPLOY_PAUSED") == 1
+    assert "&& vars.STAGING_DEPLOY_PAUSED != 'true' }}" in ci
+    # Promote hands the guard the raw value, so the module applies the rule.
+    promote = (ROOT / ".github/workflows/promote.yml").read_text()
+    assert "STAGING_DEPLOY_PAUSED: ${{ vars.STAGING_DEPLOY_PAUSED }}\n" in promote
 
 
 def test_production_is_the_promoted_version_after_a_rollback():
@@ -610,6 +676,185 @@ def test_the_workflow_job_name_is_what_the_module_parses():
     rendered = names[0].replace("${{ needs.guard.outputs.tag }}", "v1.2.3")
     assert delivery_state.DEPLOY_JOB_NAME.fullmatch(rendered)["tag"] == "v1.2.3"
     assert f"- name: {delivery_state.DEPLOY_STEP_NAME}\n" in workflow
+
+
+# GitHub answering in a shape the reader does not expect (an error object, a
+# renamed field) is a fact that cannot be read. It is named like any other,
+# never a traceback: a traceback exits 1, which Promote reads as "refused".
+UNEXPECTED_SHAPES = {
+    "main commit": (lambda: delivery_state._read_main(), "{}"),
+    "checks": (
+        lambda: delivery_state._read_checks("checks", "abc"),
+        '[{"message": "Not Found"}]',
+    ),
+    "checks listing": (
+        lambda: delivery_state._read_checks("checks listing", "abc"),
+        "{}",
+    ),
+    "version commit checks": (lambda: delivery_state._read_commit_facts("abc"), "{}"),
+    "staging deployment": (lambda: delivery_state._read_staging_sha(), "[{}]"),
+    "production version": (lambda: delivery_state._read_production_sha({}), "{}"),
+    "version tags": (lambda: delivery_state._read_tags(), "no tab on this line\n"),
+    "published releases": (lambda: delivery_state._read_releases(), "[[{}]]"),
+    "release PR": (lambda: delivery_state._read_release_pr(), "[{}]"),
+}
+
+
+@pytest.mark.parametrize("fact", sorted(UNEXPECTED_SHAPES))
+def test_a_response_in_an_unexpected_shape_names_the_fact(monkeypatch, fact):
+    read, response = UNEXPECTED_SHAPES[fact]
+    monkeypatch.setattr(delivery_state, "_run", lambda fact, args: response)
+    with pytest.raises(delivery_state.FactUnreadable) as error:
+        read()
+    assert error.value.fact == fact
+    assert error.value.detail.startswith("unexpected response: ")
+
+
+def test_a_version_commit_compared_in_an_unexpected_shape_names_the_fact(monkeypatch):
+    def fake_run(fact, args):
+        return '[{"check_runs": []}]' if "check-runs" in args[-1] else "{}"
+
+    monkeypatch.setattr(delivery_state, "_run", fake_run)
+    with pytest.raises(delivery_state.FactUnreadable) as error:
+        delivery_state._read_commit_facts("abc")
+    assert error.value.fact == "version commit"
+
+
+@pytest.mark.parametrize("compare", [{}, {"status": "ahead", "files": [{}]}, []])
+def test_an_unclear_staging_gap_is_not_documentation_only(monkeypatch, compare):
+    # Whether the gap is documentation only is a note on the report, so an
+    # unclear answer says "differs from main" rather than stopping the report.
+    monkeypatch.setattr(delivery_state, "_gh_json", lambda fact, endpoint: compare)
+    assert delivery_state._read_staging_gap_docs_only("s", "m") is False
+
+
+def test_an_unparseable_pause_variable_names_the_fact(monkeypatch):
+    monkeypatch.delenv("STAGING_DEPLOY_PAUSED", raising=False)
+    monkeypatch.setattr(
+        delivery_state.subprocess,
+        "run",
+        lambda *args, **kwargs: delivery_state.subprocess.CompletedProcess(
+            args, 0, stdout="<html>", stderr=""
+        ),
+    )
+    with pytest.raises(delivery_state.FactUnreadable) as error:
+        delivery_state._read_paused()
+    assert error.value.fact == "pause variable STAGING_DEPLOY_PAUSED"
+
+
+def test_an_unexpected_shape_stops_the_guard_as_unknown_not_refused(monkeypatch):
+    monkeypatch.setattr(delivery_state, "_run", lambda fact, args: "{}")
+    out, err = io.StringIO(), io.StringIO()
+    code = delivery_state.run_guard(
+        delivery_state.read_guard_snapshot, "v0.3.0", out, err
+    )
+    assert code == 2
+    assert out.getvalue() == ""
+    assert err.getvalue() == (
+        "promote cannot be decided: could not read main commit "
+        "(unexpected response: KeyError('sha'))\n"
+    )
+
+
+def test_an_unexpected_shape_stops_status_without_a_report(monkeypatch):
+    monkeypatch.setattr(delivery_state, "_run", lambda fact, args: "{}")
+    out, err = io.StringIO(), io.StringIO()
+    code = delivery_state.run_status(delivery_state.read_snapshot, out, err)
+    assert code == 1
+    assert out.getvalue() == ""
+    assert err.getvalue().startswith(
+        "status cannot be reported: could not read main commit ("
+    )
+
+
+def test_an_unexpected_head_of_main_stops_staging_order(monkeypatch):
+    monkeypatch.setenv("AFTER", NEW)
+    monkeypatch.setenv("RUN_ATTEMPT", "1")
+    monkeypatch.setattr(delivery_state, "_run", lambda fact, args: "{}")
+    out, err = io.StringIO(), io.StringIO()
+    assert delivery_state.run_staging_order(out, err) == 1
+    assert "head of main" in err.getvalue()
+    assert "deploy=" not in out.getvalue()
+
+
+def ci_jobs() -> dict[str, tuple[str, list[str]]]:
+    """Each job in ci.yml as id -> (display name, the job ids it needs).
+
+    Read as text: the project has no YAML parser.
+    """
+    body = (ROOT / ".github/workflows/ci.yml").read_text().split("\njobs:\n", 1)[1]
+    jobs = {}
+    for block in re.split(r"(?m)^(?=  [\w-]+:\n)", body):
+        job = re.match(r"  ([\w-]+):\n", block)
+        if not job:
+            continue
+        name = re.search(r"(?m)^    name: (.+)$", block)
+        needs = re.search(r"(?m)^    needs:\n((?:      - .+\n)+)", block)
+        jobs[job[1]] = (
+            name[1] if name else job[1],
+            re.findall(r"      - (.+)", needs[1]) if needs else [],
+        )
+    return jobs
+
+
+def test_the_gate_names_are_the_jobs_the_workflow_gates_on():
+    # A check is matched to a gate by its job's display name. Rename a gate in
+    # ci.yml alone and its check reads as missing: status says "checks still
+    # running" forever and Promote always refuses.
+    jobs = ci_jobs()
+    gate_ids = jobs["summary"][1]
+    assert [jobs[job][0] for job in gate_ids] == list(delivery_state.GATES)
+
+
+@pytest.mark.parametrize("job", ["staging-order", "deploy-staging", "release-please"])
+def test_nothing_deploys_or_releases_without_every_gate(job):
+    jobs = ci_jobs()
+    assert set(jobs["summary"][1]) <= set(jobs[job][1])
+
+
+def run_gate_summary(tmp_path, results: dict[str, str]) -> tuple[int, str]:
+    """Run the Summary job's script as ci.yml has it, on these gate results."""
+    if not shutil.which("jq"):
+        pytest.skip("the Summary job's script needs jq")
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+    step = re.search(
+        r"      - name: Write the gate summary\n(?:.*\n)*?        run: \|\n"
+        r"((?:(?:          .*)?\n)+)",
+        workflow,
+    )
+    summary = tmp_path / "summary.md"
+    needs = {job: {"result": result, "outputs": {}} for job, result in results.items()}
+    done = subprocess.run(
+        ["bash", "-c", textwrap.dedent(step[1])],
+        env={
+            **os.environ,
+            "NEEDS": json.dumps(needs),
+            "GITHUB_STEP_SUMMARY": str(summary),
+        },
+        capture_output=True,
+        text=True,
+    )
+    return done.returncode, summary.read_text()
+
+
+def test_the_run_summary_lists_every_gate_by_its_name(tmp_path):
+    gate_ids = ci_jobs()["summary"][1]
+    code, summary = run_gate_summary(tmp_path, dict.fromkeys(gate_ids, "success"))
+    assert code == 0
+    assert summary == (
+        "## Gates\n\n| Gate | Outcome |\n| --- | --- |\n"
+        + "".join(f"| {name} | success |\n" for name in delivery_state.GATES)
+    )
+
+
+def test_the_run_summary_names_the_gate_that_did_not_succeed(tmp_path):
+    results = dict.fromkeys(ci_jobs()["summary"][1], "success")
+    results["typecheck"] = "failure"
+    results["migrations"] = "skipped"
+    code, summary = run_gate_summary(tmp_path, results)
+    assert code == 1
+    assert "| Type check | failure |\n" in summary
+    assert "| Migration check | skipped |\n" in summary
 
 
 # Staging after two pushes in quick succession. Each push's Deploy staging waits

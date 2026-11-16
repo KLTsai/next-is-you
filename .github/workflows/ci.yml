@@ -139,7 +139,20 @@ jobs:
             echo
             echo "| Gate | Outcome |"
             echo "| --- | --- |"
-            echo "$NEEDS" | jq -r 'to_entries[] | "| \(.key) | \(.value.result) |"'
+            # Rows carry each gate's display name, as the checks list does.
+            # tests/test_delivery_state.py runs this script and fails if a
+            # name here stops matching its job.
+            echo "$NEEDS" | jq -r '
+              {
+                "format-lint": "Formatting and lint",
+                "typecheck": "Type check",
+                "frontend-tests": "Frontend tests",
+                "build": "Build",
+                "migrations": "Migration check",
+                "backend-browser-tests": "Backend and browser tests",
+                "diff-hygiene": "Diff hygiene"
+              } as $names
+              | to_entries[] | "| \($names[.key] // .key) | \(.value.result) |"'
           } >> "$GITHUB_STEP_SUMMARY"
           if echo "$NEEDS" | jq -e '[.[].result] | all(. == "success")' >/dev/null; then
             exit 0

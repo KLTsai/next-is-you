@@ -16,11 +16,12 @@ import os
 import re
 import subprocess
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Callable, TextIO
+from typing import Callable, Iterator, TextIO
 
-# Repository variable that pauses automatic staging deployment. Absent means
-# not paused.
+# Repository variable that pauses automatic staging deployment when its value
+# is "true" (see pauses_staging). Absent means not paused.
 PAUSE_VARIABLE = "STAGING_DEPLOY_PAUSED"
 
 VERSION_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
@@ -359,49 +360,88 @@ def _run(fact: str, args: list[str]) -> str:
     return result.stdout
 
 
-def _gh_json(fact: str, endpoint: str):
-    out = _run(fact, ["gh", "api", endpoint])
+# What indexing into a response raises when it is not in the expected shape.
+_SHAPE_ERRORS = (KeyError, IndexError, TypeError, ValueError, AttributeError)
+
+
+@contextmanager
+def _reading(fact: str) -> Iterator[None]:
+    """Name the fact when a response is not in the shape its reader expects.
+
+    GitHub answering with an error object or a renamed field would otherwise
+    surface as a traceback, and a traceback exits 1, which reads as "refused".
+    Use as a decorator when a reader has one fact, as a block otherwise.
+    """
+    try:
+        yield
+    except _SHAPE_ERRORS as error:
+        raise FactUnreadable(fact, f"unexpected response: {error!r}") from error
+
+
+def _gh(fact: str, args: list[str]):
+    out = _run(fact, ["gh", "api", *args])
     try:
         return json.loads(out)
     except json.JSONDecodeError as error:
         raise FactUnreadable(fact, f"unparseable response: {error}") from error
 
 
+def _gh_json(fact: str, endpoint: str):
+    return _gh(fact, [endpoint])
+
+
+def _gh_pages(fact: str, endpoint: str) -> list:
+    """Every page of a listing, as one JSON value per page."""
+    pages = _gh(fact, ["--paginate", "--slurp", endpoint])
+    if not isinstance(pages, list):
+        raise FactUnreadable(fact, "unexpected response: not a list of pages")
+    return pages
+
+
 def _read_checks(fact: str, sha: str) -> tuple[str, tuple[str, ...]]:
-    runs = _gh_json(
-        fact, f"repos/{{owner}}/{{repo}}/commits/{sha}/check-runs?per_page=100"
-    )["check_runs"]
-    # Only the gates count. Other runs on the same commit (the Promote guard
-    # itself, a staging deployment, Release Please, the Summary) say nothing
-    # about whether the commit is good.
-    latest: dict[str, dict] = {}
-    for run in runs:
-        name = run["name"]
-        if name in GATES and (name not in latest or run["id"] > latest[name]["id"]):
-            latest[name] = run
-    failed = tuple(
-        name
-        for name in GATES
-        if name in latest
-        and latest[name]["status"] == "completed"
-        and latest[name]["conclusion"]
-        in {"failure", "cancelled", "timed_out", "action_required"}
-    )
-    if failed:
-        return "failure", failed
-    if len(latest) < len(GATES) or any(
-        run["status"] != "completed" for run in latest.values()
-    ):
-        return "pending", ()
-    return "success", ()
+    with _reading(fact):
+        pages = _gh_pages(
+            fact, f"repos/{{owner}}/{{repo}}/commits/{sha}/check-runs?per_page=100"
+        )
+        runs = [run for page in pages for run in page["check_runs"]]
+        # Only the gates count. Other runs on the same commit (the Promote guard
+        # itself, a staging deployment, Release Please, the Summary) say nothing
+        # about whether the commit is good.
+        latest: dict[str, dict] = {}
+        for run in runs:
+            name = run["name"]
+            if name in GATES and (name not in latest or run["id"] > latest[name]["id"]):
+                latest[name] = run
+        # Green means every gate succeeded. A gate that finished any other way
+        # (skipped, neutral, cancelled, ...) did not vouch for the commit, and
+        # is named with how it ended because no job of it is red.
+        ended = {
+            name: latest[name]["conclusion"]
+            for name in GATES
+            if name in latest and latest[name]["status"] == "completed"
+        }
+        failed = tuple(
+            name if conclusion == "failure" else f"{name}: {conclusion}"
+            for name, conclusion in ended.items()
+            if conclusion != "success"
+        )
+        if failed:
+            return "failure", failed
+        if len(latest) < len(GATES) or any(
+            run["status"] != "completed" for run in latest.values()
+        ):
+            return "pending", ()
+        return "success", ()
 
 
+@_reading("main commit")
 def _read_main() -> MainState:
     sha = _gh_json("main commit", "repos/{owner}/{repo}/commits/main")["sha"]
     checks, failed = _read_checks("main commit checks", sha)
     return MainState(sha, checks, failed)
 
 
+@_reading("version commit")
 def _read_commit_facts(sha: str) -> CommitFacts:
     fact = "version commit"
     # main is ahead of (or is) a commit that is on main.
@@ -425,15 +465,18 @@ def _read_staging_gap_docs_only(staging_sha: str | None, main_sha: str) -> bool:
     compare = _gh_json(
         fact, f"repos/{{owner}}/{{repo}}/compare/{staging_sha}...{main_sha}"
     )
-    files = compare.get("files", [])
-    if compare["status"] != "ahead" or len(files) >= 300:
+    try:
+        files = compare.get("files", [])
+        if compare["status"] != "ahead" or len(files) >= 300:
+            return False
+        paths = [
+            path
+            for f in files
+            for path in (f["filename"], f.get("previous_filename"))
+            if path
+        ]
+    except _SHAPE_ERRORS:
         return False
-    paths = [
-        path
-        for f in files
-        for path in (f["filename"], f.get("previous_filename"))
-        if path
-    ]
     return is_docs_only(paths)
 
 
@@ -466,24 +509,27 @@ DEPLOY_STEP_NAME = "Deploy Worker"
 
 def _latest_deployment_sha(fact: str, environment: str) -> str | None:
     """The commit of the newest successful deployment to an environment."""
-    deployments = _gh_json(
-        fact,
-        f"repos/{{owner}}/{{repo}}/deployments?environment={environment}&per_page=10",
-    )
-    # Newest first, so the first success is the answer.
-    for deployment in deployments:
-        statuses = _gh_json(
-            fact, f"repos/{{owner}}/{{repo}}/deployments/{deployment['id']}/statuses"
+    with _reading(fact):
+        deployments = _gh_json(
+            fact,
+            f"repos/{{owner}}/{{repo}}/deployments?environment={environment}&per_page=10",
         )
-        if statuses and statuses[0]["state"] == "success":
-            return deployment["sha"]
-    return None
+        # Newest first, so the first success is the answer.
+        for deployment in deployments:
+            statuses = _gh_json(
+                fact,
+                f"repos/{{owner}}/{{repo}}/deployments/{deployment['id']}/statuses",
+            )
+            if statuses and statuses[0]["state"] == "success":
+                return deployment["sha"]
+        return None
 
 
 def _read_staging_sha() -> str | None:
     return _latest_deployment_sha("staging deployment", "staging")
 
 
+@_reading("production version")
 def _read_production_sha(tags: dict[str, str]) -> str | None:
     """The commit in production.
 
@@ -528,8 +574,15 @@ def _read_production_sha(tags: dict[str, str]) -> str | None:
     return _latest_deployment_sha("production deployment", "prod")
 
 
-def _is_truthy(value: str) -> bool:
-    return value.strip().lower() in {"1", "true", "yes"}
+def pauses_staging(value: str) -> bool:
+    """Whether this value of the pause variable pauses staging deployment.
+
+    The rule ci.yml applies with `vars.STAGING_DEPLOY_PAUSED != 'true'`, where
+    Actions compares strings ignoring letter case and nothing else. Saying
+    "paused" for any other value would report a pause while staging deploys.
+    tests/test_delivery_state.py fails if the workflow stops matching.
+    """
+    return value.lower() == "true"
 
 
 def _read_paused() -> bool:
@@ -537,7 +590,7 @@ def _read_paused() -> bool:
     # A workflow cannot read repository variables through the API with its own
     # token, so it passes the variable in through the environment instead.
     if PAUSE_VARIABLE in os.environ:
-        return _is_truthy(os.environ[PAUSE_VARIABLE])
+        return pauses_staging(os.environ[PAUSE_VARIABLE])
     try:
         result = subprocess.run(
             [
@@ -555,9 +608,11 @@ def _read_paused() -> bool:
         if "404" in result.stderr:
             return False
         raise FactUnreadable(fact, result.stderr.strip() or "gh failed")
-    return _is_truthy(json.loads(result.stdout).get("value", ""))
+    with _reading(fact):
+        return pauses_staging(json.loads(result.stdout).get("value", ""))
 
 
+@_reading("version tags")
 def _read_tags() -> dict[str, str]:
     out = _run("version tags", ["git", "ls-remote", "--tags", "origin", "refs/tags/v*"])
     tags: dict[str, str] = {}
@@ -582,25 +637,15 @@ def published_release_tags(listing: list[dict]) -> frozenset[str]:
     )
 
 
+@_reading("published releases")
 def _read_releases() -> frozenset[str]:
-    fact = "published releases"
-    out = _run(
-        fact,
-        [
-            "gh",
-            "api",
-            "--paginate",
-            "--slurp",
-            "repos/{owner}/{repo}/releases?per_page=100",
-        ],
+    pages = _gh_pages(
+        "published releases", "repos/{owner}/{repo}/releases?per_page=100"
     )
-    try:
-        pages = json.loads(out)
-    except json.JSONDecodeError as error:
-        raise FactUnreadable(fact, f"unparseable response: {error}") from error
     return published_release_tags([r for page in pages for r in page])
 
 
+@_reading("release PR")
 def _read_release_pr() -> ReleasePR | None:
     fact = "release PR"
     out = _run(
@@ -722,7 +767,8 @@ def run_staging_order(out: TextIO, err: TextIO) -> int:
     sha = os.environ.get("AFTER", "")
     attempt = int(os.environ.get("RUN_ATTEMPT", "1") or "1")
     try:
-        head = _gh_json("head of main", "repos/{owner}/{repo}/commits/main")["sha"]
+        with _reading("head of main"):
+            head = _gh_json("head of main", "repos/{owner}/{repo}/commits/main")["sha"]
     except FactUnreadable as error:
         err.write(
             "staging order cannot be decided: "

@@ -217,6 +217,13 @@ jobs:
             cat order.out
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      # Reports only. The pause itself is decided by the Deploy staging
+      # condition below; this says so on the run page when the variable holds a
+      # value that was meant to pause and does not ("yes", "1", "true ").
+      - name: Warn about a pause value that does not pause
+        env:
+          STAGING_DEPLOY_PAUSED: ${{ vars.STAGING_DEPLOY_PAUSED }}
+        run: python3 scripts/delivery_state.py pause-warning
 
   deploy-staging:
     name: Deploy staging

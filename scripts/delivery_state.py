@@ -100,6 +100,9 @@ class Snapshot:
     production_sha: str | None = None
     # Facts about the commits of the versions the guard was asked about.
     commits: dict[str, CommitFacts] = field(default_factory=dict)
+    # What the pause variable holds when that is neither true nor false. It
+    # does not pause, and whoever set it most likely believes it does.
+    ignored_pause_value: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> Snapshot:
@@ -107,6 +110,7 @@ class Snapshot:
         return cls(
             staging_gap_docs_only=data.get("staging_gap_docs_only", False),
             production_sha=data.get("production_sha"),
+            ignored_pause_value=data.get("ignored_pause_value"),
             commits={
                 sha: CommitFacts(
                     on_main=facts["on_main"],
@@ -149,6 +153,18 @@ def _short(sha: str) -> str:
 
 def _row(label: str, value: str) -> str:
     return f"{label:<11} {value}"
+
+
+def ignored_pause_text(value: str) -> str:
+    """What to tell the captain about a pause value that does not pause.
+
+    The value is shown as a JSON string so a stray space or line break in it
+    can be seen.
+    """
+    return (
+        f'{PAUSE_VARIABLE} is {json.dumps(value)}: only "true" pauses, '
+        "so staging still deploys"
+    )
 
 
 def build_report(snapshot: Snapshot) -> Report:
@@ -215,6 +231,10 @@ def build_report(snapshot: Snapshot) -> Report:
     ]
     if snapshot.staging_paused:
         lines.append(_row("paused", "automatic staging deployment is paused"))
+    if snapshot.ignored_pause_value is not None:
+        lines.append(
+            _row("not paused", ignored_pause_text(snapshot.ignored_pause_value))
+        )
     for tag in unreleased:
         lines.append(_row("tagged", f"{tag} - tagged, not yet a Release"))
 
@@ -240,6 +260,11 @@ def _next_step(snapshot: Snapshot, pending: list[str], staging_is_main: bool) ->
         return (
             "Automatic staging deployment is paused. "
             "Resume it when you finish checking."
+        )
+    if snapshot.ignored_pause_value is not None:
+        return (
+            f"Set {PAUSE_VARIABLE} to true to pause automatic staging deployment, "
+            "or to false to leave it running."
         )
     # Documentation-only pushes never deploy staging, so a gap made only of
     # them is expected and asks for nothing.
@@ -585,12 +610,23 @@ def pauses_staging(value: str) -> bool:
     return value.lower() == "true"
 
 
-def _read_paused() -> bool:
+def ignored_pause_value(value: str) -> str | None:
+    """The value, when it is set but is neither true nor false.
+
+    Such a value does not pause, and it was most likely typed to pause: "yes",
+    "1", "true" with a stray space. An empty value is an absent variable, which
+    is how a workflow hands over a variable that does not exist.
+    """
+    return value if value and value.lower() not in {"true", "false"} else None
+
+
+def _read_pause_value() -> str:
+    """What the pause variable holds. Empty when it does not exist."""
     fact = f"pause variable {PAUSE_VARIABLE}"
     # A workflow cannot read repository variables through the API with its own
     # token, so it passes the variable in through the environment instead.
     if PAUSE_VARIABLE in os.environ:
-        return pauses_staging(os.environ[PAUSE_VARIABLE])
+        return os.environ[PAUSE_VARIABLE]
     try:
         result = subprocess.run(
             [
@@ -606,10 +642,17 @@ def _read_paused() -> bool:
         raise FactUnreadable(fact, f"cannot run gh: {error}") from error
     if result.returncode != 0:
         if "404" in result.stderr:
-            return False
+            return ""
         raise FactUnreadable(fact, result.stderr.strip() or "gh failed")
     with _reading(fact):
-        return pauses_staging(json.loads(result.stdout).get("value", ""))
+        value = json.loads(result.stdout).get("value", "")
+        if not isinstance(value, str):
+            raise TypeError(f"value is {value!r}, not a string")
+        return value
+
+
+def _read_paused() -> bool:
+    return pauses_staging(_read_pause_value())
 
 
 @_reading("version tags")
@@ -678,11 +721,13 @@ def read_snapshot() -> Snapshot:
     main = _read_main()
     staging_sha = _read_staging_sha()
     tags = _read_tags()
+    pause_value = _read_pause_value()
     return Snapshot(
         main=main,
         staging_sha=staging_sha,
         production_sha=_read_production_sha(tags),
-        staging_paused=_read_paused(),
+        staging_paused=pauses_staging(pause_value),
+        ignored_pause_value=ignored_pause_value(pause_value),
         tags=tags,
         releases=_read_releases(),
         release_pr=_read_release_pr(),
@@ -780,6 +825,28 @@ def run_staging_order(out: TextIO, err: TextIO) -> int:
     return 0
 
 
+def run_pause_warning(out: TextIO) -> int:
+    """Say on the run page that the pause variable holds a value that does not pause.
+
+    Printed as a workflow command, which GitHub shows as a warning on the page
+    of the run, and added to the run summary. It reports and decides nothing:
+    the Deploy staging condition in ci.yml decides, and this always exits 0.
+    """
+    value = ignored_pause_value(os.environ.get(PAUSE_VARIABLE, ""))
+    if value is None:
+        return 0
+    title = "Staging deployment is not paused"
+    text = ignored_pause_text(value)
+    # "%" starts an escape in a workflow command. The value itself cannot break
+    # the line: it is shown as a JSON string.
+    out.write(f"::warning title={title}::{text.replace('%', '%25')}\n")
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as file:
+            file.write(f"### {title}\n\n{text}\n")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if argv == ["status"]:
         return run_status(read_snapshot, sys.stdout, sys.stderr)
@@ -787,13 +854,15 @@ def main(argv: list[str]) -> int:
         return run_guard(read_guard_snapshot, argv[1], sys.stdout, sys.stderr)
     if argv == ["staging-order"]:
         return run_staging_order(sys.stdout, sys.stderr)
+    if argv == ["pause-warning"]:
+        return run_pause_warning(sys.stdout)
     if argv == ["docs-only-push"]:
         before, after = os.environ.get("BEFORE", ""), os.environ.get("AFTER", "")
         sys.stdout.write("true\n" if docs_only_push(before, after) else "false\n")
         return 0
     sys.stderr.write(
         "usage: delivery_state.py status | guard <version> | docs-only-push"
-        " | staging-order\n"
+        " | staging-order | pause-warning\n"
     )
     return 2
 

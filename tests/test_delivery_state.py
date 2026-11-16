@@ -118,6 +118,25 @@ def test_staging_paused_is_reported():
     )
 
 
+def test_a_pause_value_that_does_not_pause_is_reported():
+    # The captain set the variable and believes staging is held. It is not:
+    # only "true" pauses. Without this line the report reads as if the variable
+    # were absent.
+    code, out, _ = run_status("pause_value_does_not_pause")
+    assert code == 0
+    assert out == (
+        "main        abc1234 - checks passed\n"
+        "staging     abc1234 - same as main\n"
+        "production  v0.2.1\n"
+        "next        none - no release PR, nothing releasable\n"
+        'not paused  STAGING_DEPLOY_PAUSED is "yes": only "true" pauses, '
+        "so staging still deploys\n"
+        "\n"
+        "Next step: Set STAGING_DEPLOY_PAUSED to true to pause automatic staging "
+        "deployment, or to false to leave it running.\n"
+    )
+
+
 def test_checks_on_main_red():
     code, out, _ = run_status("main_checks_red")
     assert code == 0
@@ -435,10 +454,120 @@ def test_only_the_value_true_pauses_as_in_the_workflow(monkeypatch, value, pause
     assert delivery_state._read_paused() is paused
 
 
+# A value that is set but neither pauses nor says "do not pause" is most likely
+# a mistake: the captain typed it to pause. An absent variable reaches a
+# workflow as an empty value, which is nobody's mistake.
+@pytest.mark.parametrize(
+    ("value", "ignored"),
+    [
+        ("yes", "yes"),
+        ("1", "1"),
+        (" true", " true"),
+        ("true\n", "true\n"),
+        ("true", None),
+        ("TRUE", None),
+        ("false", None),
+        ("False", None),
+        ("", None),
+    ],
+)
+def test_a_set_value_that_is_neither_true_nor_false_is_ignored(
+    monkeypatch, value, ignored
+):
+    monkeypatch.setenv("STAGING_DEPLOY_PAUSED", value)
+    read = delivery_state._read_pause_value()
+    assert delivery_state.ignored_pause_value(read) == ignored
+
+
+def fake_variable_reply(monkeypatch, *, returncode, stdout="", stderr=""):
+    monkeypatch.delenv("STAGING_DEPLOY_PAUSED", raising=False)
+    monkeypatch.setattr(
+        delivery_state.subprocess,
+        "run",
+        lambda *args, **kwargs: delivery_state.subprocess.CompletedProcess(
+            args, returncode, stdout=stdout, stderr=stderr
+        ),
+    )
+
+
+def test_the_repository_variable_is_read_with_the_value_it_holds(monkeypatch):
+    fake_variable_reply(
+        monkeypatch,
+        returncode=0,
+        stdout='{"name": "STAGING_DEPLOY_PAUSED", "value": "true "}',
+    )
+    assert delivery_state._read_pause_value() == "true "
+    assert delivery_state._read_paused() is False
+
+
+def test_an_absent_repository_variable_holds_no_value(monkeypatch):
+    fake_variable_reply(monkeypatch, returncode=1, stderr="gh: Not Found (HTTP 404)")
+    assert delivery_state._read_pause_value() == ""
+    assert delivery_state._read_paused() is False
+
+
+def run_pause_warning(tmp_path, value: str | None) -> tuple[int, str, str]:
+    """Run the pause warning the way the pipeline run does, on this value.
+
+    Returns the exit code, what the step printed and what it added to the run
+    summary. None is a variable that does not exist.
+    """
+    summary = tmp_path / "summary.md"
+    summary.write_text("")
+    env = {k: v for k, v in os.environ.items() if k != "STAGING_DEPLOY_PAUSED"}
+    if value is not None:
+        env["STAGING_DEPLOY_PAUSED"] = value
+    done = subprocess.run(
+        [sys.executable, "scripts/delivery_state.py", "pause-warning"],
+        cwd=ROOT,
+        env={**env, "GITHUB_STEP_SUMMARY": str(summary)},
+        capture_output=True,
+        text=True,
+    )
+    assert done.stderr == ""
+    return done.returncode, done.stdout, summary.read_text()
+
+
+def test_the_pipeline_run_warns_about_a_pause_value_that_does_not_pause(tmp_path):
+    # GitHub shows a line in this form as a warning on the run page.
+    code, printed, summary = run_pause_warning(tmp_path, "yes")
+    text = (
+        'STAGING_DEPLOY_PAUSED is "yes": only "true" pauses, so staging still deploys'
+    )
+    assert code == 0
+    assert printed == f"::warning title=Staging deployment is not paused::{text}\n"
+    assert summary == f"### Staging deployment is not paused\n\n{text}\n"
+
+
+def test_the_warning_shows_a_stray_line_break_and_stays_one_line(tmp_path):
+    # A line break would end the warning early, and "%" starts an escape in it.
+    code, printed, _ = run_pause_warning(tmp_path, "true\n100%")
+    assert code == 0
+    assert printed == (
+        "::warning title=Staging deployment is not paused::"
+        'STAGING_DEPLOY_PAUSED is "true\\n100%25": only "true" pauses, '
+        "so staging still deploys\n"
+    )
+
+
+@pytest.mark.parametrize("value", ["true", "TRUE", "false", "False", "", None])
+def test_the_pipeline_run_says_nothing_about_a_value_that_is_understood(
+    tmp_path, value
+):
+    assert run_pause_warning(tmp_path, value) == (0, "", "")
+
+
 def test_the_workflows_apply_the_pause_rule_the_module_reads():
     ci = (ROOT / ".github/workflows/ci.yml").read_text()
-    assert ci.count("vars.STAGING_DEPLOY_PAUSED") == 1
+    # ci.yml reads the variable in two places and decides in one: the Deploy
+    # staging condition. The other hands the raw value to the module's warning.
+    assert ci.count("vars.STAGING_DEPLOY_PAUSED") == 2
     assert "&& vars.STAGING_DEPLOY_PAUSED != 'true' }}" in ci
+    assert (
+        "        env:\n"
+        "          STAGING_DEPLOY_PAUSED: ${{ vars.STAGING_DEPLOY_PAUSED }}\n"
+        "        run: python3 scripts/delivery_state.py pause-warning\n"
+    ) in ci
     # Promote hands the guard the raw value, so the module applies the rule.
     promote = (ROOT / ".github/workflows/promote.yml").read_text()
     assert "STAGING_DEPLOY_PAUSED: ${{ vars.STAGING_DEPLOY_PAUSED }}\n" in promote
@@ -777,12 +906,13 @@ def test_an_unexpected_head_of_main_stops_staging_order(monkeypatch):
     assert "deploy=" not in out.getvalue()
 
 
-def ci_jobs() -> dict[str, tuple[str, list[str]]]:
-    """Each job in ci.yml as id -> (display name, the job ids it needs).
+def workflow_jobs(path: Path) -> dict[str, tuple[str, list[str]]]:
+    """Each job in a workflow file as id -> (check name, the job ids it needs).
 
-    Read as text: the project has no YAML parser.
+    Read as text: the project has no YAML parser. A job without a `name` goes
+    by its id, which is what GitHub calls its check.
     """
-    body = (ROOT / ".github/workflows/ci.yml").read_text().split("\njobs:\n", 1)[1]
+    body = path.read_text().split("\njobs:\n", 1)[1]
     jobs = {}
     for block in re.split(r"(?m)^(?=  [\w-]+:\n)", body):
         job = re.match(r"  ([\w-]+):\n", block)
@@ -791,10 +921,15 @@ def ci_jobs() -> dict[str, tuple[str, list[str]]]:
         name = re.search(r"(?m)^    name: (.+)$", block)
         needs = re.search(r"(?m)^    needs:\n((?:      - .+\n)+)", block)
         jobs[job[1]] = (
-            name[1] if name else job[1],
+            # Quotes and a trailing comment are YAML, not part of the name.
+            re.sub(r"\s+#.*$", "", name[1]).strip("\"'") if name else job[1],
             re.findall(r"      - (.+)", needs[1]) if needs else [],
         )
     return jobs
+
+
+def ci_jobs() -> dict[str, tuple[str, list[str]]]:
+    return workflow_jobs(ROOT / ".github/workflows/ci.yml")
 
 
 def test_the_gate_names_are_the_jobs_the_workflow_gates_on():
@@ -810,6 +945,48 @@ def test_the_gate_names_are_the_jobs_the_workflow_gates_on():
 def test_nothing_deploys_or_releases_without_every_gate(job):
     jobs = ci_jobs()
     assert set(jobs["summary"][1]) <= set(jobs[job][1])
+
+
+def jobs_carrying_a_gate_name(workflows: Path) -> dict[str, list[str]]:
+    """Each gate name -> every job, in any workflow file, whose check has it."""
+    holders: dict[str, list[str]] = {gate: [] for gate in delivery_state.GATES}
+    for path in sorted([*workflows.glob("*.yml"), *workflows.glob("*.yaml")]):
+        jobs = workflow_jobs(path)
+        assert jobs, f"no jobs could be read from {path.name}"
+        for job, (name, _) in jobs.items():
+            if name in holders:
+                holders[name].append(f"{path.name}: {job}")
+    return holders
+
+
+def test_each_gate_name_belongs_to_one_job_across_the_workflows():
+    # A check is matched to a gate by its name alone, and the newest check of
+    # a name wins. A second job carrying a gate's name, in any workflow, would
+    # be read as that gate: a green one finishing later hides the failed gate.
+    jobs = ci_jobs()
+    assert jobs_carrying_a_gate_name(ROOT / ".github/workflows") == {
+        jobs[job][0]: [f"ci.yml: {job}"] for job in jobs["summary"][1]
+    }
+
+
+@pytest.mark.parametrize(
+    ("file", "job", "holder"),
+    [
+        ("docs.yml", "  site:\n    name: Build\n", "docs.yml: site"),
+        ("docs.yml", "  Build:\n    runs-on: ubuntu-latest\n", "docs.yml: Build"),
+        ("promote.yml", "  again:\n    name: Build\n", "promote.yml: again"),
+        ("ci.yml", '  again:\n    name: "Build"  # twice\n', "ci.yml: again"),
+    ],
+    ids=["another workflow", "a job id", "the Promote workflow", "CI itself, quoted"],
+)
+def test_a_second_job_carrying_a_gate_name_is_found(tmp_path, file, job, holder):
+    workflows = tmp_path / "workflows"
+    shutil.copytree(ROOT / ".github/workflows", workflows)
+    target = workflows / file
+    text = target.read_text() if target.exists() else "name: Docs\non: push\n\njobs:\n"
+    target.write_text(text + job)
+    found = jobs_carrying_a_gate_name(workflows)["Build"]
+    assert sorted(found) == sorted(["ci.yml: build", holder])
 
 
 def run_gate_summary(tmp_path, results: dict[str, str]) -> tuple[int, str]:

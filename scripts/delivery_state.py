@@ -458,8 +458,10 @@ def docs_only_push(before: str, after: str) -> bool:
     return diff.returncode == 0 and is_docs_only(diff.stdout.splitlines())
 
 
-# The name promote.yml gives its deploy job; the version is the only variable.
+# What promote.yml calls its deploy job and the step that puts the Worker in
+# production. tests/test_delivery_state.py fails if the workflow stops matching.
 DEPLOY_JOB_NAME = re.compile(r"Deploy (?P<tag>\S+) to production")
+DEPLOY_STEP_NAME = "Deploy Worker"
 
 
 def _latest_deployment_sha(fact: str, environment: str) -> str | None:
@@ -488,23 +490,41 @@ def _read_production_sha(tags: dict[str, str]) -> str | None:
     The deployment record GitHub keeps for the prod environment names the commit
     Promote was dispatched from, which is the head of main, not the commit it
     deployed. After a rollback that is the wrong version. So production is the
-    version named by the newest successful Promote run's deploy job. The
-    deployment record is only used before any Promote has run.
+    version named by the Promote run whose Deploy Worker step finished last. A
+    run counts once that step succeeded, even if a later step failed, and runs
+    are ordered by when the step finished, not by when the run was created, so
+    re-running an older run is judged by when it deployed.
+
+    The deployment record is used only when no Promote has deployed at all. A
+    deployment whose version cannot be read is an error, never a guess.
     """
     fact = "production version"
     runs = _gh_json(
         fact,
-        "repos/{owner}/{repo}/actions/workflows/promote.yml/runs"
-        "?status=success&per_page=1",
+        "repos/{owner}/{repo}/actions/workflows/promote.yml/runs?per_page=10",
     )["workflow_runs"]
-    if runs:
+    deployed: list[tuple[str, str]] = []  # (finished, job name)
+    for run in runs:
         jobs = _gh_json(
-            fact, f"repos/{{owner}}/{{repo}}/actions/runs/{runs[0]['id']}/jobs"
+            fact, f"repos/{{owner}}/{{repo}}/actions/runs/{run['id']}/jobs"
         )["jobs"]
         for job in jobs:
-            match = DEPLOY_JOB_NAME.fullmatch(job["name"])
-            if match and match["tag"] in tags:
-                return tags[match["tag"]]
+            for step in job.get("steps", []):
+                if (
+                    step["name"] == DEPLOY_STEP_NAME
+                    and step.get("conclusion") == "success"
+                ):
+                    deployed.append((step.get("completed_at") or "", job["name"]))
+    if deployed:
+        _, name = max(deployed)
+        match = DEPLOY_JOB_NAME.fullmatch(name)
+        if not match:
+            raise FactUnreadable(
+                fact, f"cannot read the version from the deploy job name {name!r}"
+            )
+        if match["tag"] not in tags:
+            raise FactUnreadable(fact, f"{match['tag']} is not a known tag")
+        return tags[match["tag"]]
     return _latest_deployment_sha("production deployment", "prod")
 
 

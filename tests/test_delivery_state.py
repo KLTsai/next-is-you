@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -445,22 +446,58 @@ def test_staging_gap_docs_only_reads_both_sides_of_a_rename(
     assert delivery_state._read_staging_gap_docs_only("s", "m") is expected
 
 
-# Production after a rollback. The deployment record GitHub keeps for the prod
+# Production after Promote. The deployment record GitHub keeps for the prod
 # environment names the commit Promote was dispatched from (the head of main),
-# not the commit it deployed, so production must be read from the Promote run.
+# not the commit it deployed, so production is read from the Promote runs: the
+# run whose Deploy Worker step finished last.
 V022 = "5c9f7471cf4fd3d83cb9fb11c88505b3e6380dc0"
 V023 = "d52eef8d68409365adf24f154e0cd2cc454794c3"
 TAGS = {"v0.2.2": V022, "v0.2.3": V023}
 
 
-def fake_production(monkeypatch, *, promote_runs, deploy_job_names, deployment_sha):
+def deploy_job(tag, finished, *, worker="success", later="success", name=None):
+    """A Promote deploy job as the Actions API returns it."""
+    return {
+        "name": name or f"Deploy {tag} to production",
+        "steps": [
+            {
+                "name": "Apply production migrations",
+                "conclusion": "success",
+                "completed_at": finished,
+            },
+            {
+                "name": "Deploy Worker",
+                "conclusion": worker,
+                "completed_at": finished if worker else None,
+            },
+            {
+                "name": "Publish the GitHub Release",
+                "conclusion": later,
+                "completed_at": finished,
+            },
+        ],
+    }
+
+
+def refused_run():
+    """A Promote run whose guard refused: the deploy job never started."""
+    return [
+        {"name": "Promote guard", "steps": []},
+        {"name": "Deploy ${{ needs.guard.outputs.tag }} to production", "steps": []},
+    ]
+
+
+def fake_production(monkeypatch, *, runs, deployment_sha=None):
+    """runs: newest created first, each a list of jobs."""
+
     def fake_gh(fact, endpoint):
         if "workflows/promote.yml/runs" in endpoint:
-            return {"workflow_runs": [{"id": run} for run in promote_runs]}
+            return {"workflow_runs": [{"id": i} for i in range(len(runs), 0, -1)]}
         if endpoint.endswith("/jobs"):
-            return {"jobs": [{"name": name} for name in deploy_job_names]}
+            run_id = int(endpoint.split("/runs/")[1].split("/")[0])
+            return {"jobs": runs[len(runs) - run_id]}
         if "deployments?environment=prod" in endpoint:
-            return [{"id": 1, "sha": deployment_sha}]
+            return [{"id": 1, "sha": deployment_sha}] if deployment_sha else []
         if endpoint.endswith("/deployments/1/statuses"):
             return [{"state": "success"}]
         raise AssertionError(f"unexpected endpoint {endpoint}")
@@ -469,23 +506,107 @@ def fake_production(monkeypatch, *, promote_runs, deploy_job_names, deployment_s
 
 
 def test_production_is_the_version_the_last_promote_deployed(monkeypatch):
-    # v0.2.3 was promoted, then v0.2.2 was promoted as a rollback. Both Promote
-    # runs were dispatched from main, so the deployment record says v0.2.3.
+    # v0.2.3 was promoted, then v0.2.2 as a rollback. Both runs were dispatched
+    # from main, so the deployment record says v0.2.3.
     fake_production(
         monkeypatch,
-        promote_runs=[2, 1],
-        deploy_job_names=[
-            "Promote guard",
-            "Require main",
-            "Deploy v0.2.2 to production",
+        runs=[
+            [deploy_job("v0.2.2", "2026-11-16T06:32:00Z")],
+            [deploy_job("v0.2.3", "2026-11-16T06:20:00Z")],
         ],
         deployment_sha=V023,
     )
     assert delivery_state._read_production_sha(TAGS) == V022
 
 
-def test_production_falls_back_to_the_deployment_before_any_promote(monkeypatch):
+def test_a_promote_that_deployed_then_failed_a_later_step_still_counts(monkeypatch):
+    # The Worker deployed, then publishing the Release failed: production runs
+    # v0.2.2 even though the run concluded as failed.
     fake_production(
-        monkeypatch, promote_runs=[], deploy_job_names=[], deployment_sha=V022
+        monkeypatch,
+        runs=[
+            [deploy_job("v0.2.2", "2026-11-16T06:32:00Z", later="failure")],
+            [deploy_job("v0.2.3", "2026-11-16T06:20:00Z")],
+        ],
+        deployment_sha=V023,
     )
     assert delivery_state._read_production_sha(TAGS) == V022
+
+
+def test_a_failed_deploy_step_is_not_a_deployment(monkeypatch):
+    fake_production(
+        monkeypatch,
+        runs=[
+            [
+                deploy_job(
+                    "v0.2.2", "2026-11-16T06:32:00Z", worker="failure", later="skipped"
+                )
+            ],
+            [deploy_job("v0.2.3", "2026-11-16T06:20:00Z")],
+        ],
+    )
+    assert delivery_state._read_production_sha(TAGS) == V023
+
+
+def test_a_refused_promote_is_not_a_deployment(monkeypatch):
+    fake_production(
+        monkeypatch,
+        runs=[refused_run(), [deploy_job("v0.2.3", "2026-11-16T06:20:00Z")]],
+    )
+    assert delivery_state._read_production_sha(TAGS) == V023
+
+
+def test_a_rerun_of_an_older_run_is_judged_by_when_it_deployed(monkeypatch):
+    # The v0.2.3 run was created last but re-run before the v0.2.2 run
+    # finished deploying, so v0.2.2 is what deployed last.
+    fake_production(
+        monkeypatch,
+        runs=[
+            [deploy_job("v0.2.3", "2026-11-16T06:20:00Z")],
+            [deploy_job("v0.2.2", "2026-11-16T06:32:00Z")],
+        ],
+    )
+    assert delivery_state._read_production_sha(TAGS) == V022
+
+
+def test_a_deploy_job_that_cannot_be_read_is_named_not_guessed(monkeypatch):
+    # Someone renamed the job: the Worker deployed but the version is unknown.
+    fake_production(
+        monkeypatch,
+        runs=[[deploy_job("v0.2.2", "2026-11-16T06:32:00Z", name="Ship it")]],
+        deployment_sha=V023,
+    )
+    with pytest.raises(delivery_state.FactUnreadable) as error:
+        delivery_state._read_production_sha(TAGS)
+    assert error.value.fact == "production version"
+
+
+def test_a_deployed_version_with_no_tag_is_named_not_guessed(monkeypatch):
+    fake_production(
+        monkeypatch,
+        runs=[[deploy_job("v9.9.9", "2026-11-16T06:32:00Z")]],
+        deployment_sha=V023,
+    )
+    with pytest.raises(delivery_state.FactUnreadable) as error:
+        delivery_state._read_production_sha(TAGS)
+    assert error.value.fact == "production version"
+
+
+def test_production_falls_back_to_the_deployment_when_no_promote_deployed(monkeypatch):
+    fake_production(monkeypatch, runs=[], deployment_sha=V022)
+    assert delivery_state._read_production_sha(TAGS) == V022
+    fake_production(monkeypatch, runs=[refused_run()], deployment_sha=V022)
+    assert delivery_state._read_production_sha(TAGS) == V022
+
+
+def test_the_workflow_job_name_is_what_the_module_parses():
+    workflow = (ROOT / ".github/workflows/promote.yml").read_text()
+    names = re.findall(
+        r"^\s+name: (Deploy \$\{\{ needs\.guard\.outputs\.tag \}\} to production)$",
+        workflow,
+        re.M,
+    )
+    assert len(names) == 1, "promote.yml must name its deploy job exactly once"
+    rendered = names[0].replace("${{ needs.guard.outputs.tag }}", "v1.2.3")
+    assert delivery_state.DEPLOY_JOB_NAME.fullmatch(rendered)["tag"] == "v1.2.3"
+    assert f"- name: {delivery_state.DEPLOY_STEP_NAME}\n" in workflow

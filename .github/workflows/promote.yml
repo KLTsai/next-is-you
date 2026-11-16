@@ -159,8 +159,13 @@ jobs:
       # rollback leaves the newer Release published, so Latest is moved here for
       # every outcome above. Only the Latest mark changes: the notes, the tag and
       # the published state are not touched. Setting it again is harmless.
+      #
+      # The mark is cosmetic and runs after production was updated, so a failure
+      # here must not turn a finished deployment red. The summary reports it and
+      # says how to set the mark by hand.
       - name: Mark the Release as Latest
         id: latest
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release edit "$TAG" --latest
@@ -168,7 +173,7 @@ jobs:
         if: always()
         env:
           RELEASE_STATE: ${{ steps.release.outputs.state }}
-          LATEST_MARKED: ${{ steps.latest.outcome == 'success' && env.TAG || '' }}
+          LATEST_OUTCOME: ${{ steps.latest.outcome }}
         run: |
           {
             echo "### Production promotion: ${TAG}"
@@ -179,5 +184,9 @@ jobs:
             echo "- Status: ${{ job.status }}"
             echo "- URL: ${{ vars.PROD_WORKER_URL }}"
             echo "- GitHub Release: ${RELEASE_STATE:-not published}"
-            echo "- Latest Release: ${LATEST_MARKED:-not changed}"
+            case "${LATEST_OUTCOME}" in
+              success) echo "- Latest Release: ${TAG}" ;;
+              failure) echo "- Latest Release: NOT moved. Production runs ${TAG}; run \`gh release edit ${TAG} --latest\`." ;;
+              *) echo "- Latest Release: not changed" ;;
+            esac
           } >> "$GITHUB_STEP_SUMMARY"

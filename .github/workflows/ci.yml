@@ -164,6 +164,47 @@ jobs:
           AFTER: ${{ github.sha }}
         run: echo "docs_only=$(bash scripts/docs_only_push.sh)" >> "$GITHUB_OUTPUT"
 
+  staging-order:
+    name: Staging order
+    # Runs after the gates, right before the deployment, so the head of main is
+    # read as late as possible. A push whose commit main has already moved past
+    # must not deploy over the newer one. The rule is in scripts/delivery_state.py.
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    needs:
+      - format-lint
+      - typecheck
+      - frontend-tests
+      - build
+      - migrations
+      - backend-browser-tests
+      - diff-hygiene
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      deploy: ${{ steps.order.outputs.deploy }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      AFTER: ${{ github.sha }}
+      RUN_ATTEMPT: ${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Decide whether this commit may deploy over staging
+        id: order
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/delivery_state.py staging-order > order.out
+          cat order.out
+          head -n1 order.out >> "$GITHUB_OUTPUT"
+          {
+            echo "### Staging order"
+            echo
+            echo '```'
+            cat order.out
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   deploy-staging:
     name: Deploy staging
     # Skips are decided here, at job level, so a skipped deployment still leaves
@@ -173,6 +214,7 @@ jobs:
       ${{ github.event_name == 'push'
       && github.ref == 'refs/heads/main'
       && needs.staging-scope.outputs.docs_only != 'true'
+      && needs.staging-order.outputs.deploy == 'true'
       && vars.STAGING_DEPLOY_PAUSED != 'true' }}
     needs:
       - format-lint
@@ -183,6 +225,7 @@ jobs:
       - backend-browser-tests
       - diff-hygiene
       - staging-scope
+      - staging-order
     runs-on: ubuntu-latest
     # Waiting runs queue instead of cancelling the deployment in progress.
     concurrency:

@@ -661,6 +661,29 @@ def read_guard_snapshot(version: str) -> Snapshot:
     )
 
 
+def staging_deploy_decision(
+    sha: str, run_attempt: int, main_head: str
+) -> tuple[bool, str]:
+    """Whether a push run should deploy its commit to staging.
+
+    Each push to main runs its own Deploy staging after its own gates, so two
+    pushes close together can finish their gates out of order and the older
+    commit would deploy over the newer one. A first-attempt run therefore
+    deploys only while its commit is still the head of main. A re-run is the
+    captain returning staging to a version on purpose, so it always deploys the
+    commit it ran for.
+    """
+    if run_attempt > 1:
+        return True, f"re-run: deploying {sha[:7]} as requested"
+    if sha == main_head:
+        return True, f"{sha[:7]} is the head of main"
+    return (
+        False,
+        f"superseded: main is already at {main_head[:7]}, "
+        f"so {sha[:7]} does not deploy over it",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Command line
 # ---------------------------------------------------------------------------
@@ -694,17 +717,37 @@ def run_guard(
     return 0 if verdict.accepted else 1
 
 
+def run_staging_order(out: TextIO, err: TextIO) -> int:
+    """Print deploy=true or deploy=false for the job output, then the reason."""
+    sha = os.environ.get("AFTER", "")
+    attempt = int(os.environ.get("RUN_ATTEMPT", "1") or "1")
+    try:
+        head = _gh_json("head of main", "repos/{owner}/{repo}/commits/main")["sha"]
+    except FactUnreadable as error:
+        err.write(
+            "staging order cannot be decided: "
+            f"could not read {error.fact} ({error.detail})\n"
+        )
+        return 1
+    deploy, reason = staging_deploy_decision(sha, attempt, head)
+    out.write(f"deploy={'true' if deploy else 'false'}\n{reason}\n")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if argv == ["status"]:
         return run_status(read_snapshot, sys.stdout, sys.stderr)
     if len(argv) == 2 and argv[0] == "guard":
         return run_guard(read_guard_snapshot, argv[1], sys.stdout, sys.stderr)
+    if argv == ["staging-order"]:
+        return run_staging_order(sys.stdout, sys.stderr)
     if argv == ["docs-only-push"]:
         before, after = os.environ.get("BEFORE", ""), os.environ.get("AFTER", "")
         sys.stdout.write("true\n" if docs_only_push(before, after) else "false\n")
         return 0
     sys.stderr.write(
-        "usage: delivery_state.py status | guard <version> | docs-only-push\n"
+        "usage: delivery_state.py status | guard <version> | docs-only-push"
+        " | staging-order\n"
     )
     return 2
 

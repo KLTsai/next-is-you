@@ -26,8 +26,8 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv sync --group dev --locked
-      - run: uv run ruff format --check src tests
-      - run: uv run ruff check src tests
+      - run: uv run ruff format --check src tests scripts
+      - run: uv run ruff check src tests scripts
 
   typecheck:
     name: Type check

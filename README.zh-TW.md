@@ -129,8 +129,8 @@ uv sync --group dev --locked
 
 ```sh
 uv run playwright install chromium
-uv run ruff format --check src tests
-uv run ruff check src tests
+uv run ruff format --check src tests scripts
+uv run ruff check src tests scripts
 npm run typecheck
 npm run test:ui
 npm run build

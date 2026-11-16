@@ -1,4 +1,8 @@
-"""scripts/docs_only_push.sh decides whether a push changed only documentation."""
+"""scripts/docs_only_push.sh decides whether a push changed only documentation.
+
+The script is a thin wrapper, so these tests cover its contract. The rule itself
+is tested in tests/test_delivery_state.py.
+"""
 
 import subprocess
 from pathlib import Path

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2](https://github.com/KLTsai/next-is-you/compare/v0.2.1...v0.2.2) (2026-11-16)
+
+
+### Bug Fixes
+
+* remove blank line ([6ebc93d](https://github.com/KLTsai/next-is-you/commit/6ebc93d62ae24430054ae877315cbe74ab4065e4))
+* remove blank line ([4585be2](https://github.com/KLTsai/next-is-you/commit/4585be243772b1e43801004c789cebd6702c6758))
+
 ## [0.2.1](https://github.com/KLTsai/next-is-you/compare/v0.2.0...v0.2.1) (2026-11-14)
 
 

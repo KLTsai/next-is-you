@@ -6,6 +6,18 @@ The language used to build and deliver Next is you, a reminder service for hospi
 
 ### Delivery
 
+**Captain**:
+The one person who decides what is accepted into the product and which version reaches production. Everyone else, human or agent, proposes.
+_Avoid_: Admin, release manager
+
+**Pipeline run**:
+The single pass through the checks that one change starts, with whatever it goes on to deliver. Re-running it delivers that same change again.
+_Avoid_: Build, CI job
+
+**Gate**:
+One named check in a pipeline run. A change moves forward only when every gate has passed.
+_Avoid_: Step, stage
+
 **Version**:
 A named cut of the product: everything accepted up to one point, given a number by the captain's decision to ship it. A version may never reach production.
 _Avoid_: Candidate, version candidate, build

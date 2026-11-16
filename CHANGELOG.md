@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.3](https://github.com/KLTsai/next-is-you/compare/v0.2.2...v0.2.3) (2026-11-16)
+
+
+### Bug Fixes
+
+* rollback testing ([71ff166](https://github.com/KLTsai/next-is-you/commit/71ff166e5d10cb32a35ff979798ba0cc25daeed1))
+* rollback testing ([e5f656c](https://github.com/KLTsai/next-is-you/commit/e5f656c5bf2ef619e024d8c3b205d4855f3aaf30))
+
 ## [0.2.2](https://github.com/KLTsai/next-is-you/compare/v0.2.1...v0.2.2) (2026-11-16)
 
 

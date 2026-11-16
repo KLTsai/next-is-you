@@ -294,7 +294,10 @@ rules are not repeated in the workflow. A dispatch from any other ref fails the
 `Require main` job. "Checks" means the seven CI gate jobs only: the Promote
 run itself, a staging deployment (including a cancelled, superseded one) and
 Release Please never count. `npm run status` reports production as the version
-last deployed to the `prod` environment, so it stays correct after a rollback.
+named by the newest successful Promote run's `Deploy` job, so it stays correct
+after a rollback. It does not read the `prod` deployment record: GitHub files
+that under the commit Promote was dispatched from (the head of `main`), not the
+commit that was deployed. The record is used only before any Promote has run.
 The guard refuses, with one reason and the action that clears it, when:
 
 | Reason | Clearing action |

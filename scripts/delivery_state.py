@@ -458,6 +458,10 @@ def docs_only_push(before: str, after: str) -> bool:
     return diff.returncode == 0 and is_docs_only(diff.stdout.splitlines())
 
 
+# The name promote.yml gives its deploy job; the version is the only variable.
+DEPLOY_JOB_NAME = re.compile(r"Deploy (?P<tag>\S+) to production")
+
+
 def _latest_deployment_sha(fact: str, environment: str) -> str | None:
     """The commit of the newest successful deployment to an environment."""
     deployments = _gh_json(
@@ -478,7 +482,29 @@ def _read_staging_sha() -> str | None:
     return _latest_deployment_sha("staging deployment", "staging")
 
 
-def _read_production_sha() -> str | None:
+def _read_production_sha(tags: dict[str, str]) -> str | None:
+    """The commit in production.
+
+    The deployment record GitHub keeps for the prod environment names the commit
+    Promote was dispatched from, which is the head of main, not the commit it
+    deployed. After a rollback that is the wrong version. So production is the
+    version named by the newest successful Promote run's deploy job. The
+    deployment record is only used before any Promote has run.
+    """
+    fact = "production version"
+    runs = _gh_json(
+        fact,
+        "repos/{owner}/{repo}/actions/workflows/promote.yml/runs"
+        "?status=success&per_page=1",
+    )["workflow_runs"]
+    if runs:
+        jobs = _gh_json(
+            fact, f"repos/{{owner}}/{{repo}}/actions/runs/{runs[0]['id']}/jobs"
+        )["jobs"]
+        for job in jobs:
+            match = DEPLOY_JOB_NAME.fullmatch(job["name"])
+            if match and match["tag"] in tags:
+                return tags[match["tag"]]
     return _latest_deployment_sha("production deployment", "prod")
 
 
@@ -586,12 +612,13 @@ def _read_release_pr() -> ReleasePR | None:
 def read_snapshot() -> Snapshot:
     main = _read_main()
     staging_sha = _read_staging_sha()
+    tags = _read_tags()
     return Snapshot(
         main=main,
         staging_sha=staging_sha,
-        production_sha=_read_production_sha(),
+        production_sha=_read_production_sha(tags),
         staging_paused=_read_paused(),
-        tags=_read_tags(),
+        tags=tags,
         releases=_read_releases(),
         release_pr=_read_release_pr(),
         staging_gap_docs_only=_read_staging_gap_docs_only(staging_sha, main.sha),

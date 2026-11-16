@@ -70,8 +70,8 @@ release proposal. Release behavior itself is unchanged.
 ## Staging follows main
 
 On a push to `main`, the same run deploys that commit to staging once every gate
-has passed. The `Deploy staging` job needs all seven gates and the `Staging
-scope` job, and it deploys `github.sha`, the pushed commit, never the branch
+has passed. The `Deploy staging` job needs all seven gates, the `Staging
+scope` job and the `Staging order` job, and it deploys `github.sha`, the pushed commit, never the branch
 head. Re-running an earlier run therefore returns staging to that earlier
 commit. The job builds, applies the staging D1 migrations, then runs
 `pywrangler deploy --config wrangler.staging.jsonc --keep-vars`. It uses the `staging` environment, so GitHub records a deployment
@@ -91,8 +91,19 @@ deployment still leaves a successful run:
 | Waiting behind another staging deployment | Pending | In progress | Nothing. Deployments run one at a time in the `staging-deploy` group. GitHub keeps only the newest waiting run, so an older waiting one is cancelled and staging ends on the latest commit. |
 | A gate fails | Skipped | Failed, naming the gate | Fix the gate. Staging keeps its previous commit. |
 | Documentation-only push (every changed file is `*.md`) | Skipped | Success | Nothing. Staging keeps its commit. An unknown range, such as a forced push, counts as not documentation-only. |
+| Main has already moved past this commit (a newer push finished its gates first) | Skipped | Success | Nothing. The `Staging order` summary says `superseded` and names both commits. Staging keeps the newer commit. A re-run of this run deploys it anyway, which is how you return staging to it. |
 | Repository variable `STAGING_DEPLOY_PAUSED` is exactly `true` | Skipped | Success | Gates still run. Delete the variable, then push or re-run the run of the commit you want. |
 | Staging migration or deploy step fails | Failed | Failed | See below. |
+
+Staging order: two pushes close together finish their gates in either order, and
+the queue for `Deploy staging` follows who finishes first, not commit order. So
+the `Staging order` job runs after the gates and asks `scripts/delivery_state.py
+staging-order` whether the commit is still the head of `main`. A first-attempt
+run for an older commit does not deploy, and the run stays green. A re-run
+(attempt 2 or later) always deploys the commit it ran for. A small window remains:
+if `main` moves between that check and the deployment starting, the older commit
+can still deploy; `npm run status` then reports staging differs from `main`, and
+re-running the run of the head of `main` fixes it.
 
 Pausing and resuming: set `STAGING_DEPLOY_PAUSED` to `true` in **Settings ->
 Secrets and variables -> Actions -> Variables** to pause, and delete it or set

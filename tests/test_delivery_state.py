@@ -610,3 +610,64 @@ def test_the_workflow_job_name_is_what_the_module_parses():
     rendered = names[0].replace("${{ needs.guard.outputs.tag }}", "v1.2.3")
     assert delivery_state.DEPLOY_JOB_NAME.fullmatch(rendered)["tag"] == "v1.2.3"
     assert f"- name: {delivery_state.DEPLOY_STEP_NAME}\n" in workflow
+
+
+# Staging after two pushes in quick succession. Each push's Deploy staging waits
+# for its own gates, so the older commit can finish its gates last and deploy
+# over the newer one. A push run deploys only while its commit is still the head
+# of main. An explicit re-run deploys the commit it ran for, which is how the
+# captain returns staging to a version.
+OLD = "ec87b04" + "0" * 33
+NEW = "b094f90" + "0" * 33
+
+
+def test_the_head_of_main_deploys():
+    deploy, reason = delivery_state.staging_deploy_decision(NEW, 1, NEW)
+    assert deploy
+    assert "head of main" in reason
+
+
+def test_a_commit_main_has_moved_past_is_skipped_and_says_why():
+    deploy, reason = delivery_state.staging_deploy_decision(OLD, 1, NEW)
+    assert not deploy
+    assert OLD[:7] in reason and NEW[:7] in reason
+
+
+def test_a_rerun_of_an_older_run_deploys_that_commit():
+    deploy, reason = delivery_state.staging_deploy_decision(OLD, 2, NEW)
+    assert deploy
+    assert "re-run" in reason
+
+
+def run_staging_order(monkeypatch, *, sha, attempt, head):
+    monkeypatch.setenv("AFTER", sha)
+    monkeypatch.setenv("RUN_ATTEMPT", str(attempt))
+    monkeypatch.setattr(
+        delivery_state,
+        "_gh_json",
+        lambda fact, endpoint: {"sha": head},
+    )
+    out, err = io.StringIO(), io.StringIO()
+    code = delivery_state.run_staging_order(out, err)
+    return code, out.getvalue(), err.getvalue()
+
+
+def test_the_command_prints_the_job_output_and_the_reason(monkeypatch):
+    code, out, _ = run_staging_order(monkeypatch, sha=OLD, attempt=1, head=NEW)
+    assert code == 0
+    assert out.splitlines()[0] == "deploy=false"
+    code, out, _ = run_staging_order(monkeypatch, sha=NEW, attempt=1, head=NEW)
+    assert out.splitlines()[0] == "deploy=true"
+
+
+def test_an_unreadable_head_of_main_names_the_fact_and_fails(monkeypatch):
+    def broken(fact, endpoint):
+        raise delivery_state.FactUnreadable("head of main", "gh exited 1")
+
+    monkeypatch.setenv("AFTER", NEW)
+    monkeypatch.setenv("RUN_ATTEMPT", "1")
+    monkeypatch.setattr(delivery_state, "_gh_json", broken)
+    out, err = io.StringIO(), io.StringIO()
+    assert delivery_state.run_staging_order(out, err) == 1
+    assert "head of main" in err.getvalue()
+    assert "deploy=" not in out.getvalue()

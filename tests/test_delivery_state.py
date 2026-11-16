@@ -118,6 +118,25 @@ def test_staging_paused_is_reported():
     )
 
 
+def test_a_pause_value_that_does_not_pause_is_reported():
+    # The captain set the variable and believes staging is held. It is not:
+    # only "true" pauses. Without this line the report reads as if the variable
+    # were absent.
+    code, out, _ = run_status("pause_value_does_not_pause")
+    assert code == 0
+    assert out == (
+        "main        abc1234 - checks passed\n"
+        "staging     abc1234 - same as main\n"
+        "production  v0.2.1\n"
+        "next        none - no release PR, nothing releasable\n"
+        'not paused  STAGING_DEPLOY_PAUSED is "yes": only "true" pauses, '
+        "so staging still deploys\n"
+        "\n"
+        "Next step: Set STAGING_DEPLOY_PAUSED to true to pause automatic staging "
+        "deployment, or to false to leave it running.\n"
+    )
+
+
 def test_checks_on_main_red():
     code, out, _ = run_status("main_checks_red")
     assert code == 0
@@ -435,10 +454,120 @@ def test_only_the_value_true_pauses_as_in_the_workflow(monkeypatch, value, pause
     assert delivery_state._read_paused() is paused
 
 
+# A value that is set but neither pauses nor says "do not pause" is most likely
+# a mistake: the captain typed it to pause. An absent variable reaches a
+# workflow as an empty value, which is nobody's mistake.
+@pytest.mark.parametrize(
+    ("value", "ignored"),
+    [
+        ("yes", "yes"),
+        ("1", "1"),
+        (" true", " true"),
+        ("true\n", "true\n"),
+        ("true", None),
+        ("TRUE", None),
+        ("false", None),
+        ("False", None),
+        ("", None),
+    ],
+)
+def test_a_set_value_that_is_neither_true_nor_false_is_ignored(
+    monkeypatch, value, ignored
+):
+    monkeypatch.setenv("STAGING_DEPLOY_PAUSED", value)
+    read = delivery_state._read_pause_value()
+    assert delivery_state.ignored_pause_value(read) == ignored
+
+
+def fake_variable_reply(monkeypatch, *, returncode, stdout="", stderr=""):
+    monkeypatch.delenv("STAGING_DEPLOY_PAUSED", raising=False)
+    monkeypatch.setattr(
+        delivery_state.subprocess,
+        "run",
+        lambda *args, **kwargs: delivery_state.subprocess.CompletedProcess(
+            args, returncode, stdout=stdout, stderr=stderr
+        ),
+    )
+
+
+def test_the_repository_variable_is_read_with_the_value_it_holds(monkeypatch):
+    fake_variable_reply(
+        monkeypatch,
+        returncode=0,
+        stdout='{"name": "STAGING_DEPLOY_PAUSED", "value": "true "}',
+    )
+    assert delivery_state._read_pause_value() == "true "
+    assert delivery_state._read_paused() is False
+
+
+def test_an_absent_repository_variable_holds_no_value(monkeypatch):
+    fake_variable_reply(monkeypatch, returncode=1, stderr="gh: Not Found (HTTP 404)")
+    assert delivery_state._read_pause_value() == ""
+    assert delivery_state._read_paused() is False
+
+
+def run_pause_warning(tmp_path, value: str | None) -> tuple[int, str, str]:
+    """Run the pause warning the way the pipeline run does, on this value.
+
+    Returns the exit code, what the step printed and what it added to the run
+    summary. None is a variable that does not exist.
+    """
+    summary = tmp_path / "summary.md"
+    summary.write_text("")
+    env = {k: v for k, v in os.environ.items() if k != "STAGING_DEPLOY_PAUSED"}
+    if value is not None:
+        env["STAGING_DEPLOY_PAUSED"] = value
+    done = subprocess.run(
+        [sys.executable, "scripts/delivery_state.py", "pause-warning"],
+        cwd=ROOT,
+        env={**env, "GITHUB_STEP_SUMMARY": str(summary)},
+        capture_output=True,
+        text=True,
+    )
+    assert done.stderr == ""
+    return done.returncode, done.stdout, summary.read_text()
+
+
+def test_the_pipeline_run_warns_about_a_pause_value_that_does_not_pause(tmp_path):
+    # GitHub shows a line in this form as a warning on the run page.
+    code, printed, summary = run_pause_warning(tmp_path, "yes")
+    text = (
+        'STAGING_DEPLOY_PAUSED is "yes": only "true" pauses, so staging still deploys'
+    )
+    assert code == 0
+    assert printed == f"::warning title=Staging deployment is not paused::{text}\n"
+    assert summary == f"### Staging deployment is not paused\n\n{text}\n"
+
+
+def test_the_warning_shows_a_stray_line_break_and_stays_one_line(tmp_path):
+    # A line break would end the warning early, and "%" starts an escape in it.
+    code, printed, _ = run_pause_warning(tmp_path, "true\n100%")
+    assert code == 0
+    assert printed == (
+        "::warning title=Staging deployment is not paused::"
+        'STAGING_DEPLOY_PAUSED is "true\\n100%25": only "true" pauses, '
+        "so staging still deploys\n"
+    )
+
+
+@pytest.mark.parametrize("value", ["true", "TRUE", "false", "False", "", None])
+def test_the_pipeline_run_says_nothing_about_a_value_that_is_understood(
+    tmp_path, value
+):
+    assert run_pause_warning(tmp_path, value) == (0, "", "")
+
+
 def test_the_workflows_apply_the_pause_rule_the_module_reads():
     ci = (ROOT / ".github/workflows/ci.yml").read_text()
-    assert ci.count("vars.STAGING_DEPLOY_PAUSED") == 1
+    # ci.yml reads the variable in two places and decides in one: the Deploy
+    # staging condition. The other hands the raw value to the module's warning.
+    assert ci.count("vars.STAGING_DEPLOY_PAUSED") == 2
     assert "&& vars.STAGING_DEPLOY_PAUSED != 'true' }}" in ci
+    assert (
+        "        env:\n"
+        "          STAGING_DEPLOY_PAUSED: ${{ vars.STAGING_DEPLOY_PAUSED }}\n"
+        "        run: python3 scripts/delivery_state.py pause-warning\n"
+    ) in ci
     # Promote hands the guard the raw value, so the module applies the rule.
     promote = (ROOT / ".github/workflows/promote.yml").read_text()
     assert "STAGING_DEPLOY_PAUSED: ${{ vars.STAGING_DEPLOY_PAUSED }}\n" in promote

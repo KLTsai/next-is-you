@@ -39,7 +39,7 @@ place.
 | **Merge the release PR** | Pull request `chore(main): release X.Y.Z`, **Merge pull request**. Result on **Actions -> CI** (Release Please job), the **Tags** list, and the **Releases** page. | The merge commit is tagged `vX.Y.Z`, the PR is labelled `autorelease: tagged`, and a draft Release exists, visible to the captain only. No Release is published. | Its own checks are held for approval (the PR is pushed by `github-actions[bot]`), then the run on `main` is in progress. The tag appears when that run's Release Please job finishes. | A gate on the merge commit is red, so Release Please does not run and no tag exists. | Do not merge. Leaving the PR open collects more changes into the same version; closing it makes Release Please open a fresh one. After merging, rejecting the version needs no action: do not promote it. | Fix forward and re-run the failed jobs; Release Please tags once every gate is green. A rejected version keeps its tag, its changelog section and no Release; its fix ships as the next version. |
 | **Promote** | **Actions -> Promote -> Run workflow**, **Use workflow from: Branch: main**, enter the version, **Run workflow**. Result on the run page and the **Releases** page. | Both jobs green. The run summary names the commit; the Release is published and marked **Latest**; `npm run status` shows the version as production. | The run is queued behind another Promote (group `production-deploy`; only the newest waiting run is kept). Nothing to do. | `Promote guard` is red: the summary shows `Refused:` and `To clear it:`, and nothing deployed. Or `Deploy` is red at a migration or deploy step: no Release is published. | Cancel the run in **Actions -> Promote -> Cancel workflow** before `Deploy` starts. After production migrations have applied, there is no clean stop: roll forward. | Do the clearing action and run Promote again. Running it again for the same version is harmless: applied migrations are skipped and a published Release keeps its notes and state, and only its Latest mark is set again. If production is wrong meanwhile, use the native rollback below. |
 | **Rollback** | Same as Promote, with an earlier version number. | Promote succeeds for the earlier version, and production runs its code. Its Release was already published, so none is created; the **Latest** mark moves to it, so the Releases page names what production runs. A failed or refused Promote leaves Latest where it was. If only the Latest step fails, the run stays green and its summary says so, with the command to set it by hand. | As for Promote. | As for Promote. Usually the guard refusing because staging shows another commit. | As for Promote. | Re-run that version's run in **Actions -> CI** so staging shows it, then run Promote. To go forward again, repeat for the newer version. The native rollback is the emergency path if Promote is unusable. Code only: D1 and Durable Object state stay as they are. |
-| **Pause staging** | **Settings -> Secrets and variables -> Actions -> Variables**, create `STAGING_DEPLOY_PAUSED` with the value `true`. | The next push to `main` passes its gates, shows `Deploy staging` as skipped, and the run is green. `npm run status` reports that automatic staging deployment is paused. | A staging job already queued or running when you set the variable still deploys: the variable is read when the run starts. Wait for it to finish before relying on the pause. | A value other than `true`, or a typo in the name, pauses nothing; the next push deploys. | Delete the variable, or set it to anything but `true`. | Resume, then push or re-run the **CI** run of the commit you want shown on staging. Promote refuses while staging shows another commit, so a forgotten pause surfaces there and in `npm run status`. |
+| **Pause staging** | **Settings -> Secrets and variables -> Actions -> Variables**, create `STAGING_DEPLOY_PAUSED` with the value `true`. | The next push to `main` passes its gates, shows `Deploy staging` as skipped, and the run is green. `npm run status` reports that automatic staging deployment is paused. | A staging job already queued or running when you set the variable still deploys: the variable is read when the run starts. Wait for it to finish before relying on the pause. | Any other value (`1`, `yes`, `true` with a stray space) or a typo in the name pauses nothing: the next push deploys, and `npm run status` shows no `paused` line. | Delete the variable, or set it to `false`. | Resume, then push or re-run the **CI** run of the commit you want shown on staging. Promote refuses while staging shows another commit, so a forgotten pause surfaces there and in `npm run status`. |
 
 ## One change, one run
 
@@ -92,7 +92,7 @@ deployment still leaves a successful run:
 | A gate fails | Skipped | Failed, naming the gate | Fix the gate. Staging keeps its previous commit. |
 | Documentation-only push (every changed file is `*.md`) | Skipped | Success | Nothing. Staging keeps its commit. An unknown range, such as a forced push, counts as not documentation-only. |
 | Main has already moved past this commit (a newer push finished its gates first) | Skipped | Success | Nothing. The `Staging order` summary says `superseded` and names both commits. Staging keeps the newer commit. A re-run of this run deploys it anyway, which is how you return staging to it. |
-| Repository variable `STAGING_DEPLOY_PAUSED` is exactly `true` | Skipped | Success | Gates still run. Delete the variable, then push or re-run the run of the commit you want. |
+| Repository variable `STAGING_DEPLOY_PAUSED` is `true` (letter case is ignored) | Skipped | Success | Gates still run. Delete the variable, then push or re-run the run of the commit you want. |
 | Staging migration or deploy step fails | Failed | Failed | See below. |
 
 Staging order: two pushes close together finish their gates in either order, and
@@ -107,11 +107,12 @@ re-running the run of the head of `main` fixes it.
 
 Pausing and resuming: set `STAGING_DEPLOY_PAUSED` to `true` in **Settings ->
 Secrets and variables -> Actions -> Variables** to pause, and delete it or set
-anything else to resume. Hold staging still this way before a long check or a
+it to `false` to resume. Hold staging still this way before a long check or a
 storage recovery rehearsal. The variable is read when a run starts, so a pause
 does not stop a staging job already queued, and a resume takes effect on the
 next push or re-run, not retroactively. `npm run status` says while staging is
-paused.
+paused. It and the promote guard apply the workflow's rule: only the value
+`true`, in any letter case, pauses.
 
 Recovery from a failed staging migration: migrations are forward-only and D1
 applies each migration file atomically, so a failure leaves the database at the
@@ -304,8 +305,11 @@ the captain can run locally, and writes the verdict to the run summary. The
 rules are not repeated in the workflow. A dispatch from any other ref fails the
 `Require main` job. "Checks" means the seven CI gate jobs only: the Promote
 run itself, a staging deployment (including a cancelled, superseded one) and
-Release Please never count. `npm run status` reports production as the version
-named by the Promote run whose `Deploy Worker` step finished last. A run counts
+Release Please never count. A commit's checks are green only when every gate
+concluded `success`; a gate that ended any other way is named with how it
+ended, for example `Migration check: skipped`. `npm run status` reports
+production as the version named by the Promote run whose `Deploy Worker` step
+finished last. A run counts
 once that step succeeded, even if a later step (publishing the Release) failed,
 and runs are ordered by when that step finished, so re-running an older run is
 judged by when it deployed. It does not read the `prod` deployment record: GitHub

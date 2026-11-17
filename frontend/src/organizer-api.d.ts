@@ -71,6 +71,7 @@ export interface VisitInput {
 export class OrganizerApiError extends Error {
   status: number;
   code: string;
+  visitDate?: string;
 }
 
 export function listRecipients(options?: object): Promise<{ recipients: Recipient[] }>;

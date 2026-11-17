@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as setupNotices from "../src/schedule-window.js";
 import {
+  currentNumberOnlyNotice,
   degradeNotice,
   rosterClinicError,
   unpublishedDayNotice,
@@ -96,4 +97,37 @@ test("visitErrorMessage maps the backend's Start-time error codes to user-facing
   assert.ok(visitErrorMessage("clinic_combo_mismatch").includes("組合"));
   assert.equal(visitErrorMessage("observation_unavailable"), "");
   assert.equal(visitErrorMessage(""), "");
+});
+
+test("a hospital with no clinic schedule explains each refused Start in plain words", () => {
+  assert.equal(
+    visitErrorMessage("start_on_visit_day_only", { visitDate: "2026-11-20" }),
+    "這家醫院沒有公布門診表，11/20 看診當天才能開始。",
+  );
+  assert.equal(
+    visitErrorMessage("start_on_visit_day_only", { visitDate: "2026-12-01" }),
+    "這家醫院沒有公布門診表，12/1 看診當天才能開始。",
+  );
+  assert.equal(
+    visitErrorMessage("hospital_cannot_find_clinic"),
+    "院方目前查不到這個診。如果還沒開診，請開診後再試；否則請核對診間代碼。",
+  );
+  assert.equal(
+    visitErrorMessage("hospital_page_unreachable"),
+    "暫時讀不到院方資料，請稍後再試。",
+  );
+});
+
+test("the visit-day refusal still reads without a date", () => {
+  assert.equal(
+    visitErrorMessage("start_on_visit_day_only"),
+    "這家醫院沒有公布門診表，看診當天才能開始。",
+  );
+});
+
+test("a hospital with no clinic schedule says so instead of blaming a failed read", () => {
+  const notice = currentNumberOnlyNotice();
+  assert.ok(notice.includes("沒有公布門診表"));
+  assert.ok(notice.includes("看診當天才能開始"));
+  assert.ok(!notice.includes("無法取得"));
 });

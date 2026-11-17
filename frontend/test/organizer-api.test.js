@@ -152,3 +152,14 @@ test("typed API failures expose only the approved error code", async () => {
     return true;
   });
 });
+
+test("the visit-day refusal exposes the visit date the backend names", async () => {
+  const fetcher = async () =>
+    response({ error: { code: "start_on_visit_day_only", visit_date: "2026-11-20" } }, 409);
+  await assert.rejects(startVisit("v1", { fetcher, csrfToken: "csrf-local" }), (error) => {
+    assert.ok(error instanceof OrganizerApiError);
+    assert.equal(error.code, "start_on_visit_day_only");
+    assert.equal(error.visitDate, "2026-11-20");
+    return true;
+  });
+});

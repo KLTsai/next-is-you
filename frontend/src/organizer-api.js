@@ -1,9 +1,11 @@
 export class OrganizerApiError extends Error {
-  constructor(status, code) {
+  constructor(status, code, visitDate) {
     super(code);
     this.name = "OrganizerApiError";
     this.status = status;
     this.code = code;
+    // Set only for the refusal that tells the organizer which day Start opens.
+    if (visitDate) this.visitDate = visitDate;
   }
 }
 
@@ -28,7 +30,7 @@ async function request(path, { method = "GET", body, fetcher = fetch, csrfToken 
     try { payload = await response.json(); } catch { payload = null; }
   }
   if (!response.ok) {
-    throw new OrganizerApiError(response.status, payload?.error?.code || "request_failed");
+    throw new OrganizerApiError(response.status, payload?.error?.code || "request_failed", payload?.error?.visit_date);
   }
   return payload;
 }

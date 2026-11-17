@@ -27,7 +27,7 @@ Next is you 就是替你做這件事的小工具。擁有者在瀏覽器開啟�
 
 **進行中**
 
-- [ ] 可替換的醫院 adapter 後端邊界（`HospitalReader` 介面、醫院註冊表、能力描述）與新增醫院的文件指南（[docs/ADDING-A-HOSPITAL.md](docs/ADDING-A-HOSPITAL.md)） - [#45](https://github.com/KLTsai/next-is-you/issues/45)。介面、註冊表與指南已經合併進主線。剩下的工作已在 2026-11-17 重新規劃為三個 PR：門診表規則與診間比對只存在各醫院自己的 reader 裡；註冊表自動推導醫院等級，並加上 contract test；前端不再寫出任何醫院或規則。細節見 issue。
+- [ ] 可替換的醫院 adapter 後端邊界（`HospitalReader` 介面、醫院註冊表、能力描述）與新增醫院的文件指南（[docs/ADDING-A-HOSPITAL.md](docs/ADDING-A-HOSPITAL.md)） - [#45](https://github.com/KLTsai/next-is-you/issues/45)。介面、註冊表、指南、各醫院 reader 內的門診表規則與診間比對、只公布目前號碼的醫院的 Start 流程，以及不指名任何醫院的設定頁與資料庫已經完成，並有測試掃描前端原始碼，確認沒有任何已註冊醫院的 id 或顯示名稱。註冊表 contract test 也已就位。剩下的是在 issue 上附證據勾選驗收項目。證據只有 fixture 與本機自動化測試；NTUH 的實機行為仍歸 [#20](https://github.com/KLTsai/next-is-you/issues/20)。
 - [ ] 管理者主導的 LINE 邀請與移除 UI：已合併並在本地驗證過；用真實家庭 LINE 帳號走一次完整流程仍待進行 - [#19](https://github.com/KLTsai/next-is-you/issues/19)
 - [ ] 台大眼科 reader：已具備 fixture 與本地整合證據；來源的請求契約與 markup 已人工實地擷取，但 reader 本身的線上行為尚未驗證 - [#20](https://github.com/KLTsai/next-is-you/issues/20)
 - [ ] 私人儲存復原與營運就緒 - [#21](https://github.com/KLTsai/next-is-you/issues/21)

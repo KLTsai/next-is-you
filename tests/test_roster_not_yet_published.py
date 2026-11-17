@@ -11,7 +11,7 @@ from datetime import date, timedelta
 import pytest
 
 from next_is_you import hospital_registry
-from next_is_you.domain import ClinicRoster, Hospital
+from next_is_you.domain import ClinicRoster
 from next_is_you.hospital_registry import HospitalEntry
 from test_ntuh_reader import DAY, FakeSource, gate_with_visit, taipei
 
@@ -78,7 +78,7 @@ async def test_hospital_stating_no_release_time_returns_end_date_only(
     monkeypatch.setattr(
         hospital_registry,
         "HOSPITAL_REGISTRY",
-        {Hospital.NTUH_MAIN: HospitalEntry("Synthetic", _NoReleaseTimeReader)},
+        {"ntuh-main": HospitalEntry("Synthetic", _NoReleaseTimeReader)},
     )
     _, gate = await gate_with_visit(FakeSource())
     result = await gate.list_clinics(

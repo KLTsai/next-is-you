@@ -12,9 +12,11 @@ from urllib.parse import parse_qsl
 import pytest
 
 from next_is_you.domain import (
+    ClinicMatch,
     ClinicRoster,
     ClinicScope,
     ClinicSession,
+    MatchKind,
     QueueObservation,
     ReadFailed,
     ReadSkipped,
@@ -1178,7 +1180,8 @@ async def test_preflight_blocks_start_when_date_is_out_of_schedule_window() -> N
         "release_time": "2026-11-15T00:00:00+08:00",
     }
     assert source.urls == []
-    assert counts(database, "far")[:2] == ("scope_mismatch", "scope_mismatch")
+    # The draft is kept unchanged (ticket #101).
+    assert counts(database, "far")[:2] == ("unavailable", "no_observation")
 
 
 @pytest.mark.asyncio
@@ -1423,6 +1426,9 @@ async def test_gate_reports_no_release_time_when_the_reader_states_none(
 
         async def observe_for_start(self, scope, now):
             return None
+
+        async def match_clinic(self, query, now):
+            return ClinicMatch(MatchKind.NOT_YET_PUBLISHED)
 
         async def list_clinics(self, query, now):
             return ClinicRoster(

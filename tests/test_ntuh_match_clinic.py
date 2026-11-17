@@ -128,3 +128,51 @@ def test_shared_modules_do_not_know_ntuh_clinic_rules() -> None:
         assert imported <= {"WorkersFetcher"}, (name, imported)
         text = (src / name).read_text(encoding="utf-8")
         assert "停診" not in text, name
+
+
+class _FailsOnce:
+    """Fails the first request, then behaves like the wrapped source."""
+
+    def __init__(self, inner: FakeSource) -> None:
+        self.inner = inner
+        self.failed = False
+
+    async def __call__(self, request):
+        if not self.failed:
+            self.failed = True
+            raise RuntimeError("synthetic transport failure")
+        return await self.inner(request)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_schedule_read_is_not_remembered() -> None:
+    ntuh = reader(_FailsOnce(FakeSource(schedule=SCHEDULE_FIXTURE)))
+    first = await ntuh.match_clinic(query("03/合成醫師甲/角膜"), TODAY_EVE)
+    assert first.kind is MatchKind.UNAVAILABLE
+    # The next match in the same sweep must retry, not replay the failure.
+    second = await ntuh.match_clinic(query("03/合成醫師甲/角膜"), TODAY_EVE)
+    assert second.kind is MatchKind.MATCHED
+
+
+@pytest.mark.asyncio
+async def test_schedule_memo_keeps_only_the_current_day() -> None:
+    ntuh = reader(FakeSource(schedule=SCHEDULE_FIXTURE))
+    await ntuh.match_clinic(query("03/合成醫師甲/角膜"), TODAY_EVE)
+    await ntuh.match_clinic(
+        query("03/合成醫師甲/角膜", day=SCHEDULE_FIRST_VISIT + timedelta(days=1)),
+        TODAY_EVE + timedelta(days=1),
+    )
+    assert {today for (_dept, today) in ntuh._schedule_memo} == {
+        (TODAY_EVE + timedelta(days=1)).date()
+    }
+
+
+@pytest.mark.asyncio
+async def test_an_unparseable_clinic_code_is_invalid_without_a_request() -> None:
+    # Ticket #98 review: a code that cannot name a clinic is a permanent
+    # condition, so it is reported as invalid_data and never costs a hospital
+    # request (the old Start read first and only then said observation_invalid).
+    source = FakeSource(schedule=SCHEDULE_FIXTURE)
+    match = await reader(source).match_clinic(query("not-a-clinic-code"), TODAY_EVE)
+    assert match == ClinicMatch(MatchKind.UNAVAILABLE, reason="invalid_data")
+    assert source.requests == []

@@ -204,6 +204,9 @@ class MatchKind(StrEnum):
     CANCELLED = "cancelled"
     NOT_YET_PUBLISHED = "not_yet_published"
     UNAVAILABLE = "unavailable"
+    # The hospital publishes no clinic schedule, so there is nothing to match
+    # against. Not a failure and not a mismatch: callers leave the draft alone.
+    NOT_APPLICABLE = "not_applicable"
 
 
 @dataclass(frozen=True, slots=True)

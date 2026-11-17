@@ -547,6 +547,18 @@ def _matches(row: ListRow, key: ClinicKey) -> bool:
     )
 
 
+def _unpublished_window(today: date, visit_date: date) -> tuple[date, datetime]:
+    """NTUH's stated rule for a day it has not published: (end date, release time).
+
+    The clinic schedule ends 14 days after today, and a day opens at 00:00 Taipei
+    14 days before it. One place, so the setup form and Start refusal agree.
+    """
+    lookahead = timedelta(days=SCHEDULE_LOOKAHEAD_DAYS)
+    return today + lookahead, datetime.combine(
+        visit_date - lookahead, time(0, 0), tzinfo=TAIPEI
+    )
+
+
 class NtuhProgressReader:
     """Reads the official progress list under the owner-approved cadence."""
 
@@ -593,16 +605,13 @@ class NtuhProgressReader:
         if days_ahead > SCHEDULE_LOOKAHEAD_DAYS:
             # NTUH states its rule: schedule from midnight 14 days before
             # consultation, so a day opens at 00:00 Taipei 14 days earlier.
+            schedule_end, release_time = _unpublished_window(today, query.visit_date)
             return ClinicRoster(
                 False,
                 (),
                 "visit_date_out_of_schedule_window",
-                schedule_end=today + timedelta(days=SCHEDULE_LOOKAHEAD_DAYS),
-                release_time=datetime.combine(
-                    query.visit_date - timedelta(days=SCHEDULE_LOOKAHEAD_DAYS),
-                    time(0, 0),
-                    tzinfo=TAIPEI,
-                ),
+                schedule_end=schedule_end,
+                release_time=release_time,
             )
         return await self._list_future_schedule(query, today)
 
@@ -613,6 +622,8 @@ class NtuhProgressReader:
 
         With `memo_at`, a read made within `_SCHEDULE_MEMO_SECONDS` is reused, so a
         sweep matching many drafts of one department costs the hospital one request.
+        Only a clean read is remembered, so a transient failure is retried by the
+        next draft, and entries of earlier days are dropped.
         """
         memo_key = (department_code, today)
         if memo_at is not None:
@@ -630,7 +641,12 @@ class NtuhProgressReader:
             status, rows = "timeout", []
         except Exception:
             status, rows = "no_observation", []
-        if memo_at is not None:
+        if memo_at is not None and status == "ok":
+            self._schedule_memo = {
+                key: value
+                for key, value in self._schedule_memo.items()
+                if key[1] == today
+            }
             self._schedule_memo[memo_key] = (memo_at, status, rows)
         return status, rows
 
@@ -653,14 +669,11 @@ class NtuhProgressReader:
             return ClinicMatch(MatchKind.UNAVAILABLE, reason="visit_date_past")
         days_ahead = (query.visit_date - today).days
         if days_ahead > SCHEDULE_LOOKAHEAD_DAYS:
+            schedule_end, release_time = _unpublished_window(today, query.visit_date)
             return ClinicMatch(
                 MatchKind.NOT_YET_PUBLISHED,
-                schedule_end=today + timedelta(days=SCHEDULE_LOOKAHEAD_DAYS),
-                release_time=datetime.combine(
-                    query.visit_date - timedelta(days=SCHEDULE_LOOKAHEAD_DAYS),
-                    time(0, 0),
-                    tzinfo=TAIPEI,
-                ),
+                schedule_end=schedule_end,
+                release_time=release_time,
             )
         key = parse_clinic_key(query.clinic_code)
         if key is None:

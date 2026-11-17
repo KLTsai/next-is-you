@@ -5,6 +5,7 @@ import pytest
 from next_is_you import hospital_registry
 from test_scheduler_outbox import LocalDurableStorage
 from next_is_you.domain import (
+    ClinicMatch,
     ClinicOption,
     ClinicRoster,
     ClinicScope,
@@ -50,6 +51,9 @@ class _RecordingReader:
         self.calls.append(("start", scope.hospital))
         return QueueObservation(scope, now.isoformat(), 9, trustworthy_current=True)
 
+    async def match_clinic(self, query, now):
+        return ClinicMatch(MatchKind.UNAVAILABLE, reason="no_observation")
+
     async def list_clinics(self, query, now):
         self.calls.append(("roster", query.hospital))
         return ClinicRoster(
@@ -78,9 +82,14 @@ class _CurrentOnlyReader:
         return None
 
 
-class _FullReader(_CurrentOnlyReader):
+class _ListOnlyReader(_CurrentOnlyReader):
     async def list_clinics(self, query, now):
         return ClinicRoster(False, (), "no_observation")
+
+
+class _FullReader(_ListOnlyReader):
+    async def match_clinic(self, query, now):
+        return ClinicMatch(MatchKind.UNAVAILABLE, reason="no_observation")
 
 
 def test_capability_reflects_the_registered_tier() -> None:
@@ -220,6 +229,15 @@ def test_capability_is_derived_from_the_reader_type() -> None:
     )
 
 
+def test_a_reader_that_lists_but_cannot_match_is_not_full_schedule() -> None:
+    # Start and the sweep need match_clinic; a half-implemented reader must not
+    # be offered as full schedule and then fail every Start.
+    assert (
+        HospitalEntry("E", _ListOnlyReader, OFFICIAL).capability
+        is SourceCapability.CURRENT_NUMBER_ONLY
+    )
+
+
 def test_capability_is_not_a_field_anyone_fills_in() -> None:
     import dataclasses
 
@@ -331,7 +349,10 @@ class TestRegistryContract:
         entry = hospital_registry.HOSPITAL_REGISTRY[hospital]
         if entry.reader_type is None:
             expected = SourceCapability.UNSUPPORTED
-        elif callable(getattr(entry.reader_type, "list_clinics", None)):
+        elif all(
+            callable(getattr(entry.reader_type, name, None))
+            for name in ("list_clinics", "match_clinic")
+        ):
             expected = SourceCapability.FULL_SCHEDULE
         else:
             expected = SourceCapability.CURRENT_NUMBER_ONLY

@@ -162,12 +162,16 @@ test("a refused Start without a release time tells the organizer to ask the hosp
   );
 });
 
-test("startRefusalMessage falls back to the generic Start error text for other codes or a missing end date", () => {
+test("startRefusalMessage falls back to a plain notice, never the reload hint, when the facts are missing", () => {
   assert.ok(startRefusalMessage({ code: "doctor_not_scheduled" }).includes("並沒有看診"));
   assert.equal(startRefusalMessage({ code: "observation_unavailable" }), "");
   assert.equal(
     startRefusalMessage({ code: "visit_date_out_of_schedule_window", hospitalName: "合成醫院", visitDate: "2026-12-05" }),
-    "",
+    "院方還沒公布這一天的門診表，公布後再開始提醒。",
+  );
+  assert.equal(
+    startRefusalMessage({ code: "visit_date_out_of_schedule_window", scheduleEnd: "2026-12-01", visitDate: "2026-12-05" }),
+    "院方還沒公布這一天的門診表，公布後再開始提醒。",
   );
 });
 

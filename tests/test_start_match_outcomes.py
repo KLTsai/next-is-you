@@ -56,7 +56,9 @@ OUTCOMES = {
             "schedule_end": "2026-11-23",
             "release_time": "2026-11-15T00:00:00+08:00",
         },
-        ("scope_mismatch", "scope_mismatch"),
+        # Ticket #101: the refused draft is kept unchanged, so the status stays
+        # what a fresh draft carries.
+        ("unavailable", "no_observation"),
     ),
     "unavailable": (
         "03/合成醫師甲/角膜",

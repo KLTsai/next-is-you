@@ -17,9 +17,7 @@ from next_is_you.domain import (
     MatchQuery,
     ReadFailed,
     ReadSkipped,
-    SourceCapability,
 )
-from next_is_you.hospital_registry import capability_of
 from next_is_you.line_messaging import LinePushResult
 from next_is_you.persistence import TAIPEI, VisitRepository, visit_cutoff
 
@@ -261,13 +259,6 @@ class OutboxScheduler:
         rechecked = 0
         mismatched = 0
         for draft in drafts:
-            if (
-                capability_of(str(draft["hospital"]))
-                is not SourceCapability.FULL_SCHEDULE
-            ):
-                # No clinic schedule to check against: leave the draft alone,
-                # neither flagged nor marked checked.
-                continue
             try:
                 query = MatchQuery(
                     hospital=str(draft["hospital"]),
@@ -295,6 +286,12 @@ class OutboxScheduler:
                     draft_id, "scope_mismatch", "scope_mismatch"
                 )
                 mismatched += 1
+            elif match.kind is MatchKind.NOT_APPLICABLE:
+                # No clinic schedule to check against: do not flag, leave the
+                # source-read status alone, and mark the day so the draft is
+                # not fetched again on every later tick.
+                await self._visits.mark_preflight_checked(draft_id, today)
+                continue
             elif match.kind is MatchKind.NOT_YET_PUBLISHED:
                 # Nothing to check against yet: do not flag, leave the
                 # source-read status alone, and ask again on a later day.

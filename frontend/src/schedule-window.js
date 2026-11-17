@@ -92,12 +92,18 @@ export function visitErrorMessage(code, { visitDate } = {}) {
   return CURRENT_NUMBER_ONLY_MESSAGES[code] ?? VISIT_ERROR_MESSAGES[code] ?? "";
 }
 
+// Used when the refusal lacks the hospital name or end date to compose the full
+// notice (catalog not loaded, hospital retired): reloading would not help, so
+// say what is true without them.
+const UNPUBLISHED_DAY_FALLBACK = "院方還沒公布這一天的門診表，公布後再開始提醒。";
+
 // The text for a refused Start. A not-yet-published day reuses the setup form's
-// notice; any other code uses the generic Start error text, and "" means the
-// caller has no specific text for it.
+// notice, or a hospital-free fallback when its facts are missing; any other code
+// uses the generic Start error text, and "" means the caller has no specific
+// text for it.
 export function startRefusalMessage({ code, hospitalName, scheduleEnd, releaseTime, visitDate }) {
   if (code === "visit_date_out_of_schedule_window") {
-    if (!scheduleEnd || !hospitalName) return "";
+    if (!scheduleEnd || !hospitalName) return UNPUBLISHED_DAY_FALLBACK;
     return unpublishedDayNotice({ hospitalName, scheduleEnd, releaseTime, visitDate });
   }
   return visitErrorMessage(code, { visitDate });

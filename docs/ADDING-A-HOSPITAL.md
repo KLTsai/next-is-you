@@ -32,7 +32,9 @@ through one interface and one dispatcher:
   clinics from these, so it holds no hospital names, URLs or source assumptions.
 - **`ScheduleReader` (`domain`)** - the capability a `FULL_SCHEDULE` hospital
   adds on top of `HospitalReader`: `list_clinics(RosterQuery) -> ClinicRoster`,
-  the day's consulting doctors and rooms for the picker. `RegistryHospitalReader`
+  the day's consulting doctors and rooms for the picker, and
+  `match_clinic(MatchQuery, now) -> ClinicMatch`, which Start and the daily
+  recheck use to decide whether a stored draft is still on the schedule. `RegistryHospitalReader`
   offers a roster only for `FULL_SCHEDULE` hospitals; everything else degrades to
   manual entry.
 - **`source_samples.py`** - offline parsers that turn a *captured* response
@@ -47,15 +49,15 @@ other part of the system - the scheduler, the send gate, the frontend - changes.
 
 Every hospital has a `SourceCapability`, which the setup UI reads to decide how
 much to offer. Nobody declares it: it is derived from the entry's `reader_type`
-(no reader means `UNSUPPORTED`; a reader with `list_clinics` means
-`FULL_SCHEDULE`; any other reader means `CURRENT_NUMBER_ONLY`), without building
-a reader or touching transport. Decide which tier a hospital is in from what its
+(no reader means `UNSUPPORTED`; a reader with both `list_clinics` and
+`match_clinic` means `FULL_SCHEDULE`; any other reader means
+`CURRENT_NUMBER_ONLY`), without building a reader or touching transport. Decide which tier a hospital is in from what its
 public source exposes:
 
 | Capability | The source exposes | User experience |
 |---|---|---|
 | `FULL_SCHEDULE` | The day's roster for a department and session (which doctors and rooms are consulting) **and** the current called number | Cascading picker: choose department and date, pick a doctor from a live dropdown, type only the appointment number |
-| `CURRENT_NUMBER_ONLY` | Only the current called number for an identified clinic, no roster | Manual entry, labelled with the hospital's clinic-code parts, and no clinic schedule request. A draft can be saved for any future day. Start is allowed on the visit day only (the backend decides), and admits the visit only when the Start read confirms the clinic; the refusals are `start_on_visit_day_only`, `hospital_cannot_find_clinic` and `hospital_page_unreachable`, each leaving the draft unchanged and sending the family nothing. The daily recheck skips these drafts |
+| `CURRENT_NUMBER_ONLY` | Only the current called number for an identified clinic, no roster | Manual entry, labelled with the hospital's clinic-code parts, and no clinic schedule request. A draft can be saved for any future day. Start is allowed on the visit day only (the backend decides), and admits the visit only when the Start read confirms the clinic; the refusals are `start_on_visit_day_only`, `hospital_cannot_find_clinic` and `hospital_page_unreachable`, each leaving the draft unchanged and sending the family nothing. The daily recheck skips these drafts (the reader answers `not_applicable`, so nothing is flagged or read) |
 | `UNSUPPORTED` | Neither, or nothing permitted/public | Not offered for automatic monitoring (manual-reminder path or excluded from the picker) |
 
 Feasibility questions to answer before committing to a reader (this is the kind

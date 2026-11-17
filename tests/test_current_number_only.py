@@ -155,5 +155,68 @@ async def test_the_daily_sweep_leaves_current_number_only_drafts_unflagged() -> 
 
     await scheduler.prepare_tick(NOW)
 
-    assert row(database) == before
+    # Not flagged and nothing read; only the sweep's own bookkeeping date moves,
+    # so these drafts are not re-fetched on every later tick of the same day.
+    after = row(database)
+    assert after[:-1] == before[:-1]
+    assert after[-1] == TODAY.isoformat()
     assert source.requests == []
+    assert await repository.drafts_due_for_preflight_sweep(TODAY) == []
+
+
+def test_current_number_only_error_maps_only_the_clinic_not_open_skips() -> None:
+    from next_is_you.domain import ReadFailed, ReadSkipped
+    from next_is_you.send_gate import _current_number_only_error
+
+    for reason in ("clinic_not_started", "clinic_ended"):
+        assert (
+            _current_number_only_error(ReadSkipped(reason))
+            == "hospital_cannot_find_clinic"
+        )
+    # A skip that says nothing about the clinic is not "cannot find the clinic".
+    assert _current_number_only_error(ReadSkipped("not_due")) == (
+        "hospital_page_unreachable"
+    )
+    # An unmapped failure status must not raise.
+    assert _current_number_only_error(ReadFailed("weird", "x")) == (
+        "observation_unavailable"
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_registry_answers_not_applicable_for_a_hospital_without_a_schedule():
+    from next_is_you.domain import ClinicSession, MatchKind, MatchQuery
+
+    reader = hospital_registry.RegistryHospitalReader(
+        hospital_registry.ReaderDeps(
+            storage=LocalDurableStorage(), fetch=SyntheticSource()
+        )
+    )
+    query = MatchQuery(
+        SYNTHETIC_ID, "OPH", TODAY + timedelta(days=3), ClinicSession.MORNING, CLINIC
+    )
+    match = await reader.match_clinic(query, NOW)
+    assert match.kind is MatchKind.NOT_APPLICABLE
+    assert match.kind is not MatchKind.UNAVAILABLE
+
+
+@pytest.mark.asyncio
+async def test_the_sweep_needs_no_registry_entry_to_skip_a_not_applicable_draft():
+    from next_is_you.domain import ClinicMatch, MatchKind
+
+    class Matcher:
+        async def match_clinic(self, query, now):
+            return ClinicMatch(MatchKind.NOT_APPLICABLE)
+
+    database = LocalD1()
+    repository = await seed(database, TODAY + timedelta(days=3))
+    # An unregistered hospital id: only the reader's answer may decide.
+    database.connection.execute("PRAGMA foreign_keys = OFF")
+    database.connection.execute("UPDATE visits SET hospital = 'unregistered-x'")
+    scheduler = OutboxScheduler(repository, Matcher(), None, lambda: NOW)
+
+    await scheduler.prepare_tick(NOW)
+
+    status = row(database)[5:7]
+    assert status[0] != "scope_mismatch"
+    assert await repository.drafts_due_for_preflight_sweep(TODAY) == []

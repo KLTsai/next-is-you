@@ -132,6 +132,13 @@ Rules every hospital follows:
   publicly states; an unstated rule is reported as unknown, never estimated.
 - **Detail fields.** A reader must not drop a published field that helps a person
   confirm the clinic (room, location, clinic type, substitute doctor, status).
+- **Label and details.** Each `ClinicOption` carries a non-empty `label` (the
+  dropdown text, written by the reader) and an ordered `details` list of
+  `(name, value)` pairs, which the setup form lists once the clinic is chosen.
+  Build the label with `clinic_label(room, doctor, session_name)` so a hospital
+  without room numbers gets no empty segment. The registry contract test asserts
+  every option has a label; a new full-schedule hospital adds a roster fixture
+  to it.
 - **Family messages.** Messages are identical across hospitals and no reader
   affects their text.
 - **Official link.** It lives in the registry entry and is fixed, server-owned,

@@ -23,6 +23,15 @@ export interface ClinicOption {
   doctor: string;
   clinic_type: string;
   clinic_code: string;
+  // Written by the hospital's reader and shown as given: the dropdown text,
+  // and every labelled field the hospital publishes for the clinic.
+  label: string;
+  details: ClinicDetail[];
+}
+
+export interface ClinicDetail {
+  label: string;
+  value: string;
 }
 
 export interface ClinicRoster {

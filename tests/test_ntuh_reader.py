@@ -1345,13 +1345,13 @@ async def test_gate_reports_no_release_time_when_the_reader_states_none(
             )
 
     entry = dataclasses.replace(
-        hospital_registry.HOSPITAL_REGISTRY[Hospital.SHIN_KONG_TAIPEI],
+        hospital_registry.HOSPITAL_REGISTRY["shin-kong-taipei"],
         reader_type=SyntheticReader,
     )
     monkeypatch.setattr(
         hospital_registry,
         "HOSPITAL_REGISTRY",
-        {**hospital_registry.HOSPITAL_REGISTRY, Hospital.SHIN_KONG_TAIPEI: entry},
+        {**hospital_registry.HOSPITAL_REGISTRY, "shin-kong-taipei": entry},
     )
     _, gate = await gate_with_visit(FakeSource(PAGE))
     result = await gate.list_clinics(

@@ -207,6 +207,26 @@ def test_progress_link_catalog_is_limited_to_fixed_https_hospitals():
     assert progress_link("https://attacker.invalid") is None
 
 
+def test_hospital_catalog_response_is_byte_for_byte_unchanged():
+    # The snapshot was captured from the catalog before capability and the
+    # progress link moved into the registry entry (fixture/mock evidence).
+    snapshot = (
+        ROOT / "tests/fixtures/snapshots/organizer_hospitals_catalog.json"
+    ).read_bytes()
+
+    async def scenario():
+        _, http = make_client()
+        try:
+            authorize(http)
+            response = await http.get("/api/organizer/hospitals")
+            assert response.status_code == 200
+            assert response.content == snapshot
+        finally:
+            await http.aclose()
+
+    asyncio.run(scenario())
+
+
 def test_correction_patient_number_is_single_visit_authorized_csrf_protected_data():
     async def scenario():
         _, http = make_client()

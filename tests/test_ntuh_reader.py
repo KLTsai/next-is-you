@@ -1094,7 +1094,7 @@ async def test_preflight_blocks_start_when_date_is_out_of_schedule_window() -> N
     beyond = _PREFLIGHT_SIM_SOURCE_DATE + timedelta(days=20)
     await seed_ntuh_at(database, gate, "far", beyond)
     result = await gate.start_visit("far", _preflight_now().isoformat())
-    assert result == {"error": "visit_date_out_of_schedule_window"}
+    assert result["error"] == "visit_date_out_of_schedule_window"
     assert source.urls == []
     assert counts(database, "far")[:2] == ("scope_mismatch", "scope_mismatch")
 
@@ -1373,7 +1373,7 @@ async def test_match_clinic_answers_not_yet_published_without_a_request() -> Non
     match = await reader(source).match_clinic(
         _match_query(beyond, "03/合成醫師甲/角膜"), _schedule_sim_now()
     )
-    assert match == ClinicMatch(MatchOutcome.NOT_YET_PUBLISHED)
+    assert match.outcome is MatchOutcome.NOT_YET_PUBLISHED
     assert source.requests == []
 
 
@@ -1445,6 +1445,6 @@ async def test_an_unpublished_day_between_matches_does_not_cost_a_second_read() 
         _match_query(today + timedelta(days=20), code), now
     )
     await subject.match_clinic(_match_query(SCHEDULE_FIRST_VISIT, code), now)
-    assert unpublished == ClinicMatch(MatchOutcome.NOT_YET_PUBLISHED)
+    assert unpublished.outcome is MatchOutcome.NOT_YET_PUBLISHED
     schedule_requests = [r for r in source.requests if r.url.startswith(SCHEDULE_PATH)]
     assert len(schedule_requests) == 1

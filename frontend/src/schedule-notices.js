@@ -61,9 +61,25 @@ const VISIT_ERROR_MESSAGES = Object.freeze({
   doctor_not_scheduled: "所選醫師在那天並沒有看診，請重新選擇醫師或日期。",
   clinic_combo_mismatch: "科別、醫師與診間的組合與院方資料不符，請重新選擇。",
   schedule_unavailable: "暫時無法驗證醫師排班（院方頁回應異常），請稍後再試。",
-  visit_date_out_of_schedule_window: "院方還沒有公布這一天的門診表，公布後系統會自動核對你存的草稿。",
 });
 
 export function visitErrorMessage(code) {
   return VISIT_ERROR_MESSAGES[code] ?? "";
+}
+
+// The organizer's text for a refused Start. A not-yet-published day reuses the
+// setup form's notice, built from the facts the backend sent with the refusal;
+// every other code keeps its fixed text. Empty when the code has no schedule text.
+export function startRefusalMessage({ code, details, hospitalName, visitDate }) {
+  if (code !== "visit_date_out_of_schedule_window") return visitErrorMessage(code);
+  const endDate = details?.schedule_end_date;
+  if (!endDate) {
+    return `${hospitalName} 還沒有公布這一天的門診表，公布後系統會自動核對你存的草稿。`;
+  }
+  return notYetPublishedNotice({
+    hospitalName,
+    endDate,
+    visitDate,
+    releaseTime: details?.release_time,
+  });
 }

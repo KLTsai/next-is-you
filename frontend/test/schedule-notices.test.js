@@ -6,6 +6,7 @@ import {
   formatMonthDay,
   formatReleaseTime,
   notYetPublishedNotice,
+  startRefusalMessage,
   visitErrorMessage,
 } from "../src/schedule-notices.js";
 
@@ -64,10 +65,8 @@ test("visitErrorMessage maps the backend's Start-time error codes to user-facing
   assert.ok(visitErrorMessage("schedule_unavailable").includes("請稍後再試"));
   assert.ok(visitErrorMessage("visit_date_past").includes("看診日期已過"));
   assert.ok(visitErrorMessage("clinic_combo_mismatch").includes("組合"));
-  // The unpublished-day refusal names no hospital and no window length.
-  const unpublished = visitErrorMessage("visit_date_out_of_schedule_window");
-  assert.ok(unpublished.includes("還沒有公布"));
-  assert.ok(!/NTUH|兩週/.test(unpublished));
+  // The unpublished-day refusal is worded by startRefusalMessage, not here.
+  assert.equal(visitErrorMessage("visit_date_out_of_schedule_window"), "");
   assert.equal(visitErrorMessage("observation_unavailable"), "");
   assert.equal(visitErrorMessage(""), "");
 });
@@ -78,4 +77,27 @@ test("the setup page source holds no clinic schedule date arithmetic or lookahea
     assert.ok(!/LOOKAHEAD|addDaysISO|withinScheduleWindow|beyondScheduleWindow/i.test(source), file);
     assert.ok(!/setUTCDate|setDate\(|getDate\(\)\s*[+-]/.test(source), file);
   }
+});
+
+test("a refused Start for an unpublished day reuses the setup form's two notices", () => {
+  const base = { code: "visit_date_out_of_schedule_window", hospitalName: "臺大醫院總院", visitDate: "2026-12-05" };
+  assert.equal(
+    startRefusalMessage({ ...base, details: { schedule_end_date: "2026-12-01", release_time: "2026-11-21T00:00:00+08:00" } }),
+    "臺大醫院總院 目前只公布到 12/1 的門診表。12/5 的門診表預計 11/21 00:00 公布，公布後系統會自動核對你存的草稿。",
+  );
+  assert.equal(
+    startRefusalMessage({ ...base, details: { schedule_end_date: "2026-12-01", release_time: null } }),
+    "臺大醫院總院 目前只公布到 12/1 的門診表。院方未公布這一天門診表的確切時間，請向院方確認。",
+  );
+});
+
+test("a refused Start without the backend's end date still names no window length", () => {
+  const text = startRefusalMessage({ code: "visit_date_out_of_schedule_window", details: {}, hospitalName: "某醫院", visitDate: "2026-12-05" });
+  assert.ok(text.startsWith("某醫院 "));
+  assert.ok(!/NTUH|兩週/.test(text));
+});
+
+test("other refused Start codes keep their fixed texts", () => {
+  assert.ok(startRefusalMessage({ code: "doctor_not_scheduled", details: {}, hospitalName: "x", visitDate: "" }).includes("並沒有看診"));
+  assert.equal(startRefusalMessage({ code: "observation_unavailable", details: {}, hospitalName: "x", visitDate: "" }), "");
 });

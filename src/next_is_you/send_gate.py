@@ -362,7 +362,19 @@ class SystemSendGate(_DurableObjectBase):
             await repository.set_source_read(
                 visit_id, "scope_mismatch", "scope_mismatch"
             )
-            return {"error": "visit_date_out_of_schedule_window"}
+            return {
+                "error": "visit_date_out_of_schedule_window",
+                "schedule_end_date": (
+                    match.schedule_end_date.isoformat()
+                    if match.schedule_end_date is not None
+                    else None
+                ),
+                "release_time": (
+                    match.release_time.isoformat()
+                    if match.release_time is not None
+                    else None
+                ),
+            }
 
         if match.outcome is MatchOutcome.UNAVAILABLE:
             if match.reason == "visit_date_past":

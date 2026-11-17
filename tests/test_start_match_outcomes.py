@@ -82,9 +82,41 @@ async def test_day_not_yet_published_is_refused_without_contacting_the_hospital(
     result, visit, stored = await _start(
         source, beyond, "03/合成醫師甲/角膜", "morning"
     )
-    assert result == {"error": "visit_date_out_of_schedule_window"}
+    # Preflight "today" is 11/9; the end date is today plus 14 days, and the
+    # day's release time is midnight Taipei 14 days before it.
+    assert result == {
+        "error": "visit_date_out_of_schedule_window",
+        "schedule_end_date": "2026-11-23",
+        "release_time": f"{(beyond - timedelta(days=14)).isoformat()}T00:00:00+08:00",
+    }
     assert visit["state"] == "draft"
     assert stored == ("scope_mismatch", "scope_mismatch")
+    assert source.requests == []
+
+
+@pytest.mark.asyncio
+async def test_refused_start_keeps_the_draft_and_creates_no_outbound_event() -> None:
+    source = FakeSource(schedule=SCHEDULE_FIXTURE)
+    database, gate = await gate_with_visit(source)
+    beyond = SCHEDULE_FIRST_VISIT + timedelta(days=20)
+    repository = await seed_ntuh_at(database, gate, "v1", beyond)
+    before = await repository.get_visit("v1")
+    result = await gate.start_visit("v1", _preflight_now().isoformat())
+    assert result["error"] == "visit_date_out_of_schedule_window"
+    after = await repository.get_visit("v1")
+    for field in (
+        "state",
+        "visit_day",
+        "department_code",
+        "clinic_code",
+        "clinic_session",
+        "patient_number",
+    ):
+        assert after.get(field) == before.get(field)
+    events = database.connection.execute(
+        "SELECT COUNT(*) FROM outbound_events"
+    ).fetchone()[0]
+    assert events == 0
     assert source.requests == []
 
 

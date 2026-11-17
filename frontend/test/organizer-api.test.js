@@ -152,3 +152,16 @@ test("typed API failures expose only the approved error code", async () => {
     return true;
   });
 });
+
+test("a refused Start carries the clinic schedule end date and release time, and nothing else", async () => {
+  const fetcher = async () =>
+    response(
+      { error: { code: "visit_date_out_of_schedule_window", schedule_end_date: "2026-12-01", release_time: null, detail: "leak" } },
+      409,
+    );
+  await assert.rejects(startVisit("v1", { fetcher, csrfToken: "csrf-local" }), (error) => {
+    assert.equal(error.code, "visit_date_out_of_schedule_window");
+    assert.deepEqual(error.details, { schedule_end_date: "2026-12-01" });
+    return true;
+  });
+});

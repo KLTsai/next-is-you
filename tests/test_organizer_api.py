@@ -68,7 +68,19 @@ class Gate:
     ):
         return await self.visits.add_recipient(visit_id, recipient_id, now)
 
-    async def start_visit(self, _visit_id: str, _now: str):
+    async def start_visit(self, visit_id: str, _now: str):
+        if visit_id == "unpublished":
+            return {
+                "error": "visit_date_out_of_schedule_window",
+                "schedule_end_date": "2026-12-01",
+                "release_time": "2026-11-21T00:00:00+08:00",
+            }
+        if visit_id == "unpublished-no-time":
+            return {
+                "error": "visit_date_out_of_schedule_window",
+                "schedule_end_date": "2026-12-01",
+                "release_time": None,
+            }
         return {"error": "observation_unavailable"}
 
     async def stop_visit(self, visit_id: str, _now: str):
@@ -301,6 +313,33 @@ def test_mutations_recheck_allowlist_and_start_returns_typed_safe_error():
             assert started.status_code == 503
             assert started.json() == {"error": {"code": "observation_unavailable"}}
             assert "detail" not in started.json()
+        finally:
+            await http.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_start_refused_for_an_unpublished_day_carries_end_date_and_release_time():
+    async def scenario():
+        _, http = make_client()
+        try:
+            headers = authorize(http)
+            started = await http.post(
+                "/api/organizer/visits/unpublished/start", headers=headers
+            )
+            assert started.status_code == 409
+            assert started.json() == {
+                "error": {
+                    "code": "visit_date_out_of_schedule_window",
+                    "schedule_end_date": "2026-12-01",
+                    "release_time": "2026-11-21T00:00:00+08:00",
+                }
+            }
+            bare = await http.post(
+                "/api/organizer/visits/unpublished-no-time/start", headers=headers
+            )
+            assert bare.status_code == 409
+            assert bare.json()["error"]["release_time"] is None
         finally:
             await http.aclose()
 

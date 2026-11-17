@@ -72,6 +72,7 @@ export interface VisitInput {
 export class OrganizerApiError extends Error {
   status: number;
   code: string;
+  details: { schedule_end_date?: string | null; release_time?: string | null };
 }
 
 export function listRecipients(options?: object): Promise<{ recipients: Recipient[] }>;

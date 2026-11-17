@@ -1,9 +1,12 @@
 export class OrganizerApiError extends Error {
-  constructor(status, code) {
+  constructor(status, code, details = {}) {
     super(code);
     this.name = "OrganizerApiError";
     this.status = status;
     this.code = code;
+    // Extra facts the backend sent with the refusal, such as the clinic
+    // schedule end date and release time for a not-yet-published day.
+    this.details = details;
   }
 }
 
@@ -28,7 +31,12 @@ async function request(path, { method = "GET", body, fetcher = fetch, csrfToken 
     try { payload = await response.json(); } catch { payload = null; }
   }
   if (!response.ok) {
-    throw new OrganizerApiError(response.status, payload?.error?.code || "request_failed");
+    const error = payload?.error ?? {};
+    // Only the two clinic schedule facts travel with a refusal; nothing else.
+    const details = {};
+    if (typeof error.schedule_end_date === "string") details.schedule_end_date = error.schedule_end_date;
+    if (typeof error.release_time === "string") details.release_time = error.release_time;
+    throw new OrganizerApiError(response.status, error.code || "request_failed", details);
   }
   return payload;
 }

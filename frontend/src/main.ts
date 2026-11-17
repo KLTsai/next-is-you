@@ -29,7 +29,7 @@ import { projectDashboardVisits } from "./dashboard-projection.js";
 import {
   degradeNotice as scheduleDegradeNotice,
   notYetPublishedNotice,
-  visitErrorMessage,
+  startRefusalMessage,
 } from "./schedule-notices.js";
 import { validateSetup } from "./setup-validation.js";
 
@@ -142,7 +142,7 @@ function formatCheckedAt(value: string | null | undefined): string {
   }).format(checkedAt);
 }
 
-function errorText(error: unknown): string {
+function errorText(error: unknown, startOf?: OrganizerVisit): string {
   if (!(error instanceof OrganizerApiError)) return "連線失敗，請確認服務後重試。";
   const labels: Record<string, string> = {
     service_unavailable: "目前無法使用提醒服務。",
@@ -158,7 +158,12 @@ function errorText(error: unknown): string {
     visit_not_found: "找不到這筆提醒，請重新載入。",
   };
   if (error.status === 401 || error.status === 403) return "登入已失效或目前帳號沒有管理權限。";
-  const scheduleMessage = visitErrorMessage(error.code);
+  const scheduleMessage = startRefusalMessage({
+    code: error.code,
+    details: error.details,
+    hospitalName: startOf ? hospitalDisplayName(startOf.hospital) : "",
+    visitDate: startOf?.date ?? "",
+  });
   if (scheduleMessage) return scheduleMessage;
   return labels[error.code] || "操作未完成，請重新載入後再試。";
 }
@@ -814,7 +819,7 @@ function bindActions(): void {
       const result = await startVisit(id);
       message = result.state === "active" ? "服務已回覆啟動成功。" : "服務尚未確認啟動，請查看清單狀態。";
     } catch (error) {
-      startFailures.set(id, errorText(error));
+      startFailures.set(id, errorText(error, item));
     } finally {
       pendingStarts.delete(id);
       await loadDashboard();

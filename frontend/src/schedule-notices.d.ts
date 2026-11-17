@@ -12,3 +12,10 @@ export function notYetPublishedNotice(input: {
 export function degradeNotice(reason: string): string;
 
 export function visitErrorMessage(code: string): string;
+
+export function startRefusalMessage(input: {
+  code: string;
+  details: { schedule_end_date?: string | null; release_time?: string | null } | undefined;
+  hospitalName: string;
+  visitDate: string;
+}): string;

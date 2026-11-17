@@ -671,6 +671,11 @@ class SystemSendGate(_DurableObjectBase):
                     "doctor": option.doctor,
                     "clinic_type": option.clinic_type,
                     "clinic_code": option.clinic_code,
+                    "label": option.label,
+                    "details": [
+                        {"label": name, "value": value}
+                        for name, value in option.details
+                    ],
                 }
                 for option in roster.clinics
             ],

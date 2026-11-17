@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import pty
 import signal
@@ -1152,6 +1153,103 @@ def test_correction_save_vs_roster_latency(tmp_path, scenario):
                 save.click()
                 expect(page.get_by_role("heading", name="已儲存草稿 1")).to_be_visible(
                     timeout=10000
+                )
+        finally:
+            context.close()
+            browser.close()
+
+
+def test_setup_form_shows_the_readers_label_and_the_chosen_clinics_details(tmp_path):
+    # Local integration: the real page and backend, with the clinics request
+    # answered in the browser because local test mode does not run the reader.
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = int(listener.getsockname()[1])
+    day = (datetime.now(timezone.utc) + timedelta(days=2)).date().isoformat()
+    roster = {
+        "available": True,
+        "reason": "ok",
+        "clinics": [
+            {
+                "session": "morning",
+                "room": "05",
+                "doctor": "合成醫師乙",
+                "clinic_type": "網膜",
+                "clinic_code": "05/合成醫師乙/網膜",
+                "label": "05 · 合成醫師乙（早診）",
+                "details": [
+                    {"label": "診間", "value": "05"},
+                    {"label": "醫師", "value": "合成醫師乙"},
+                    {"label": "科別", "value": "一般眼科"},
+                    {"label": "診別", "value": "網膜"},
+                    {"label": "時段", "value": "早診"},
+                    {"label": "狀態", "value": "額滿"},
+                ],
+            },
+            {
+                "session": "afternoon",
+                "room": "",
+                "doctor": "合成醫師丁",
+                "clinic_type": "青光眼",
+                "clinic_code": "/合成醫師丁/青光眼",
+                "label": "合成醫師丁（午診）",
+                "details": [{"label": "醫師", "value": "合成醫師丁"}],
+            },
+        ],
+    }
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        origin = f"http://127.0.0.1:{port}"
+        context.route(
+            "**/*",
+            lambda route: (
+                route.continue_()
+                if route.request.url.startswith(origin + "/")
+                else route.abort()
+            ),
+        )
+        page = context.new_page()
+        page.route(
+            "**/clinics?**",
+            lambda route: route.fulfill(
+                status=200, content_type="application/json", body=json.dumps(roster)
+            ),
+        )
+        try:
+            with rehearsal(tmp_path, port):
+                page.goto(origin)
+                page.get_by_role("button", name="本機合成測試登入").click()
+                page.locator("#visit-form").wait_for()
+                page.locator("input[name=date]").fill(day)
+                select = page.locator('select[name="clinic_code"]')
+                select.wait_for()
+                labels = [
+                    option.inner_text() for option in select.locator("option").all()
+                ]
+                assert labels == [
+                    "請選擇醫師",
+                    "05 · 合成醫師乙（早診）",
+                    "合成醫師丁（午診）",
+                ]
+                expect(page.locator(".clinic-details")).to_have_count(0)
+                select.select_option("05/合成醫師乙/網膜")
+                details = page.locator(".clinic-details")
+                expect(details).to_be_visible()
+                expect(details.locator("dt")).to_have_text(
+                    ["診間", "醫師", "科別", "診別", "時段", "狀態"]
+                )
+                expect(details.locator("dd")).to_have_text(
+                    ["05", "合成醫師乙", "一般眼科", "網膜", "早診", "額滿"]
+                )
+                helper = page.locator("form small", has_text="只列出該日該科排班")
+                expect(helper).to_have_text(
+                    "只列出該日該科排班的醫師；診間與診次自動帶入。"
+                    "院方可能調整排班，系統每天會重新核對，按開始時也會再核對一次。"
+                )
+                assert "兩週" not in page.locator("body").inner_text()
+                details.locator("xpath=..").screenshot(
+                    path=str(tmp_path / "clinic-details.png")
                 )
         finally:
             context.close()

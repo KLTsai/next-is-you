@@ -44,6 +44,8 @@ from test_scheduler_outbox import (
 )
 from next_is_you.send_gate import SystemSendGate
 
+from next_is_you.domain import clinic_label  # noqa: E402
+
 FIXTURES = Path(__file__).parent / "fixtures" / "hospitals"
 PAGE = (FIXTURES / "ntuh_oph_light_table.html").read_text(encoding="utf-8")
 SELECTOR = (FIXTURES / "ntuh_webreg_selector.html").read_text(encoding="utf-8")
@@ -685,6 +687,80 @@ async def test_list_clinics_merges_the_three_sessions() -> None:
 
 
 @pytest.mark.asyncio
+async def test_today_roster_labels_and_details_match_the_light_table_card() -> None:
+    # Fixture/mock: field by field against the card for 合成醫師丙 on the
+    # captured light-table page (room 11 診, clinic type 醫師約診).
+    source = FakeSource(PAGE)
+    roster = await reader(source).list_clinics(
+        RosterQuery("ntuh-main", "OPH", DAY), taipei(14, 0)
+    )
+    option = next(
+        c
+        for c in roster.clinics
+        if c.clinic_code == "11 診/合成醫師丙/醫師約診"
+        and c.session is ClinicSession.AFTERNOON
+    )
+    assert option.label == "11 診 · 合成醫師丙（午診）"
+    assert option.details == (
+        ("診間", "11 診"),
+        ("醫師", "合成醫師丙"),
+        ("診別", "醫師約診"),
+        ("時段", "午診"),
+    )
+    assert all(c.label for c in roster.clinics)
+
+
+@pytest.mark.asyncio
+async def test_future_roster_labels_and_details_match_the_schedule_cards() -> None:
+    # Fixture/mock: 11/10 schedule page. Card 乙 is 05 診, 一般眼科 | 網膜,
+    # tagged 額滿; card 甲 is 03 診, 一般眼科 | 角膜 with no status tag.
+    source = FakeSource(schedule=SCHEDULE_FIXTURE)
+    roster = await reader(source).list_clinics(
+        RosterQuery("ntuh-main", "OPH", SCHEDULE_FIRST_VISIT),
+        _schedule_sim_now(),
+    )
+    by_doctor = {c.doctor: c for c in roster.clinics}
+    assert by_doctor["合成醫師甲"].label == "03 · 合成醫師甲（早診）"
+    assert by_doctor["合成醫師甲"].details == (
+        ("診間", "03"),
+        ("醫師", "合成醫師甲"),
+        ("科別", "一般眼科"),
+        ("診別", "角膜"),
+        ("時段", "早診"),
+    )
+    assert by_doctor["合成醫師乙"].details == (
+        ("診間", "05"),
+        ("醫師", "合成醫師乙"),
+        ("科別", "一般眼科"),
+        ("診別", "網膜"),
+        ("時段", "早診"),
+        ("狀態", "額滿"),
+    )
+    assert by_doctor["合成醫師丁"].label == "11 · 合成醫師丁（午診）"
+    assert all(c.label for c in roster.clinics)
+
+
+@pytest.mark.asyncio
+async def test_gate_roster_wire_carries_label_and_details() -> None:
+    source = FakeSource(PAGE)
+    _, gate = await gate_with_visit(source)
+    result = await gate.list_clinics(
+        "ntuh-main", "OPH", DAY.isoformat(), taipei(14, 0).isoformat()
+    )
+    first = result["clinics"][0]
+    assert first["label"] == "07 診 · 合成醫師甲（早診）"
+    assert first["details"][0] == {"label": "診間", "value": "07 診"}
+
+
+def test_a_label_joins_only_the_segments_a_hospital_publishes() -> None:
+    # A synthetic hospital without room numbers: no empty segment, no stray
+    # separator.
+    assert clinic_label("", "王醫師", "早診") == "王醫師（早診）"
+    assert clinic_label("  ", "王醫師", "") == "王醫師"
+    assert clinic_label("11 診", "王醫師", "午診") == "11 診 · 王醫師（午診）"
+
+
+@pytest.mark.asyncio
 async def test_list_clinics_rejects_past_date_without_fetching() -> None:
     # A past visit date can only produce `visit_date_past`; no source read is
     # worthwhile.
@@ -734,7 +810,13 @@ def test_parse_schedule_extracts_date_session_room_doctor_clinic_type_status() -
     # One open morning card, with 診別 pulled from `.sub-spec` after the pipe.
     assert (
         ScheduleRow(
-            SCHEDULE_FIRST_VISIT, ClinicSession.MORNING, "03", "合成醫師甲", "角膜", ""
+            SCHEDULE_FIRST_VISIT,
+            ClinicSession.MORNING,
+            "03",
+            "合成醫師甲",
+            "角膜",
+            "",
+            "一般眼科",
         )
         in rows
     )
@@ -1270,6 +1352,8 @@ async def test_gate_lists_clinics_when_the_reader_is_enabled() -> None:
     assert result["available"] is True and result["reason"] == "ok"
     assert len(result["clinics"]) == 15
     assert result["clinics"][0].keys() == {
+        "label",
+        "details",
         "session",
         "room",
         "doctor",

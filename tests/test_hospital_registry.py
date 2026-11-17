@@ -3,6 +3,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from next_is_you import hospital_registry
+from test_scheduler_outbox import LocalDurableStorage
 from next_is_you.domain import (
     ClinicOption,
     ClinicRoster,
@@ -270,6 +271,26 @@ def contract_hospitals() -> list[str]:
     return list(hospital_registry.HOSPITAL_REGISTRY)
 
 
+def _ntuh_roster_fixture():
+
+    import test_ntuh_reader as t
+
+    now = t._schedule_sim_now()
+    queries = [
+        RosterQuery("ntuh-main", "OPH", t.SCHEDULE_FIRST_VISIT),
+        RosterQuery("ntuh-main", "OPH", now.date()),
+    ]
+    return (
+        lambda: t.FakeSource(t.PAGE, schedule=t.SCHEDULE_FIXTURE),
+        queries,
+        now,
+    )
+
+
+# hospital id -> () -> (source factory, queries to list, now)
+_ROSTER_FIXTURES = {"ntuh-main": _ntuh_roster_fixture}
+
+
 @pytest.mark.parametrize("hospital", contract_hospitals(), ids=lambda h: h)
 class TestRegistryContract:
     def test_capability_derives_from_the_reader_type(self, hospital) -> None:
@@ -287,6 +308,26 @@ class TestRegistryContract:
         entry = hospital_registry.HOSPITAL_REGISTRY[hospital]
         if entry.capability is not SourceCapability.UNSUPPORTED:
             assert len(entry.departments) >= 1
+
+    @pytest.mark.asyncio
+    async def test_every_clinic_option_has_a_non_empty_label(self, hospital) -> None:
+        # Fixture/mock: each full-schedule hospital supplies a fake source
+        # and the days to list. A new full-schedule hospital without an entry
+        # in `_ROSTER_FIXTURES` fails here, so no dropdown entry can be blank.
+        entry = hospital_registry.HOSPITAL_REGISTRY[hospital]
+        if entry.capability is not SourceCapability.FULL_SCHEDULE:
+            return
+        assert hospital in _ROSTER_FIXTURES, "supply a roster fixture"
+        make_source, queries, now = _ROSTER_FIXTURES[hospital]()
+        reader = entry.make_reader(ReaderDeps(LocalDurableStorage(), make_source()))
+        listed = 0
+        for query in queries:
+            roster = await reader.list_clinics(query, now)
+            assert roster.available
+            for option in roster.clinics:
+                listed += 1
+                assert option.label.strip()
+        assert listed > 0
 
     def test_official_link_is_fixed_https(self, hospital) -> None:
         from urllib.parse import urlparse

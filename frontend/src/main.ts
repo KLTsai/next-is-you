@@ -314,13 +314,17 @@ function clinicSectionMarkup(
   }
   if (useRoster && rosterReady && roster?.available) {
     const options = roster.clinics
-      .map((clinic) => `<option value="${escapeHtml(clinic.clinic_code)}" ${selectedClinic === clinic.clinic_code ? "selected" : ""}>${escapeHtml(`${clinic.room} · ${clinic.doctor}（${sessionNames[clinic.session]}）`)}</option>`)
+      .map((clinic) => `<option value="${escapeHtml(clinic.clinic_code)}" ${selectedClinic === clinic.clinic_code ? "selected" : ""}>${escapeHtml(clinic.label)}</option>`)
       .join("");
     const chosen = roster.clinics.find((clinic) => clinic.clinic_code === selectedClinic);
     const helper = selectedDate === today
       ? "只列出當天該科實際看診的醫師；診間與診次自動帶入。來源吻合不代表號碼已與現場燈號核實。"
-      : "只列出該日該科排班的醫師；診間與診次自動帶入。";
-    return `<label class="field"><span>醫師 / 診間</span><select name="clinic_code" required><option value="" ${selectedClinic ? "" : "selected"}>請選擇醫師</option>${options}</select><input type="hidden" name="session" value="${escapeHtml(chosen?.session ?? "")}"><small>${helper}</small>${errorMarkup("clinic_code")}</label>`;
+      : "只列出該日該科排班的醫師；診間與診次自動帶入。院方可能調整排班，系統每天會重新核對，按開始時也會再核對一次。";
+    const detailRows = (chosen?.details ?? [])
+      .map((detail) => `<div><dt>${escapeHtml(detail.label)}</dt><dd>${escapeHtml(detail.value)}</dd></div>`)
+      .join("");
+    const detailList = detailRows ? `<dl class="clinic-details" aria-label="院方公布的這個診的資料">${detailRows}</dl>` : "";
+    return `<label class="field"><span>醫師 / 診間</span><select name="clinic_code" required><option value="" ${selectedClinic ? "" : "selected"}>請選擇醫師</option>${options}</select><input type="hidden" name="session" value="${escapeHtml(chosen?.session ?? "")}">${detailList}<small>${helper}</small>${errorMarkup("clinic_code")}</label>`;
   }
 
   // Manual entry: a day the hospital has not published, past date (defensive),

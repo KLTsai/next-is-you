@@ -39,6 +39,7 @@ from urllib.parse import urlencode
 
 from next_is_you.domain import (
     ClinicOption,
+    clinic_label,
     ClinicMatch,
     ClinicRoster,
     ClinicScope,
@@ -202,6 +203,21 @@ class ScheduleRow:
     doctor: str
     clinic_type: str
     status: str
+    # The department or specialty text before the `|` in `.sub-spec`
+    # (`一般眼科 | 角膜`); empty when the card shows none.
+    department: str = ""
+
+
+_SESSION_NAMES = {
+    ClinicSession.MORNING: "早診",
+    ClinicSession.AFTERNOON: "午診",
+    ClinicSession.EVENING: "晚診",
+}
+
+
+def _details(*pairs: tuple[str, str]) -> tuple[tuple[str, str], ...]:
+    """Keep the published fields, in order; an unpublished one is left out."""
+    return tuple((name, value.strip()) for name, value in pairs if value.strip())
 
 
 def parse_clinic_key(clinic_code: str) -> ClinicKey | None:
@@ -460,6 +476,7 @@ class _ScheduleCollector(HTMLParser):
         clinic_type = (
             sub_spec.split("|")[-1].strip() if "|" in sub_spec else sub_spec.strip()
         )
+        department = sub_spec.split("|")[0].strip() if "|" in sub_spec else ""
         self.rows.append(
             ScheduleRow(
                 visit_date=self._current_date,
@@ -468,6 +485,7 @@ class _ScheduleCollector(HTMLParser):
                 doctor=match.group("doctor"),
                 clinic_type=clinic_type,
                 status=self._card.get("status", ""),
+                department=department,
             )
         )
 
@@ -706,6 +724,13 @@ class NtuhProgressReader:
                     doctor=row.doctor,
                     clinic_type=row.clinic_type,
                     clinic_code=f"{row.room}/{row.doctor}/{row.clinic_type}",
+                    label=clinic_label(row.room, row.doctor, _SESSION_NAMES[session]),
+                    details=_details(
+                        ("診間", row.room),
+                        ("醫師", row.doctor),
+                        ("診別", row.clinic_type),
+                        ("時段", _SESSION_NAMES[session]),
+                    ),
                 )
                 for row in rows
             )
@@ -739,6 +764,15 @@ class NtuhProgressReader:
                 doctor=row.doctor,
                 clinic_type=row.clinic_type,
                 clinic_code=f"{row.room}/{row.doctor}/{row.clinic_type}",
+                label=clinic_label(row.room, row.doctor, _SESSION_NAMES[row.session]),
+                details=_details(
+                    ("診間", row.room),
+                    ("醫師", row.doctor),
+                    ("科別", row.department),
+                    ("診別", row.clinic_type),
+                    ("時段", _SESSION_NAMES[row.session]),
+                    ("狀態", row.status),
+                ),
             )
             for row in matching
         )

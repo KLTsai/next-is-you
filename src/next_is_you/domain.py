@@ -164,11 +164,19 @@ class ClinicRoster:
     the hospital exposes no schedule, reads are held, the day is not today for a
     source that only shows today, or a read failed. `reason` names which, so the
     UI can fall back to manual entry instead of showing a broken picker.
+
+    When the day is not yet published, the reader also reports the hospital's
+    own `schedule_end_date` (the last day its clinic schedule covers) and, only
+    when the hospital states one publicly, the `release_time` of the requested
+    day. Both are computed by the reader under its own rule and are `None` when
+    unknown; neither is ever estimated.
     """
 
     available: bool
     clinics: tuple[ClinicOption, ...]
     reason: str
+    schedule_end_date: date | None = None
+    release_time: datetime | None = None
 
 
 class MatchOutcome(StrEnum):

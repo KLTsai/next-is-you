@@ -519,6 +519,16 @@ def _norm(text: str) -> str:
     return "".join(character for character in text.casefold() if character.isalnum())
 
 
+def _schedule_release_time(visit_date: date) -> datetime:
+    """When NTUH adds `visit_date` to its clinic schedule.
+
+    NTUH's clinic schedule page states "Schedule from midnight on 14 days before
+    consultation", so a day appears at 00:00 Taipei time 14 days before it.
+    """
+    release_day = visit_date - timedelta(days=SCHEDULE_LOOKAHEAD_DAYS)
+    return datetime(release_day.year, release_day.month, release_day.day, tzinfo=TAIPEI)
+
+
 def _row_clinic_code(row: ScheduleRow) -> str:
     return f"{row.room}/{row.doctor}/{row.clinic_type}"
 
@@ -575,7 +585,13 @@ class NtuhProgressReader:
         if days_ahead == 0:
             return await self._list_today_roster(query.department_code)
         if days_ahead > SCHEDULE_LOOKAHEAD_DAYS:
-            return ClinicRoster(False, (), "visit_date_out_of_schedule_window")
+            return ClinicRoster(
+                False,
+                (),
+                "visit_date_out_of_schedule_window",
+                schedule_end_date=today + timedelta(days=SCHEDULE_LOOKAHEAD_DAYS),
+                release_time=_schedule_release_time(query.visit_date),
+            )
         return await self._list_future_schedule(query, today)
 
     async def _list_today_roster(self, department_code: str) -> ClinicRoster:

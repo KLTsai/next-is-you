@@ -709,7 +709,13 @@ async def test_list_clinics_rejects_date_beyond_schedule_window() -> None:
         RosterQuery(Hospital.NTUH_MAIN, "OPH", DAY + timedelta(days=15)),
         taipei(14, 0),
     )
-    assert roster == ClinicRoster(False, (), "visit_date_out_of_schedule_window")
+    assert roster == ClinicRoster(
+        False,
+        (),
+        "visit_date_out_of_schedule_window",
+        schedule_end_date=DAY + timedelta(days=14),
+        release_time=datetime(2026, 10, 23, tzinfo=timezone(timedelta(hours=8))),
+    )
     assert source.requests == []
 
 
@@ -1279,7 +1285,13 @@ async def test_gate_roster_is_held_without_the_reader() -> None:
     result = await gate.list_clinics(
         "ntuh-main", "OPH", DAY.isoformat(), taipei(14, 0).isoformat()
     )
-    assert result == {"available": False, "reason": "no_observation", "clinics": []}
+    assert result == {
+        "available": False,
+        "reason": "no_observation",
+        "schedule_end_date": None,
+        "release_time": None,
+        "clinics": [],
+    }
 
 
 @pytest.mark.asyncio
@@ -1289,7 +1301,13 @@ async def test_gate_roster_rejects_an_unknown_hospital() -> None:
     result = await gate.list_clinics(
         "not-a-hospital", "OPH", DAY.isoformat(), taipei(14, 0).isoformat()
     )
-    assert result == {"available": False, "reason": "invalid_data", "clinics": []}
+    assert result == {
+        "available": False,
+        "reason": "invalid_data",
+        "schedule_end_date": None,
+        "release_time": None,
+        "clinics": [],
+    }
 
 
 def _match_query(visit_day, clinic_code: str, session=ClinicSession.MORNING):

@@ -37,6 +37,12 @@ from next_is_you.ntuh_reader import (
 )
 
 
+# What a reader must offer to be FULL_SCHEDULE: the picker's roster and the
+# draft check Start and the sweep use. Deriving from both means a reader that
+# implements only one is never offered as full schedule.
+_SCHEDULE_METHODS = ("list_clinics", "match_clinic")
+
+
 @dataclass(frozen=True, slots=True)
 class ReaderDeps:
     """Runtime dependencies a hospital reader is built from.
@@ -55,9 +61,10 @@ class HospitalEntry:
     """What the system knows about one hospital, independent of transport.
 
     `capability` is derived, never declared: no `reader_type` means
-    unsupported; a reader type that can list a clinic schedule means full
-    schedule; otherwise current number only. It reads the type, so no reader is
-    built and no transport is touched. Retiring a hospital keeps the entry and
+    unsupported; a reader type that can both list a clinic schedule and check
+    a draft against it (`list_clinics` and `match_clinic`) means full schedule;
+    otherwise current number only. It reads the type, so no reader is built and
+    no transport is touched. Retiring a hospital keeps the entry and
     sets `reader_type` to `None`; reads then fail closed and the catalog shows
     it as unsupported.
 
@@ -80,7 +87,10 @@ class HospitalEntry:
     def capability(self) -> SourceCapability:
         if self.reader_type is None:
             return SourceCapability.UNSUPPORTED
-        if callable(getattr(self.reader_type, "list_clinics", None)):
+        if all(
+            callable(getattr(self.reader_type, name, None))
+            for name in _SCHEDULE_METHODS
+        ):
             return SourceCapability.FULL_SCHEDULE
         return SourceCapability.CURRENT_NUMBER_ONLY
 
@@ -170,7 +180,7 @@ class RegistryHospitalReader:
 
     async def match_clinic(self, query: MatchQuery, now: datetime) -> ClinicMatch:
         if capability_of(query.hospital) is not SourceCapability.FULL_SCHEDULE:
-            return ClinicMatch(MatchKind.UNAVAILABLE, reason="unsupported")
+            return ClinicMatch(MatchKind.NOT_APPLICABLE)
         reader = self._reader_for(query.hospital)
         matcher = getattr(reader, "match_clinic", None)
         if matcher is None:

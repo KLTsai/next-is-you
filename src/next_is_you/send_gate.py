@@ -649,7 +649,7 @@ class SystemSendGate(_DurableObjectBase):
         reader = self._hospital_reader()
         lister = getattr(reader, "list_clinics", None)
         if lister is None:
-            return {"available": False, "reason": "no_observation", "clinics": []}
+            return _unavailable_roster("no_observation")
         try:
             query = RosterQuery(
                 hospital=Hospital(hospital),
@@ -658,11 +658,21 @@ class SystemSendGate(_DurableObjectBase):
             )
             when = _datetime(now)
         except (ValueError, TypeError):
-            return {"available": False, "reason": "invalid_data", "clinics": []}
+            return _unavailable_roster("invalid_data")
         roster: ClinicRoster = await lister(query, when)
         return {
             "available": roster.available,
             "reason": roster.reason,
+            "schedule_end_date": (
+                roster.schedule_end_date.isoformat()
+                if roster.schedule_end_date is not None
+                else None
+            ),
+            "release_time": (
+                roster.release_time.isoformat()
+                if roster.release_time is not None
+                else None
+            ),
             "clinics": [
                 {
                     "session": option.session.value,
@@ -879,6 +889,16 @@ class _TestLineTransport:
 def local_test_mode(env: Any) -> bool:
     value = _field(env, "NIY006_LOCAL_TEST_MODE", "")
     return str(_field(env, "NIY_ENVIRONMENT", "")) == "local-test" and str(value) == "1"
+
+
+def _unavailable_roster(reason: str) -> dict[str, Any]:
+    return {
+        "available": False,
+        "reason": reason,
+        "schedule_end_date": None,
+        "release_time": None,
+        "clinics": [],
+    }
 
 
 def _field(value: Any, key: str, default: Any = None) -> Any:

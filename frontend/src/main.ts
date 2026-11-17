@@ -27,12 +27,11 @@ import { canRequestStart, formatSourceStatus, formatVisitState, visitStatusKey }
 import { sourceLinkMarkup } from "./source-link.js";
 import { projectDashboardVisits } from "./dashboard-projection.js";
 import {
-  SCHEDULE_LOOKAHEAD_DAYS,
-  beyondScheduleWindow,
   degradeNotice as scheduleDegradeNotice,
+  notYetPublishedNotice,
   visitErrorMessage,
-  withinScheduleWindow,
-} from "./schedule-window.js";
+} from "./schedule-notices.js";
+import { validateSetup } from "./setup-validation.js";
 
 const app = document.querySelector<HTMLElement>("#app");
 const serviceStatus = document.querySelector<HTMLSpanElement>("#service-status");
@@ -287,11 +286,9 @@ function clinicSectionMarkup(
   const key = selectionKey(entry.hospital, selectedDept, selectedDate);
   const rosterReady = roster !== null && rosterKey === key;
   const today = todayTaipei();
-  // The schedule source covers the next SCHEDULE_LOOKAHEAD_DAYS from today;
-  // the picker uses the dropdown anywhere inside that window so a future
-  // visit date gets the same type-free picker as today.
-  const useRoster = entry.capability === "full_schedule"
-    && withinScheduleWindow(selectedDate, today);
+  // A full-schedule hospital is asked for the day's clinics whenever the date
+  // is not in the past; the backend says whether the day is published.
+  const useRoster = entry.capability === "full_schedule" && selectedDate >= today;
 
   if (useRoster && !rosterReady) {
     const loadingText = selectedDate === today
@@ -306,21 +303,27 @@ function clinicSectionMarkup(
     const chosen = roster.clinics.find((clinic) => clinic.clinic_code === selectedClinic);
     const helper = selectedDate === today
       ? "只列出當天該科實際看診的醫師；診間與診次自動帶入。來源吻合不代表號碼已與現場燈號核實。"
-      : "只列出該日該科排班的醫師；診間與診次自動帶入。排班資料未來兩週內有效。";
+      : "只列出該日該科排班的醫師；診間與診次自動帶入。院方可能調整門診表，系統會每天重新核對，開始提醒時也會再核對一次。";
     return `<label class="field"><span>醫師 / 診間</span><select name="clinic_code" required><option value="" ${selectedClinic ? "" : "selected"}>請選擇醫師</option>${options}</select><input type="hidden" name="session" value="${escapeHtml(chosen?.session ?? "")}"><small>${helper}</small>${errorMarkup("clinic_code")}</label>`;
   }
 
-  // Manual entry: date beyond the schedule window, past date (defensive), a
-  // held or unavailable roster, or a current-number-only source. Reuse the
+  // Manual entry: a day the hospital has not published, past date (defensive),
+  // a held or unavailable roster, or a current-number-only source. Reuse the
   // per-hospital source link and show a live parse preview so the user can
   // confirm the three parts.
   const reason = rosterReady && roster
     ? roster.reason
     : selectedDate < today
       ? "visit_date_past"
-      : beyondScheduleWindow(selectedDate, today)
-        ? "visit_date_out_of_schedule_window"
-        : "no_observation";
+      : "no_observation";
+  const notice = rosterReady && roster && roster.schedule_end_date
+    ? notYetPublishedNotice({
+      hospitalName: entry.display_name,
+      endDate: roster.schedule_end_date,
+      visitDate: selectedDate,
+      releaseTime: roster.release_time,
+    })
+    : degradeNotice(reason);
   // The part labels come from the catalog, so the preview carries no hard-coded
   // hospital format. A mismatch is only a hint, never a submit gate.
   const labels = entry.clinic_code_labels;
@@ -331,7 +334,7 @@ function clinicSectionMarkup(
   const sessionOptions = (["morning", "afternoon", "evening"] as const)
     .map((value) => `<option value="${value}" ${selectedSession === value ? "selected" : ""}>${sessionNames[value]}</option>`)
     .join("");
-  return `<p class="edit-notice">${escapeHtml(degradeNotice(reason))}</p>
+  return `<p class="edit-notice">${escapeHtml(notice)}</p>
     <p class="source-ref">${sourceLinkMarkup(entry.source_url)}<small>${formatHint}</small></p>
     <label class="field"><span>診間代碼</span><input name="clinic_code" maxlength="64" value="${escapeHtml(selectedClinic)}" autocomplete="off" required>${preview}<small>比對忽略大小寫、空白、標點；上面的即時預覽顯示系統讀到的內容供你核對。</small>${errorMarkup("clinic_code")}</label>
     <label class="field"><span>診次</span><select name="session" required>${sessionOptions}</select>${errorMarkup("session")}</label>`;
@@ -384,7 +387,7 @@ function formMarkup(): string {
   }
 
   const rosterPending = Boolean(entry) && capability === "full_schedule" && Boolean(selectedDept)
-    && withinScheduleWindow(selectedDate, todayTaipei())
+    && Boolean(selectedDate) && selectedDate >= todayTaipei()
     && !(roster !== null && rosterKey === selectionKey(selectedHospital, selectedDept, selectedDate));
   const submitDisabled = formSaving || rosterPending || !entry || capability === "unsupported" || hospitals.length === 0;
 
@@ -506,17 +509,16 @@ async function maybeFetchRoster(): Promise<void> {
   if (!entry || entry.capability !== "full_schedule") return;
   const department = formValue("department_code", item?.department_code ?? entry.departments[0]?.code ?? "");
   const date = formValue("date", item?.date ?? "");
-  // Fetch the roster for today and for future dates inside NTUH's 14-day
-  // schedule window. Dates past the window degrade to manual entry without
-  // fetching.
-  if (!department || !date || !withinScheduleWindow(date, todayTaipei())) return;
+  // Ask for the day's clinics whenever the date is not in the past; the
+  // backend answers whether the hospital has published that day.
+  if (!department || !date || date < todayTaipei()) return;
   const key = selectionKey(hospital, department, date);
   if (roster !== null && rosterKey === key) return;
   rosterLoading = true;
   try {
     roster = await listClinics(hospital, department, date);
   } catch {
-    roster = { available: false, reason: "no_observation", clinics: [] };
+    roster = { available: false, reason: "no_observation", schedule_end_date: null, release_time: null, clinics: [] };
   }
   rosterKey = key;
   rosterLoading = false;
@@ -604,37 +606,17 @@ function readForm(form: HTMLFormElement): VisitInput | null {
 // the backend Start (fail-closed); this only improves the setup experience.
 function validateForm(form: HTMLFormElement): boolean {
   const data = new FormData(form);
-  const errors: Record<string, string> = {};
   const hospital = String(data.get("hospital") ?? "");
   const department = String(data.get("department_code") ?? "");
   const date = String(data.get("date") ?? "");
   const clinic = String(data.get("clinic_code") ?? "").trim();
-  const today = todayTaipei();
-  if (date && date < today) {
-    errors.date = "看診日期已過，請選擇今天或之後的日期。";
-  }
   const entry = hospitalEntry(hospital);
-  const rosterReady = roster !== null
+  const returned = entry?.capability === "full_schedule"
+    && roster !== null
     && rosterKey === selectionKey(hospital, department, date)
-    && roster.available;
-  // The dropdown-must-match check runs for any date inside the schedule
-  // window, not only for today, because the schedule reader populates the
-  // roster for both today and future dates up to today+14. Manual-entry
-  // formatting (dates beyond the window) is hospital-specific and is
-  // validated authoritatively by the backend Start.
-  if (
-    entry?.capability === "full_schedule"
-    && withinScheduleWindow(date, today, SCHEDULE_LOOKAHEAD_DAYS)
-    && rosterReady
-  ) {
-    if (!clinic) {
-      errors.clinic_code = "請選擇醫師。";
-    } else if (!roster!.clinics.some((option) => option.clinic_code === clinic)) {
-      errors.clinic_code = date === today
-        ? "所選醫師當天該科沒有看診，請重新選擇。"
-        : "所選醫師該日該科沒有排班，請重新選擇。";
-    }
-  }
+    ? roster
+    : null;
+  const errors = validateSetup({ date, today: todayTaipei(), clinic, roster: returned });
   formErrors = errors;
   return Object.keys(errors).length === 0;
 }

@@ -169,6 +169,12 @@ class ClinicRoster:
     available: bool
     clinics: tuple[ClinicOption, ...]
     reason: str
+    # Set only when the requested day is not yet published: the last day the
+    # hospital's clinic schedule covers, and the moment the hospital says the
+    # requested day will be added. `release_time` stays None unless the
+    # hospital states one publicly; it is never estimated.
+    schedule_end: date | None = None
+    release_time: datetime | None = None
 
 
 class MatchKind(StrEnum):

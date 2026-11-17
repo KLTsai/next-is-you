@@ -653,7 +653,7 @@ class SystemSendGate(_DurableObjectBase):
         except (ValueError, TypeError):
             return {"available": False, "reason": "invalid_data", "clinics": []}
         roster: ClinicRoster = await lister(query, when)
-        return {
+        result: dict[str, Any] = {
             "available": roster.available,
             "reason": roster.reason,
             "clinics": [
@@ -667,6 +667,13 @@ class SystemSendGate(_DurableObjectBase):
                 for option in roster.clinics
             ],
         }
+        # Optional fields, present only when the reader states them for a day
+        # the hospital has not published yet.
+        if roster.schedule_end is not None:
+            result["schedule_end"] = roster.schedule_end.isoformat()
+        if roster.release_time is not None:
+            result["release_time"] = roster.release_time.isoformat()
+        return result
 
     _ntuh_fetcher = WorkersFetcher()
 

@@ -85,7 +85,7 @@ Cards carry a status marker inside `<div class="tag"><div class="first-reg">...<
 ### Reason codes returned to the setup picker and Start
 
 - `visit_date_past` - the chosen date is before Taipei today. Returned by both `list_clinics` and Start.
-- `visit_date_out_of_schedule_window` - the chosen date is more than 14 days ahead; the schedule page cannot answer and the picker degrades to manual entry.
+- `visit_date_out_of_schedule_window` - the chosen date is more than 14 days ahead, so the clinic schedule does not cover it yet. The reader answers without contacting NTUH and adds `schedule_end` (Taipei today plus 14 days) and `release_time` (00:00 Taipei, 14 days before the chosen date, per NTUH's "Schedule from midnight on 14 days before consultation"). The setup form shows the not-yet-published notice from these and degrades to manual entry.
 - `scope_mismatch` - the hospital or department is outside the supported scope (not NTUH main or not OPH).
 - `no_observation`, `access_denied`, `timeout`, `schema_drift` - transport or shape failures from the schedule page itself; the picker degrades to manual entry and Start fails closed as `schedule_unavailable`.
 - `doctor_not_scheduled` - the schedule read succeeded, but no row for the chosen date matches on `(session, room, doctor)`. Only Start returns this; the picker catches it earlier by refusing a dropdown mismatch.

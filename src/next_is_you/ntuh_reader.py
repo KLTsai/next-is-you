@@ -43,7 +43,6 @@ from next_is_you.domain import (
     ClinicRoster,
     ClinicScope,
     ClinicSession,
-    Hospital,
     MatchKind,
     MatchQuery,
     QueueObservation,
@@ -62,6 +61,7 @@ WEBREG_BASE = "https://registration.ntuh.gov.tw/WebReg/WebReg"
 SELECTOR_PATH = f"{WEBREG_BASE}/ClinicCurrentLightNo"
 LIGHT_TABLE_URL = f"{WEBREG_BASE}/DeptLightTable"
 SCHEDULE_PATH = f"{WEBREG_BASE}/RegDeptSchedule"
+HOSPITAL_ID = "ntuh-main"
 BRANCH_CODE = "T0"
 SUPPORTED_DEPARTMENT = "OPH"
 # RegDeptSchedule publishes the next two weekdays-filled calendar weeks; dates
@@ -562,7 +562,7 @@ class NtuhProgressReader:
         rather than offering a partial list.
         """
         if (
-            query.hospital != Hospital.NTUH_MAIN
+            query.hospital != HOSPITAL_ID
             or query.department_code != SUPPORTED_DEPARTMENT
         ):
             return ClinicRoster(False, (), "scope_mismatch")
@@ -626,7 +626,7 @@ class NtuhProgressReader:
         A row marked `停診` or `颱風停診` answers as cancelled by the hospital.
         """
         if (
-            query.hospital != Hospital.NTUH_MAIN
+            query.hospital != HOSPITAL_ID
             or query.department_code != SUPPORTED_DEPARTMENT
         ):
             return ClinicMatch(MatchKind.UNAVAILABLE, reason="scope_mismatch")
@@ -815,7 +815,7 @@ class NtuhProgressReader:
     ) -> QueueObservation | ReadSkipped | ReadFailed:
         key = parse_clinic_key(scope.clinic_code)
         if (
-            scope.hospital != Hospital.NTUH_MAIN
+            scope.hospital != HOSPITAL_ID
             or scope.department_code != SUPPORTED_DEPARTMENT
             or scope.session not in AMPM_CODES
             or key is None

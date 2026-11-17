@@ -29,8 +29,8 @@ from next_is_you.auth import (
     verify_session,
 )
 from next_is_you.identity import IdentityRepository, hash_invitation
-from next_is_you.domain import ClinicSession, Hospital
-from next_is_you.hospital_registry import HOSPITAL_REGISTRY
+from next_is_you.domain import ClinicSession
+from next_is_you.hospital_registry import HOSPITAL_REGISTRY, require_registered
 from next_is_you.progress_links import progress_link
 from next_is_you.line_login import LineOAuthClient, WorkersLineOAuthClient
 from next_is_you.line_messaging import (
@@ -472,10 +472,10 @@ def create_app(
             {
                 "hospitals": [
                     {
-                        "hospital": hospital.value,
+                        "hospital": hospital,
                         "display_name": entry.display_name,
                         "capability": entry.capability.value,
-                        "source_url": progress_link(hospital.value),
+                        "source_url": progress_link(hospital),
                         "clinic_code_labels": list(entry.clinic_code_labels),
                         "departments": [
                             {"code": dept.code, "display_name": dept.display_name}
@@ -497,7 +497,7 @@ def create_app(
         if not department or len(department) > 64 or not day:
             return _api_error("invalid_request", 400)
         try:
-            Hospital(hospital)
+            require_registered(hospital)
             date.fromisoformat(day)
         except (ValueError, TypeError):
             return _api_error("invalid_request", 400)
@@ -1007,7 +1007,7 @@ def _visit_input(body: Mapping[str, Any]) -> dict[str, Any] | None:
             "recipient_ids",
         }:
             return None
-        hospital = Hospital(str(body["hospital"])).value
+        hospital = require_registered(str(body["hospital"]))
         clinic_session = ClinicSession(str(body["session"])).value
         visit_day = date.fromisoformat(str(body["date"]))
         department_code = _bounded_code(body["department_code"])

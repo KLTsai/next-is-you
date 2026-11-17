@@ -15,7 +15,6 @@ import pytest
 from next_is_you.domain import (
     ClinicMatch,
     ClinicSession,
-    Hospital,
     MatchKind,
     MatchQuery,
 )
@@ -32,7 +31,7 @@ TODAY_EVE = datetime(2026, 11, 9, 14, 0, tzinfo=TAIPEI)
 
 
 def query(code: str, session=ClinicSession.MORNING, day=SCHEDULE_FIRST_VISIT):
-    return MatchQuery(Hospital.NTUH_MAIN, "OPH", day, session, code)
+    return MatchQuery("ntuh-main", "OPH", day, session, code)
 
 
 @pytest.mark.asyncio

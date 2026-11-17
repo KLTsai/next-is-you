@@ -8,7 +8,6 @@ from next_is_you.domain import (
     ClinicRoster,
     ClinicScope,
     ClinicSession,
-    Hospital,
     QueueObservation,
     ReadFailed,
     RosterQuery,
@@ -24,7 +23,7 @@ from next_is_you.hospital_registry import (
 NOW = datetime(2026, 9, 27, 6, 0, tzinfo=timezone.utc)
 
 
-def _scope(hospital: Hospital = Hospital.NTUH_MAIN) -> ClinicScope:
+def _scope(hospital: str = "ntuh-main") -> ClinicScope:
     return ClinicScope(
         hospital=hospital,
         visit_date=date(2026, 9, 27),
@@ -38,7 +37,7 @@ def _scope(hospital: Hospital = Hospital.NTUH_MAIN) -> ClinicScope:
 
 class _RecordingReader:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, Hospital]] = []
+        self.calls: list[tuple[str, str]] = []
 
     async def observe(self, scope, now):
         self.calls.append(("observe", scope.hospital))
@@ -82,18 +81,18 @@ class _FullReader(_CurrentOnlyReader):
 
 
 def test_capability_reflects_the_registered_tier() -> None:
-    assert capability_of(Hospital.NTUH_MAIN) is SourceCapability.FULL_SCHEDULE
+    assert capability_of("ntuh-main") is SourceCapability.FULL_SCHEDULE
     # No reader exists until #44 evidences a source.
-    assert capability_of(Hospital.SHIN_KONG_TAIPEI) is SourceCapability.UNSUPPORTED
+    assert capability_of("shin-kong-taipei") is SourceCapability.UNSUPPORTED
 
 
 def test_registry_declares_supported_departments() -> None:
     from next_is_you.hospital_registry import HOSPITAL_REGISTRY
 
-    ntuh = HOSPITAL_REGISTRY[Hospital.NTUH_MAIN].departments
+    ntuh = HOSPITAL_REGISTRY["ntuh-main"].departments
     assert [(d.code, d.display_name) for d in ntuh] == [("OPH", "眼科")]
     # No reader, so no department is offered.
-    assert HOSPITAL_REGISTRY[Hospital.SHIN_KONG_TAIPEI].departments == ()
+    assert HOSPITAL_REGISTRY["shin-kong-taipei"].departments == ()
 
 
 @pytest.mark.asyncio
@@ -109,7 +108,7 @@ async def test_dispatches_by_hospital_and_builds_the_reader_once(monkeypatch) ->
         hospital_registry,
         "HOSPITAL_REGISTRY",
         {
-            Hospital.NTUH_MAIN: HospitalEntry(
+            "ntuh-main": HospitalEntry(
                 "Test General", _FullReader, OFFICIAL, build_reader=build
             )
         },
@@ -123,8 +122,8 @@ async def test_dispatches_by_hospital_and_builds_the_reader_once(monkeypatch) ->
     assert isinstance(started, QueueObservation) and started.current_number == 9
     # Start reaches the reader's Start method, not its scheduled one.
     assert reader.calls == [
-        ("observe", Hospital.NTUH_MAIN),
-        ("start", Hospital.NTUH_MAIN),
+        ("observe", "ntuh-main"),
+        ("start", "ntuh-main"),
     ]
     # One adapter is built and reused across reads, not rebuilt each call.
     assert len(built) == 1
@@ -133,7 +132,7 @@ async def test_dispatches_by_hospital_and_builds_the_reader_once(monkeypatch) ->
 @pytest.mark.asyncio
 async def test_unsupported_hospital_fails_closed() -> None:
     dispatcher = RegistryHospitalReader(ReaderDeps(storage=object(), fetch=object()))
-    scope = _scope(Hospital.SHIN_KONG_TAIPEI)
+    scope = _scope("shin-kong-taipei")
     unavailable = ReadFailed("unavailable", "no_observation")
     assert await dispatcher.observe(scope, NOW) == unavailable
     assert await dispatcher.observe_for_start(scope, NOW) == unavailable
@@ -148,7 +147,7 @@ async def test_current_number_only_tier_still_reads(monkeypatch) -> None:
         hospital_registry,
         "HOSPITAL_REGISTRY",
         {
-            Hospital.SHIN_KONG_TAIPEI: HospitalEntry(
+            "shin-kong-taipei": HospitalEntry(
                 "Current Only",
                 _CurrentOnlyReader,
                 OFFICIAL,
@@ -156,16 +155,14 @@ async def test_current_number_only_tier_still_reads(monkeypatch) -> None:
             )
         },
     )
-    assert (
-        capability_of(Hospital.SHIN_KONG_TAIPEI) is SourceCapability.CURRENT_NUMBER_ONLY
-    )
+    assert capability_of("shin-kong-taipei") is SourceCapability.CURRENT_NUMBER_ONLY
     dispatcher = RegistryHospitalReader(ReaderDeps(storage=object(), fetch=object()))
-    observed = await dispatcher.observe(_scope(Hospital.SHIN_KONG_TAIPEI), NOW)
+    observed = await dispatcher.observe(_scope("shin-kong-taipei"), NOW)
     assert isinstance(observed, QueueObservation)
     # No schedule to list even though the hospital reads: the picker uses manual
     # entry, so the roster is reported unavailable rather than routed.
     roster = await dispatcher.list_clinics(
-        RosterQuery(Hospital.SHIN_KONG_TAIPEI, "OPH", date(2026, 9, 27)), NOW
+        RosterQuery("shin-kong-taipei", "OPH", date(2026, 9, 27)), NOW
     )
     assert roster == ClinicRoster(False, (), "unsupported")
 
@@ -177,7 +174,7 @@ async def test_roster_is_routed_to_a_full_schedule_reader(monkeypatch) -> None:
         hospital_registry,
         "HOSPITAL_REGISTRY",
         {
-            Hospital.NTUH_MAIN: HospitalEntry(
+            "ntuh-main": HospitalEntry(
                 "Test General",
                 _FullReader,
                 OFFICIAL,
@@ -187,17 +184,17 @@ async def test_roster_is_routed_to_a_full_schedule_reader(monkeypatch) -> None:
     )
     dispatcher = RegistryHospitalReader(ReaderDeps(storage=object(), fetch=object()))
     roster = await dispatcher.list_clinics(
-        RosterQuery(Hospital.NTUH_MAIN, "OPH", date(2026, 9, 27)), NOW
+        RosterQuery("ntuh-main", "OPH", date(2026, 9, 27)), NOW
     )
     assert roster.available and len(roster.clinics) == 1
-    assert reader.calls == [("roster", Hospital.NTUH_MAIN)]
+    assert reader.calls == [("roster", "ntuh-main")]
 
 
 @pytest.mark.asyncio
 async def test_roster_for_an_unsupported_hospital_is_unavailable() -> None:
     dispatcher = RegistryHospitalReader(ReaderDeps(storage=object(), fetch=object()))
     roster = await dispatcher.list_clinics(
-        RosterQuery(Hospital.SHIN_KONG_TAIPEI, "OPH", date(2026, 9, 27)), NOW
+        RosterQuery("shin-kong-taipei", "OPH", date(2026, 9, 27)), NOW
     )
     assert roster == ClinicRoster(False, (), "unsupported")
 
@@ -244,20 +241,18 @@ async def test_retired_hospital_derives_unsupported_and_fails_closed(
     from next_is_you.hospital_registry import HOSPITAL_REGISTRY
 
     retired = dataclasses.replace(
-        HOSPITAL_REGISTRY[Hospital.NTUH_MAIN], reader_type=None, build_reader=None
+        HOSPITAL_REGISTRY["ntuh-main"], reader_type=None, build_reader=None
     )
-    monkeypatch.setattr(
-        hospital_registry, "HOSPITAL_REGISTRY", {Hospital.NTUH_MAIN: retired}
-    )
+    monkeypatch.setattr(hospital_registry, "HOSPITAL_REGISTRY", {"ntuh-main": retired})
     # Entry stays, so the name is still shown; it just derives as unsupported.
     assert retired.display_name == "臺大醫院總院"
-    assert capability_of(Hospital.NTUH_MAIN) is SourceCapability.UNSUPPORTED
+    assert capability_of("ntuh-main") is SourceCapability.UNSUPPORTED
     dispatcher = RegistryHospitalReader(ReaderDeps(storage=object(), fetch=object()))
     unavailable = ReadFailed("unavailable", "no_observation")
     assert await dispatcher.observe(_scope(), NOW) == unavailable
     assert await dispatcher.observe_for_start(_scope(), NOW) == unavailable
     roster = await dispatcher.list_clinics(
-        RosterQuery(Hospital.NTUH_MAIN, "OPH", date(2026, 9, 27)), NOW
+        RosterQuery("ntuh-main", "OPH", date(2026, 9, 27)), NOW
     )
     assert roster == ClinicRoster(False, (), "unsupported")
 
@@ -270,12 +265,12 @@ import sqlite3  # noqa: E402
 _MIGRATIONS = sorted((Path(__file__).resolve().parents[1] / "migrations").glob("*.sql"))
 
 
-def contract_hospitals() -> list[Hospital]:
+def contract_hospitals() -> list[str]:
     # Later tickets add the synthetic hospital here.
     return list(hospital_registry.HOSPITAL_REGISTRY)
 
 
-@pytest.mark.parametrize("hospital", contract_hospitals(), ids=lambda h: h.value)
+@pytest.mark.parametrize("hospital", contract_hospitals(), ids=lambda h: h)
 class TestRegistryContract:
     def test_capability_derives_from_the_reader_type(self, hospital) -> None:
         entry = hospital_registry.HOSPITAL_REGISTRY[hospital]
@@ -310,7 +305,7 @@ class TestRegistryContract:
             "clinic_code, clinic_session, patient_number, state, created_at) "
             "VALUES ('v1', ?, '2026-09-27', 'OPH', 'C-1', 'afternoon', 85, "
             "'draft', '2026-09-27T09:00:00Z')",
-            (hospital.value,),
+            (hospital,),
         )
         row = connection.execute("SELECT hospital FROM visits").fetchone()
-        assert row == (hospital.value,)
+        assert row == (hospital,)

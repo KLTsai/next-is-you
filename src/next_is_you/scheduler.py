@@ -12,7 +12,6 @@ from next_is_you.alerts import evaluate_alerts
 from next_is_you.domain import (
     ClinicScope,
     ClinicSession,
-    Hospital,
     HospitalReader,
     MatchKind,
     MatchQuery,
@@ -260,7 +259,7 @@ class OutboxScheduler:
         for draft in drafts:
             try:
                 query = MatchQuery(
-                    hospital=Hospital(str(draft["hospital"])),
+                    hospital=str(draft["hospital"]),
                     department_code=str(draft["department_code"]),
                     visit_date=datetime.fromisoformat(str(draft["visit_date"])).date(),
                     session=ClinicSession(str(draft["clinic_session"])),
@@ -409,7 +408,7 @@ class OutboxScheduler:
 
 def _scope(row: Mapping[str, Any]) -> ClinicScope:
     return ClinicScope(
-        hospital=Hospital(str(row["hospital"])),
+        hospital=str(row["hospital"]),
         visit_date=datetime.fromisoformat(str(row["visit_date"])).date(),
         department_code=str(row["department_code"]),
         clinic_code=str(row["clinic_code"]),

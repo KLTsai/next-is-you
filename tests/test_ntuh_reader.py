@@ -705,7 +705,13 @@ async def test_list_clinics_rejects_date_beyond_schedule_window() -> None:
         RosterQuery("ntuh-main", "OPH", DAY + timedelta(days=15)),
         taipei(14, 0),
     )
-    assert roster == ClinicRoster(False, (), "visit_date_out_of_schedule_window")
+    assert roster == ClinicRoster(
+        False,
+        (),
+        "visit_date_out_of_schedule_window",
+        schedule_end=DAY + timedelta(days=14),
+        release_time=datetime(2026, 10, 23, tzinfo=timezone(timedelta(hours=8))),
+    )
     assert source.requests == []
 
 
@@ -1286,3 +1292,71 @@ async def test_gate_roster_rejects_an_unknown_hospital() -> None:
         "not-a-hospital", "OPH", DAY.isoformat(), taipei(14, 0).isoformat()
     )
     assert result == {"available": False, "reason": "invalid_data", "clinics": []}
+
+
+@pytest.mark.asyncio
+async def test_gate_reports_end_date_and_release_time_for_an_unpublished_day() -> None:
+    # Fixture/mock: real registry, fake transport. Today is 10/22, so NTUH's
+    # clinic schedule ends 11/05 and 11/06 opens at 00:00 Taipei on 10/23.
+    source = FakeSource(PAGE)
+    _, gate = await gate_with_visit(source)
+    result = await gate.list_clinics(
+        "ntuh-main",
+        "OPH",
+        (DAY + timedelta(days=15)).isoformat(),
+        taipei(14, 0).isoformat(),
+    )
+    assert result == {
+        "available": False,
+        "reason": "visit_date_out_of_schedule_window",
+        "clinics": [],
+        "schedule_end": "2026-11-05",
+        "release_time": "2026-10-23T00:00:00+08:00",
+    }
+    assert source.requests == []
+
+
+@pytest.mark.asyncio
+async def test_gate_reports_no_release_time_when_the_reader_states_none(
+    monkeypatch,
+) -> None:
+    # Fixture/mock: a synthetic full-schedule hospital that publishes an end
+    # date but no release time for the days it has not published.
+    import dataclasses
+
+    from next_is_you import hospital_registry
+
+    class SyntheticReader:
+        def __init__(self, storage, fetch) -> None:
+            pass
+
+        async def observe(self, scope, now):
+            return None
+
+        async def observe_for_start(self, scope, now):
+            return None
+
+        async def list_clinics(self, query, now):
+            return ClinicRoster(
+                False,
+                (),
+                "visit_date_out_of_schedule_window",
+                schedule_end=datetime(2026, 11, 3).date(),
+            )
+
+    entry = dataclasses.replace(
+        hospital_registry.HOSPITAL_REGISTRY[Hospital.SHIN_KONG_TAIPEI],
+        reader_type=SyntheticReader,
+    )
+    monkeypatch.setattr(
+        hospital_registry,
+        "HOSPITAL_REGISTRY",
+        {**hospital_registry.HOSPITAL_REGISTRY, Hospital.SHIN_KONG_TAIPEI: entry},
+    )
+    _, gate = await gate_with_visit(FakeSource(PAGE))
+    result = await gate.list_clinics(
+        "shin-kong-taipei", "ANY", "2026-11-20", taipei(14, 0).isoformat()
+    )
+    assert result["schedule_end"] == "2026-11-03"
+    assert "release_time" not in result
+    assert result["reason"] == "visit_date_out_of_schedule_window"

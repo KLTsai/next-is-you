@@ -70,6 +70,15 @@ class Gate:
 
     async def start_visit(self, visit_id: str, _now: str):
         scripted = {
+            "unpublished": {
+                "error": "visit_date_out_of_schedule_window",
+                "schedule_end": "2026-12-01",
+                "release_time": "2026-11-21T00:00:00+08:00",
+            },
+            "unpublished-no-release": {
+                "error": "visit_date_out_of_schedule_window",
+                "schedule_end": "2026-12-01",
+            },
             "day-only": {
                 "error": "start_on_visit_day_only",
                 "visit_date": "2026-11-20",
@@ -323,6 +332,38 @@ def test_start_on_a_current_number_only_hospital_returns_its_typed_refusals():
             assert unreachable.status_code == 503
             assert unreachable.json() == {
                 "error": {"code": "hospital_page_unreachable"}
+            }
+        finally:
+            await http.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_start_refusal_for_unpublished_day_carries_end_date_and_release_time():
+    async def scenario():
+        _, http = make_client()
+        try:
+            headers = authorize(http)
+            refused = await http.post(
+                "/api/organizer/visits/unpublished/start", headers=headers
+            )
+            assert refused.status_code == 409
+            assert refused.json() == {
+                "error": {
+                    "code": "visit_date_out_of_schedule_window",
+                    "schedule_end": "2026-12-01",
+                    "release_time": "2026-11-21T00:00:00+08:00",
+                }
+            }
+            bare = await http.post(
+                "/api/organizer/visits/unpublished-no-release/start",
+                headers=headers,
+            )
+            assert bare.json() == {
+                "error": {
+                    "code": "visit_date_out_of_schedule_window",
+                    "schedule_end": "2026-12-01",
+                }
             }
         finally:
             await http.aclose()

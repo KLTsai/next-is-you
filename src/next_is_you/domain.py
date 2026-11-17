@@ -210,6 +210,10 @@ class ClinicMatch:
     kind: MatchKind
     clinic_code: str = ""
     reason: str = ""
+    # Set only when not yet published: the same two facts the clinic schedule
+    # answer carries, so a refused Start can state them.
+    schedule_end: date | None = None
+    release_time: datetime | None = None
 
 
 class HospitalReader(Protocol):

@@ -611,14 +611,20 @@ def create_app(
                 "hospital_page_unreachable": ("hospital_page_unreachable", 503),
             }
             code, status = errors.get(result["error"], ("service_unavailable", 503))
-            # Only the visit date rides along: it is what the organizer needs to
-            # know when the refusal says "start on the visit day".
-            details = (
-                {"visit_date": str(result["visit_date"])}
-                if code == "start_on_visit_day_only" and "visit_date" in result
-                else {}
-            )
-            return _api_error(code, status, **details)
+            if code == "visit_date_out_of_schedule_window":
+                detail = {
+                    key: result[key]
+                    for key in ("schedule_end", "release_time")
+                    if result.get(key)
+                }
+                return JSONResponse(
+                    {"error": {"code": code, **detail}}, status_code=status
+                )
+            if code == "start_on_visit_day_only" and "visit_date" in result:
+                # Only the visit date rides along: it is what the organizer needs
+                # to know when the refusal says "start on the visit day".
+                return _api_error(code, status, visit_date=str(result["visit_date"]))
+            return _api_error(code, status)
         return JSONResponse(result)
 
     @app.post("/api/organizer/visits/{visit_id}/stop")

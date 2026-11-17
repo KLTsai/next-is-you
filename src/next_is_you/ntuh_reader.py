@@ -635,7 +635,15 @@ class NtuhProgressReader:
             return ClinicMatch(MatchKind.UNAVAILABLE, reason="visit_date_past")
         days_ahead = (query.visit_date - today).days
         if days_ahead > SCHEDULE_LOOKAHEAD_DAYS:
-            return ClinicMatch(MatchKind.NOT_YET_PUBLISHED)
+            return ClinicMatch(
+                MatchKind.NOT_YET_PUBLISHED,
+                schedule_end=today + timedelta(days=SCHEDULE_LOOKAHEAD_DAYS),
+                release_time=datetime.combine(
+                    query.visit_date - timedelta(days=SCHEDULE_LOOKAHEAD_DAYS),
+                    time(0, 0),
+                    tzinfo=TAIPEI,
+                ),
+            )
         key = parse_clinic_key(query.clinic_code)
         if key is None:
             return ClinicMatch(MatchKind.UNAVAILABLE, reason="invalid_data")

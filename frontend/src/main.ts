@@ -29,6 +29,7 @@ import { projectDashboardVisits } from "./dashboard-projection.js";
 import {
   currentNumberOnlyNotice,
   degradeNotice as scheduleDegradeNotice,
+  startRefusalMessage as scheduleStartRefusalMessage,
   rosterClinicError,
   unpublishedDayNotice,
   visitErrorMessage,
@@ -162,6 +163,22 @@ function errorText(error: unknown): string {
   const scheduleMessage = visitErrorMessage(error.code, { visitDate: error.visitDate });
   if (scheduleMessage) return scheduleMessage;
   return labels[error.code] || "操作未完成，請重新載入後再試。";
+}
+
+function startFailureText(error: unknown, item: OrganizerVisit): string {
+  if (error instanceof OrganizerApiError) {
+    const refusal = scheduleStartRefusalMessage({
+      code: error.code,
+      hospitalName: hospitalEntry(item.hospital)?.display_name,
+      scheduleEnd: error.scheduleEnd,
+      releaseTime: error.releaseTime,
+      // The backend names the day Start opens when it refuses a start-day-only
+      // hospital; otherwise the draft's own visit date is the day in question.
+      visitDate: error.visitDate ?? item.date,
+    });
+    if (refusal) return refusal;
+  }
+  return errorText(error);
 }
 
 function renderLogin(): string {
@@ -827,7 +844,7 @@ function bindActions(): void {
       const result = await startVisit(id);
       message = result.state === "active" ? "服務已回覆啟動成功。" : "服務尚未確認啟動，請查看清單狀態。";
     } catch (error) {
-      startFailures.set(id, errorText(error));
+      startFailures.set(id, startFailureText(error, item));
     } finally {
       pendingStarts.delete(id);
       await loadDashboard();

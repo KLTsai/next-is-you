@@ -379,7 +379,12 @@ class SystemSendGate(_DurableObjectBase):
             await repository.set_source_read(
                 visit_id, "scope_mismatch", "scope_mismatch"
             )
-            return {"error": "visit_date_out_of_schedule_window"}
+            refusal: dict[str, Any] = {"error": "visit_date_out_of_schedule_window"}
+            if match.schedule_end is not None:
+                refusal["schedule_end"] = match.schedule_end.isoformat()
+            if match.release_time is not None:
+                refusal["release_time"] = match.release_time.isoformat()
+            return refusal
         if match.kind in (MatchKind.NOT_SCHEDULED, MatchKind.CANCELLED):
             await repository.set_source_read(
                 visit_id, "scope_mismatch", "scope_mismatch"

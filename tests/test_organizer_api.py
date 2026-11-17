@@ -45,6 +45,8 @@ class SQLiteStore:
 class Gate:
     def __init__(self, visits: VisitRepository) -> None:
         self.visits = visits
+        self.listed: list[tuple[Any, ...]] = []
+        self.corrected: list[str] = []
 
     async def update_draft(self, visit_id: str, **values: Any):
         return await self.visits.update_draft(visit_id=visit_id, **values)
@@ -67,6 +69,14 @@ class Gate:
         self, visit_id: str, recipient_id: str, now: datetime
     ):
         return await self.visits.add_recipient(visit_id, recipient_id, now)
+
+    async def list_clinics(self, *args: Any):
+        self.listed.append(args)
+        return {"available": False, "reason": "no_observation", "clinics": []}
+
+    async def correct_stopped_visit_rpc(self, request_json: str):
+        self.corrected.append(request_json)
+        return True
 
     async def start_visit(self, visit_id: str, _now: str):
         if visit_id == "unpublished":
@@ -292,6 +302,62 @@ def test_correction_patient_number_is_single_visit_authorized_csrf_protected_dat
             visits = {visit["id"]: visit for visit in listing.json()["visits"]}
             assert visits[first.json()["id"]]["patient_number"] == 85
             assert visits[second.json()["id"]]["patient_number"] == 42
+        finally:
+            await http.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_unknown_hospital_id_is_rejected_on_every_accepting_path_without_a_write():
+    """Local integration: real routes and SQLite, no live hospital."""
+
+    async def scenario():
+        store, http = make_client()
+        try:
+            headers = authorize(http)
+            body = {
+                "hospital": "no-such-hospital",
+                "date": "2026-09-29",
+                "department_code": "MED",
+                "clinic_code": "MED-A",
+                "session": "morning",
+                "patient_number": 85,
+                "recipient_ids": ["eligible"],
+            }
+            known = await http.post(
+                "/api/organizer/visits",
+                json={**body, "hospital": "ntuh-main"},
+                headers=headers,
+            )
+            assert known.status_code == 201
+            visit_id = known.json()["id"]
+
+            def snapshot():
+                return store.connection.execute(
+                    "SELECT * FROM visits ORDER BY id"
+                ).fetchall()
+
+            before = [tuple(row) for row in snapshot()]
+
+            created = await http.post(
+                "/api/organizer/visits", json=body, headers=headers
+            )
+            updated = await http.patch(
+                f"/api/organizer/visits/{visit_id}", json=body, headers=headers
+            )
+            corrected = await http.post(
+                f"/api/organizer/visits/{visit_id}/correct",
+                json=body,
+                headers=headers,
+            )
+            listed = await http.get(
+                "/api/organizer/hospitals/no-such-hospital/clinics"
+                "?department=OPH&date=2026-09-29"
+            )
+            for response in (created, updated, corrected, listed):
+                assert response.status_code == 400
+                assert response.json() == {"error": {"code": "unknown_hospital"}}
+            assert [tuple(row) for row in snapshot()] == before
         finally:
             await http.aclose()
 

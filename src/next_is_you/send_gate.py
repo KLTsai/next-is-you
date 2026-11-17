@@ -21,14 +21,17 @@ from next_is_you.domain import (
     ClinicRoster,
     ClinicScope,
     ClinicSession,
-    Hospital,
     HospitalReader,
     MatchOutcome,
     ReadFailed,
     ReadSkipped,
     RosterQuery,
 )
-from next_is_you.hospital_registry import ReaderDeps, RegistryHospitalReader
+from next_is_you.hospital_registry import (
+    ReaderDeps,
+    RegistryHospitalReader,
+    require_registered,
+)
 from next_is_you.ntuh_reader import WorkersFetcher
 from next_is_you.scheduler import OutboxScheduler, TickPlan
 
@@ -244,7 +247,7 @@ class SystemSendGate(_DurableObjectBase):
 
             try:
                 scope = ClinicScope(
-                    hospital=Hospital(str(visit["hospital"])),
+                    hospital=require_registered(visit["hospital"]),
                     visit_date=visit_date,
                     department_code=str(visit["department_code"]),
                     clinic_code=clinic_code,
@@ -333,7 +336,7 @@ class SystemSendGate(_DurableObjectBase):
             return {"error": "visit_date_past"}
 
         try:
-            hospital_enum = Hospital(str(visit["hospital"]))
+            hospital_enum = require_registered(visit["hospital"])
             session_enum = ClinicSession(str(visit["clinic_session"]))
         except (ValueError, TypeError, KeyError):
             await repository.set_source_read(visit_id, "invalid", "invalid_data")
@@ -664,7 +667,7 @@ class SystemSendGate(_DurableObjectBase):
             return _unavailable_roster("no_observation")
         try:
             query = RosterQuery(
-                hospital=Hospital(hospital),
+                hospital=require_registered(hospital),
                 department_code=department_code,
                 visit_date=date.fromisoformat(visit_date),
             )

@@ -15,7 +15,7 @@ from playwright.sync_api import expect, sync_playwright
 import uvicorn
 
 from next_is_you.auth import CSRF_COOKIE_NAME
-from next_is_you.domain import ClinicScope, ClinicSession, Hospital
+from next_is_you.domain import ClinicScope, ClinicSession
 from next_is_you.source_samples import ParseStatus, parse_ntuh_fragment
 from next_is_you.identity import IdentityRepository
 from next_is_you.persistence import Statement, VisitRepository
@@ -229,7 +229,7 @@ def test_local_http_acceptance_journey() -> None:
             visit_id = created.json()["id"]
 
             fixture_scope = ClinicScope(
-                hospital=Hospital.NTUH_MAIN,
+                hospital="ntuh-main",
                 visit_date=date(2026, 9, 27),
                 department_code="MED",
                 clinic_code="MED-101",

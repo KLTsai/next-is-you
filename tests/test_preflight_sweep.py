@@ -14,7 +14,6 @@ from next_is_you.domain import (
     ClinicOption,
     ClinicRoster,
     ClinicSession,
-    Hospital,
     MatchOutcome,
     RosterQuery,
 )
@@ -52,7 +51,7 @@ class FakeRosterReader:
 
     async def match_clinic(self, query: ClinicMatchQuery, now: datetime) -> ClinicMatch:
         group = (
-            query.hospital.value,
+            query.hospital,
             query.department_code,
             query.visit_date.isoformat(),
             now,
@@ -81,7 +80,7 @@ class FakeRosterReader:
     async def list_clinics(self, query: RosterQuery, now: datetime) -> ClinicRoster:
         self.calls.append(query)
         key = (
-            query.hospital.value,
+            query.hospital,
             query.department_code,
             query.visit_date.isoformat(),
         )
@@ -399,11 +398,11 @@ async def test_sweep_leaves_a_hospital_without_a_clinic_schedule_alone(
         def __init__(self, storage, fetch) -> None:
             pass
 
-    entry = hospital_registry.HOSPITAL_REGISTRY[Hospital.NTUH_MAIN]
+    entry = hospital_registry.HOSPITAL_REGISTRY["ntuh-main"]
     monkeypatch.setattr(
         hospital_registry,
         "HOSPITAL_REGISTRY",
-        {Hospital.NTUH_MAIN: replace(entry, reader_type=CurrentNumberOnly)},
+        {"ntuh-main": replace(entry, reader_type=CurrentNumberOnly)},
     )
     database = LocalD1()
     repository = await _repo(database)

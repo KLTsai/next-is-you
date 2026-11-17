@@ -29,8 +29,8 @@ from next_is_you.auth import (
     verify_session,
 )
 from next_is_you.identity import IdentityRepository, hash_invitation
-from next_is_you.domain import ClinicSession, Hospital
-from next_is_you.hospital_registry import HOSPITAL_REGISTRY
+from next_is_you.domain import ClinicSession
+from next_is_you.hospital_registry import HOSPITAL_REGISTRY, is_registered
 from next_is_you.progress_links import progress_link
 from next_is_you.line_login import LineOAuthClient, WorkersLineOAuthClient
 from next_is_you.line_messaging import (
@@ -472,10 +472,10 @@ def create_app(
             {
                 "hospitals": [
                     {
-                        "hospital": hospital.value,
+                        "hospital": hospital,
                         "display_name": entry.display_name,
                         "capability": entry.capability.value,
-                        "source_url": progress_link(hospital.value),
+                        "source_url": progress_link(hospital),
                         "clinic_code_labels": list(entry.clinic_code_labels),
                         "departments": [
                             {"code": dept.code, "display_name": dept.display_name}
@@ -496,8 +496,9 @@ def create_app(
         day = request.query_params.get("date")
         if not department or len(department) > 64 or not day:
             return _api_error("invalid_request", 400)
+        if not is_registered(hospital):
+            return _api_error("unknown_hospital", 400)
         try:
-            Hospital(hospital)
             date.fromisoformat(day)
         except (ValueError, TypeError):
             return _api_error("invalid_request", 400)
@@ -517,6 +518,8 @@ def create_app(
         body = await _organizer_body(request)
         if body is None:
             return _api_error("invalid_request", 400)
+        if _names_unknown_hospital(body):
+            return _api_error("unknown_hospital", 400)
         parsed = _visit_input(body)
         repository = _visit_repository(request)
         if parsed is None:
@@ -540,6 +543,8 @@ def create_app(
         if denied:
             return denied
         body = await _organizer_body(request)
+        if body is not None and _names_unknown_hospital(body):
+            return _api_error("unknown_hospital", 400)
         parsed = _visit_input(body) if body is not None else None
         if parsed is None:
             return _api_error("invalid_request", 400)
@@ -645,6 +650,8 @@ def create_app(
         if denied:
             return denied
         body = await _organizer_body(request)
+        if body is not None and _names_unknown_hospital(body):
+            return _api_error("unknown_hospital", 400)
         parsed = _visit_input(body) if body is not None else None
         gate = _send_gate(request)
         if parsed is None:
@@ -1006,6 +1013,12 @@ async def _organizer_body(request: Request) -> Mapping[str, Any] | None:
     return body if isinstance(body, Mapping) else None
 
 
+def _names_unknown_hospital(body: Mapping[str, Any]) -> bool:
+    """Whether the body carries a hospital id the registry does not know."""
+    hospital = body.get("hospital")
+    return isinstance(hospital, str) and not is_registered(hospital)
+
+
 def _visit_input(body: Mapping[str, Any]) -> dict[str, Any] | None:
     try:
         if set(body) - {
@@ -1018,7 +1031,9 @@ def _visit_input(body: Mapping[str, Any]) -> dict[str, Any] | None:
             "recipient_ids",
         }:
             return None
-        hospital = Hospital(str(body["hospital"])).value
+        hospital = str(body["hospital"])
+        if not is_registered(hospital):
+            return None
         clinic_session = ClinicSession(str(body["session"])).value
         visit_day = date.fromisoformat(str(body["date"]))
         department_code = _bounded_code(body["department_code"])

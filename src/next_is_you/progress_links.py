@@ -13,7 +13,7 @@ from next_is_you.hospital_registry import HOSPITAL_REGISTRY
 def progress_link(hospital: str) -> str | None:
     """Return the fixed HTTPS source link for a registered hospital, if any."""
     for registered, entry in HOSPITAL_REGISTRY.items():
-        if registered.value == hospital:
+        if registered == hospital:
             url = entry.progress_url
             if url is None or not url.startswith("https://"):
                 return None

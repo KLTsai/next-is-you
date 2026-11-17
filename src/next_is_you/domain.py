@@ -8,9 +8,9 @@ from enum import StrEnum
 from typing import Protocol
 
 
-class Hospital(StrEnum):
-    NTUH_MAIN = "ntuh-main"
-    SHIN_KONG_TAIPEI = "shin-kong-taipei"
+# A hospital id is a registry key (`hospital_registry.HOSPITAL_REGISTRY`). The
+# domain never lists concrete hospitals; the registry owns which ids exist.
+HospitalId = str
 
 
 class SourceCapability(StrEnum):
@@ -70,7 +70,7 @@ def normalize_call_type(value: str | None) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class ClinicScope:
-    hospital: Hospital
+    hospital: HospitalId
     visit_date: date
     department_code: str
     clinic_code: str
@@ -134,7 +134,7 @@ class RosterQuery:
     so the owner picks them instead of typing them.
     """
 
-    hospital: Hospital
+    hospital: HospitalId
     department_code: str
     visit_date: date
 
@@ -197,7 +197,7 @@ class ClinicMatchQuery:
     to read it.
     """
 
-    hospital: Hospital
+    hospital: HospitalId
     department_code: str
     visit_date: date
     session: ClinicSession

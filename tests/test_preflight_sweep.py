@@ -8,9 +8,12 @@ from typing import Mapping
 import pytest
 
 from next_is_you.domain import (
+    ClinicMatch,
     ClinicOption,
     ClinicRoster,
     ClinicSession,
+    MatchKind,
+    MatchQuery,
     RosterQuery,
 )
 from next_is_you.scheduler import OutboxScheduler
@@ -32,26 +35,49 @@ def taipei(year: int, month: int, day: int, hour: int = 14) -> datetime:
 class FakeRosterReader:
     """Hospital-reader fake that implements the roster-listing contract.
 
-    Only `list_clinics` is implemented; the sweep needs nothing else. The
-    scripted roster is keyed by `(hospital, department, visit_date)` so
-    each (hospital, dept, date) group hits one entry. `calls` counts
-    invocations so the test can prove the sweep caches per group.
+    Only `match_clinic` is implemented; the sweep needs nothing else. The
+    scripted roster is keyed by `(hospital, department, visit_date)` and stands
+    for what the hospital's source shows. Like the NTUH reader, the fake reads
+    its source once per (hospital, dept, date) group and day however many drafts ask,
+    and `calls` counts those source reads.
     """
 
     def __init__(self, rosters: Mapping[tuple[str, str, str], ClinicRoster]):
         self._rosters = rosters
         self.calls: list[RosterQuery] = []
+        self._read_groups: set[tuple[str, ...]] = set()
 
-    async def list_clinics(self, query: RosterQuery, now: datetime) -> ClinicRoster:
-        self.calls.append(query)
+    async def match_clinic(self, query: MatchQuery, now: datetime) -> ClinicMatch:
         key = (
             query.hospital.value,
             query.department_code,
             query.visit_date.isoformat(),
         )
-        if key not in self._rosters:
-            return ClinicRoster(False, (), "no_observation")
-        return self._rosters[key]
+        read_key = (*key, now.date().isoformat())
+        if read_key not in self._read_groups:
+            self._read_groups.add(read_key)
+            self.calls.append(
+                RosterQuery(query.hospital, query.department_code, query.visit_date)
+            )
+        roster = self._rosters.get(key, ClinicRoster(False, (), "no_observation"))
+        if not roster.available:
+            if roster.reason == "visit_date_out_of_schedule_window":
+                return ClinicMatch(MatchKind.NOT_YET_PUBLISHED)
+            return ClinicMatch(MatchKind.UNAVAILABLE, reason=roster.reason)
+        room, doctor = query.clinic_code.split("/")[:2]
+        found = next(
+            (
+                option
+                for option in roster.clinics
+                if option.session == query.session
+                and option.room == room
+                and option.doctor == doctor
+            ),
+            None,
+        )
+        if found is None:
+            return ClinicMatch(MatchKind.NOT_SCHEDULED)
+        return ClinicMatch(MatchKind.MATCHED, found.clinic_code)
 
 
 def _draft_match(session: ClinicSession, room: str, doctor: str) -> ClinicRoster:

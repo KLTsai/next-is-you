@@ -177,6 +177,41 @@ class ClinicRoster:
     release_time: datetime | None = None
 
 
+class MatchKind(StrEnum):
+    """How a hospital's clinic schedule answers for a stored draft."""
+
+    MATCHED = "matched"
+    NOT_SCHEDULED = "not_scheduled"
+    CANCELLED = "cancelled"
+    NOT_YET_PUBLISHED = "not_yet_published"
+    UNAVAILABLE = "unavailable"
+
+
+@dataclass(frozen=True, slots=True)
+class MatchQuery:
+    """A stored draft's identity, as the reader needs it to find its clinic."""
+
+    hospital: Hospital
+    department_code: str
+    visit_date: date
+    session: ClinicSession
+    clinic_code: str
+
+
+@dataclass(frozen=True, slots=True)
+class ClinicMatch:
+    """A reader's answer to "is this draft on the hospital's clinic schedule".
+
+    `clinic_code` is the hospital's canonical code, set only when matched; shared
+    code stores it without parsing it. `reason` names the source problem and is
+    set only when unavailable.
+    """
+
+    kind: MatchKind
+    clinic_code: str = ""
+    reason: str = ""
+
+
 class HospitalReader(Protocol):
     """The single interface the rest of the system reads a hospital through.
 
@@ -206,3 +241,11 @@ class ScheduleReader(Protocol):
     """
 
     async def list_clinics(self, query: RosterQuery, now: datetime) -> ClinicRoster: ...
+
+    async def match_clinic(self, query: MatchQuery, now: datetime) -> ClinicMatch:
+        """Decide whether a stored draft is on the hospital's clinic schedule.
+
+        The reader owns clinic-code parsing, normalisation and its status
+        vocabulary; callers branch only on the returned `MatchKind`.
+        """
+        ...

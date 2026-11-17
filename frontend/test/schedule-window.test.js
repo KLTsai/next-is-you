@@ -4,6 +4,7 @@ import * as setupNotices from "../src/schedule-window.js";
 import {
   degradeNotice,
   rosterClinicError,
+  startRefusalMessage,
   unpublishedDayNotice,
   visitErrorMessage,
 } from "../src/schedule-window.js";
@@ -91,9 +92,57 @@ test("degradeNotice names each reason the roster API can return", () => {
 test("visitErrorMessage maps the backend's Start-time error codes to user-facing text", () => {
   assert.ok(visitErrorMessage("doctor_not_scheduled").includes("並沒有看診"));
   assert.ok(visitErrorMessage("schedule_unavailable").includes("請稍後再試"));
-  assert.ok(visitErrorMessage("visit_date_out_of_schedule_window").includes("尚未公布"));
+  assert.equal(visitErrorMessage("visit_date_out_of_schedule_window"), "");
   assert.ok(visitErrorMessage("visit_date_past").includes("看診日期已過"));
   assert.ok(visitErrorMessage("clinic_combo_mismatch").includes("組合"));
   assert.equal(visitErrorMessage("observation_unavailable"), "");
   assert.equal(visitErrorMessage(""), "");
+});
+
+test("a refused Start for an unpublished day shows the same text as the setup form, with a release time", () => {
+  const input = {
+    hospitalName: "臺大醫院總院",
+    scheduleEnd: "2026-12-01",
+    releaseTime: "2026-11-21T00:00:00+08:00",
+    visitDate: "2026-12-05",
+  };
+  const message = startRefusalMessage({ code: "visit_date_out_of_schedule_window", ...input });
+  assert.equal(
+    message,
+    "臺大醫院總院 目前只公布到 12/1 的門診表。12/5 的門診表預計 11/21 00:00 公布，公布後系統會自動核對你存的草稿。",
+  );
+  assert.equal(message, unpublishedDayNotice(input));
+});
+
+test("a refused Start without a release time tells the organizer to ask the hospital", () => {
+  const message = startRefusalMessage({
+    code: "visit_date_out_of_schedule_window",
+    hospitalName: "合成醫院",
+    scheduleEnd: "2026-12-01",
+    releaseTime: null,
+    visitDate: "2026-12-05",
+  });
+  assert.equal(
+    message,
+    "合成醫院 目前只公布到 12/1 的門診表。院方未公布這一天門診表的確切時間，請向院方確認。",
+  );
+});
+
+test("startRefusalMessage falls back to the generic Start error text for other codes or a missing end date", () => {
+  assert.ok(startRefusalMessage({ code: "doctor_not_scheduled" }).includes("並沒有看診"));
+  assert.equal(startRefusalMessage({ code: "observation_unavailable" }), "");
+  assert.equal(
+    startRefusalMessage({ code: "visit_date_out_of_schedule_window", hospitalName: "合成醫院", visitDate: "2026-12-05" }),
+    "",
+  );
+});
+
+test("no frontend text names NTUH or a two-week window", async () => {
+  const { readdir, readFile } = await import("node:fs/promises");
+  const dir = new URL("../src/", import.meta.url);
+  for (const name of await readdir(dir)) {
+    if (!/\.(js|ts)$/.test(name)) continue;
+    const text = await readFile(new URL(name, dir), "utf8");
+    assert.doesNotMatch(text, /NTUH|兩週|兩周|[Tt]wo[- ]week/, name);
+  }
 });

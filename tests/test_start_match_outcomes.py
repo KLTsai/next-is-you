@@ -51,7 +51,11 @@ OUTCOMES = {
         "03/合成醫師甲/角膜",
         20,
         True,
-        {"error": "visit_date_out_of_schedule_window"},
+        {
+            "error": "visit_date_out_of_schedule_window",
+            "schedule_end": "2026-11-23",
+            "release_time": "2026-11-15T00:00:00+08:00",
+        },
         ("scope_mismatch", "scope_mismatch"),
     ),
     "unavailable": (
@@ -82,6 +86,9 @@ async def test_start_reports_each_clinic_match_outcome(outcome: str) -> None:
     result = await gate.start_visit("v", _preflight_now().isoformat())
 
     assert result == expected
+    if outcome == "not_yet_published":
+        # The reader refuses the day without contacting the hospital.
+        assert source.urls == []
     assert counts(database, "v")[:2] == stored
     events = database.connection.execute("SELECT COUNT(*) FROM outbound_events")
     assert events.fetchone()[0] == 0

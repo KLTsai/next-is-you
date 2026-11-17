@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Mapping, Protocol
 
+from next_is_you import hospital_registry
 from next_is_you.alerts import evaluate_alerts
 from next_is_you.domain import (
     ClinicMatchQuery,
@@ -18,6 +19,7 @@ from next_is_you.domain import (
     MatchOutcome,
     ReadFailed,
     ReadSkipped,
+    SourceCapability,
 )
 from next_is_you.line_messaging import LinePushResult
 from next_is_you.persistence import TAIPEI, VisitRepository, visit_cutoff
@@ -240,21 +242,30 @@ class OutboxScheduler:
         )
 
     async def _preflight_sweep(self, now: datetime) -> tuple[int, int]:
-        """Re-validate drafts in `[today+1, today+14]` once per Taipei day.
+        """Re-validate drafts dated after today once per Taipei day.
 
         Each draft is put to its hospital reader's `match_clinic` and the
         sweep branches only on the outcome: a match keeps the draft; a clinic
         that is not scheduled or was cancelled by the hospital flips
         `latest_source_read_*` to the organizer-attention signal. A transient
         read failure leaves the draft untouched and retries on the next Taipei
-        day. Every draft in one sweep is matched with the same clock reading,
+        day. A day the hospital has not published yet marks the draft checked
+        today and leaves its source-read status alone, so it is matched on the
+        first sweep after the hospital publishes that day. Every draft in one sweep is matched with the same clock reading,
         which lets a reader share one source read across them.
         """
         matcher = getattr(self._hospital, "match_clinic", None)
         if matcher is None:
             return 0, 0
         today = now.astimezone(TAIPEI).date()
-        drafts = await self._visits.drafts_due_for_preflight_sweep(today)
+        drafts = await self._visits.drafts_due_for_preflight_sweep(
+            today,
+            [
+                hospital.value
+                for hospital, entry in hospital_registry.HOSPITAL_REGISTRY.items()
+                if entry.capability is SourceCapability.FULL_SCHEDULE
+            ],
+        )
         if not drafts:
             return 0, 0
         rechecked = 0
@@ -289,6 +300,10 @@ class OutboxScheduler:
                 rechecked += 1
                 mismatched += 1
                 continue
+            if match.outcome is MatchOutcome.NOT_YET_PUBLISHED:
+                await self._visits.mark_preflight_checked(str(draft["id"]), today)
+                rechecked += 1
+                continue
             if match.outcome is MatchOutcome.MATCHED:
                 # The draft still matches; clear a prior scope_mismatch flag
                 # so an earlier bad run does not linger as a false alarm.
@@ -296,8 +311,8 @@ class OutboxScheduler:
                     str(draft["id"]), "unavailable", "no_observation"
                 )
             else:
-                # Not scheduled, cancelled by the hospital, or beyond what the
-                # hospital has published: all keep today's attention signal.
+                # Not scheduled or cancelled by the hospital keep today's
+                # attention signal.
                 await self._visits.set_source_read(
                     str(draft["id"]), "scope_mismatch", "scope_mismatch"
                 )

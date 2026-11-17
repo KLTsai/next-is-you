@@ -1412,3 +1412,21 @@ async def test_matches_made_at_one_clock_reading_share_one_schedule_read() -> No
     )
     schedule_requests = [r for r in source.requests if r.url.startswith(SCHEDULE_PATH)]
     assert len(schedule_requests) == 2
+
+
+@pytest.mark.asyncio
+async def test_an_unpublished_day_between_matches_does_not_cost_a_second_read() -> None:
+    """Fixture/mock: the sweep's mix of published and unpublished days."""
+    source = FakeSource(schedule=SCHEDULE_FIXTURE)
+    subject = reader(source)
+    now = _schedule_sim_now()
+    today = now.astimezone(timezone(timedelta(hours=8))).date()
+    code = "03/合成醫師甲/角膜"
+    await subject.match_clinic(_match_query(SCHEDULE_FIRST_VISIT, code), now)
+    unpublished = await subject.match_clinic(
+        _match_query(today + timedelta(days=20), code), now
+    )
+    await subject.match_clinic(_match_query(SCHEDULE_FIRST_VISIT, code), now)
+    assert unpublished == ClinicMatch(MatchOutcome.NOT_YET_PUBLISHED)
+    schedule_requests = [r for r in source.requests if r.url.startswith(SCHEDULE_PATH)]
+    assert len(schedule_requests) == 1

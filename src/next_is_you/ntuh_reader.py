@@ -38,11 +38,14 @@ from typing import Any, Awaitable, Callable, Mapping, Protocol
 from urllib.parse import urlencode
 
 from next_is_you.domain import (
+    ClinicMatch,
+    ClinicMatchQuery,
     ClinicOption,
     ClinicRoster,
     ClinicScope,
     ClinicSession,
     Hospital,
+    MatchOutcome,
     QueueObservation,
     ReadFailed,
     ReadSkipped,
@@ -516,6 +519,10 @@ def _norm(text: str) -> str:
     return "".join(character for character in text.casefold() if character.isalnum())
 
 
+def _row_clinic_code(row: ScheduleRow) -> str:
+    return f"{row.room}/{row.doctor}/{row.clinic_type}"
+
+
 def _matches(row: ListRow, key: ClinicKey) -> bool:
     return (
         _norm(row.room) == _norm(key.room)
@@ -530,6 +537,9 @@ class NtuhProgressReader:
     def __init__(self, state: ReaderState, fetch: Fetcher) -> None:
         self._state = state
         self._fetch = fetch
+        self._schedule_cache: (
+            tuple[tuple[str, date, datetime], tuple[str, list[ScheduleRow]]] | None
+        ) = None
 
     async def observe(
         self, scope: ClinicScope, now: datetime
@@ -597,15 +607,7 @@ class NtuhProgressReader:
         markers) only limit new registration and leave the clinic running, so
         a holder of an existing number still has a clinic and the row stays.
         """
-        try:
-            status, rows = await asyncio.wait_for(
-                self._fetch_schedule_rows(query.department_code, today),
-                REQUEST_TIMEOUT_SECONDS,
-            )
-        except TimeoutError:
-            return ClinicRoster(False, (), "timeout")
-        except Exception:
-            return ClinicRoster(False, (), "no_observation")
+        status, rows = await self._schedule_rows(query.department_code, today)
         if status != "ok":
             return ClinicRoster(False, (), status)
         matching = [
@@ -627,6 +629,104 @@ class NtuhProgressReader:
             for row in matching
         )
         return ClinicRoster(True, options, "ok")
+
+    async def _schedule_rows(
+        self, department_code: str, today: date, shared_at: datetime | None = None
+    ) -> tuple[str, list[ScheduleRow]]:
+        """The dept schedule rows, or the reason they could not be read.
+
+        Bounded by one request budget. Calls that pass the same `shared_at`
+        clock reading (one scheduler tick checking many drafts) share one read
+        instead of asking the hospital once per draft.
+        """
+        cached = self._schedule_cache
+        if (
+            shared_at is not None
+            and cached is not None
+            and cached[0] == (department_code, today, shared_at)
+        ):
+            return cached[1]
+        try:
+            result = await asyncio.wait_for(
+                self._fetch_schedule_rows(department_code, today),
+                REQUEST_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            return "timeout", []
+        except Exception:
+            return "no_observation", []
+        if shared_at is not None:
+            self._schedule_cache = ((department_code, today, shared_at), result)
+        return result
+
+    async def match_clinic(self, query: ClinicMatchQuery, now: datetime) -> ClinicMatch:
+        """Match a stored draft against NTUH's clinic schedule.
+
+        Matches on `(session, room, doctor)` and ignores the clinic type, whose
+        schedule-side and today-side vocabularies differ. Rows marked `停診` or
+        `颱風停診` mean the clinic will not run. A date past the schedule
+        window is answered without contacting the hospital.
+        """
+        if (
+            query.hospital != Hospital.NTUH_MAIN
+            or query.department_code != SUPPORTED_DEPARTMENT
+        ):
+            return ClinicMatch(MatchOutcome.UNAVAILABLE, reason="scope_mismatch")
+        today = now.astimezone(TAIPEI).date()
+        if query.visit_date < today:
+            return ClinicMatch(MatchOutcome.UNAVAILABLE, reason="visit_date_past")
+        days_ahead = (query.visit_date - today).days
+        if days_ahead > SCHEDULE_LOOKAHEAD_DAYS:
+            return ClinicMatch(MatchOutcome.NOT_YET_PUBLISHED)
+        if days_ahead == 0:
+            roster = await self._list_today_roster(query.department_code)
+            if not roster.available:
+                return ClinicMatch(MatchOutcome.UNAVAILABLE, reason=roster.reason)
+            candidates = [
+                (option.session, option.room, option.doctor, option.clinic_code)
+                for option in roster.clinics
+            ]
+            cancelled: list[tuple[ClinicSession, str, str, str]] = []
+        else:
+            status, rows = await self._schedule_rows(
+                query.department_code, today, shared_at=now
+            )
+            if status != "ok":
+                return ClinicMatch(MatchOutcome.UNAVAILABLE, reason=status)
+            dated = [row for row in rows if row.visit_date == query.visit_date]
+            candidates = [
+                (row.session, row.room, row.doctor, _row_clinic_code(row))
+                for row in dated
+                if row.status not in _SCHEDULE_CANCELLED_STATUSES
+            ]
+            cancelled = [
+                (row.session, row.room, row.doctor, _row_clinic_code(row))
+                for row in dated
+                if row.status in _SCHEDULE_CANCELLED_STATUSES
+            ]
+            if not dated:
+                return ClinicMatch(MatchOutcome.UNAVAILABLE, reason="no_observation")
+        key = parse_clinic_key(query.clinic_code)
+        if key is None:
+            return ClinicMatch(MatchOutcome.UNAVAILABLE, reason="invalid_data")
+
+        def is_draft(entry: tuple[ClinicSession, str, str, str]) -> bool:
+            return (
+                entry[0] == query.session
+                and _norm(entry[1]) == _norm(key.room)
+                and _norm(entry[2]) == _norm(key.doctor)
+            )
+
+        found = next((entry for entry in candidates if is_draft(entry)), None)
+        if found is not None:
+            return ClinicMatch(MatchOutcome.MATCHED, clinic_code=found[3])
+        if any(is_draft(entry) for entry in cancelled):
+            return ClinicMatch(MatchOutcome.CANCELLED)
+        if days_ahead > 0 and not candidates:
+            # Every row of the day is cancelled and none is the draft's: the
+            # day offers nothing to compare against, as the listing reports.
+            return ClinicMatch(MatchOutcome.UNAVAILABLE, reason="no_observation")
+        return ClinicMatch(MatchOutcome.NOT_SCHEDULED)
 
     async def _fetch_schedule_rows(
         self, department_code: str, today: date

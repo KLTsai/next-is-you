@@ -17,17 +17,19 @@ from next_is_you.persistence import (
     visit_cutoff,
 )
 from next_is_you.domain import (
+    ClinicMatchQuery,
     ClinicRoster,
     ClinicScope,
     ClinicSession,
     Hospital,
     HospitalReader,
+    MatchOutcome,
     ReadFailed,
     ReadSkipped,
     RosterQuery,
 )
 from next_is_you.hospital_registry import ReaderDeps, RegistryHospitalReader
-from next_is_you.ntuh_reader import WorkersFetcher, _norm, parse_clinic_key
+from next_is_you.ntuh_reader import WorkersFetcher
 from next_is_you.scheduler import OutboxScheduler, TickPlan
 
 try:
@@ -339,35 +341,43 @@ class SystemSendGate(_DurableObjectBase):
 
         clinic_code = str(visit["clinic_code"])
 
-        roster = await reader.list_clinics(
-            RosterQuery(
+        match = await reader.match_clinic(
+            ClinicMatchQuery(
                 hospital=hospital_enum,
                 department_code=str(visit["department_code"]),
                 visit_date=visit_date,
+                session=session_enum,
+                clinic_code=clinic_code,
             ),
             timestamp,
         )
-        if roster.reason == "test_mode_bypass":
-            # Local-test readers synthesize the roster; pre-flight accepts
+        if match.outcome is MatchOutcome.UNAVAILABLE and (
+            match.reason == "test_mode_bypass"
+        ):
+            # Local-test readers synthesize the schedule; pre-flight accepts
             # the draft and defers the authoritative gate to observe_for_start.
             return {"clinic_code": clinic_code}
 
-        if not roster.available:
-            if roster.reason == "visit_date_past":
+        if match.outcome is MatchOutcome.NOT_YET_PUBLISHED:
+            await repository.set_source_read(
+                visit_id, "scope_mismatch", "scope_mismatch"
+            )
+            return {"error": "visit_date_out_of_schedule_window"}
+
+        if match.outcome is MatchOutcome.UNAVAILABLE:
+            if match.reason == "visit_date_past":
                 await repository.set_source_read(
                     visit_id, "scope_mismatch", "scope_mismatch"
                 )
                 return {"error": "visit_date_past"}
-            if roster.reason == "visit_date_out_of_schedule_window":
-                await repository.set_source_read(
-                    visit_id, "scope_mismatch", "scope_mismatch"
-                )
-                return {"error": "visit_date_out_of_schedule_window"}
-            if roster.reason == "scope_mismatch":
+            if match.reason == "scope_mismatch":
                 await repository.set_source_read(
                     visit_id, "scope_mismatch", "scope_mismatch"
                 )
                 return {"error": "observation_scope_mismatch"}
+            if match.reason == "invalid_data":
+                await repository.set_source_read(visit_id, "invalid", "invalid_data")
+                return {"error": "observation_invalid"}
             source_reason_map = {
                 "no_observation": "no_observation",
                 "schema_drift": "schema_drift",
@@ -377,34 +387,21 @@ class SystemSendGate(_DurableObjectBase):
                 "challenge": "access_denied",
                 "denied": "access_denied",
             }
-            source_reason = source_reason_map.get(roster.reason, "no_observation")
+            source_reason = source_reason_map.get(match.reason, "no_observation")
             await repository.set_source_read(visit_id, "unavailable", source_reason)
             return {"error": "schedule_unavailable"}
 
-        parsed_key = parse_clinic_key(clinic_code)
-        if parsed_key is None:
-            await repository.set_source_read(visit_id, "invalid", "invalid_data")
-            return {"error": "observation_invalid"}
-
-        match = next(
-            (
-                option
-                for option in roster.clinics
-                if option.session == session_enum
-                and _norm(option.room) == _norm(parsed_key.room)
-                and _norm(option.doctor) == _norm(parsed_key.doctor)
-            ),
-            None,
-        )
-        if match is None:
+        if match.outcome is not MatchOutcome.MATCHED:
+            # Not scheduled, or cancelled by the hospital.
             await repository.set_source_read(
                 visit_id, "scope_mismatch", "scope_mismatch"
             )
             return {"error": "doctor_not_scheduled"}
 
-        if visit_date == today and match.clinic_code != clinic_code:
-            await repository.update_clinic_code(visit_id, match.clinic_code)
-            clinic_code = match.clinic_code
+        canonical = match.clinic_code
+        if visit_date == today and canonical and canonical != clinic_code:
+            await repository.update_clinic_code(visit_id, canonical)
+            clinic_code = canonical
         return {"clinic_code": clinic_code}
 
     async def correct_stopped_visit(

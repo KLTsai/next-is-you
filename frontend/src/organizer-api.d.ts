@@ -71,6 +71,7 @@ export interface VisitInput {
 export class OrganizerApiError extends Error {
   status: number;
   code: string;
+  visitDate: string | null;
   // Set when Start refuses a day the hospital has not published yet.
   scheduleEnd: string | null;
   releaseTime: string | null;

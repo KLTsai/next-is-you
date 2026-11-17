@@ -27,9 +27,11 @@ from next_is_you.domain import (
     ReadSkipped,
     RosterQuery,
 )
+from next_is_you.domain import SourceCapability
 from next_is_you.hospital_registry import (
     ReaderDeps,
     RegistryHospitalReader,
+    capability_of,
     require_registered,
 )
 from next_is_you.ntuh_reader import WorkersFetcher
@@ -225,7 +227,22 @@ class SystemSendGate(_DurableObjectBase):
                 )
                 return {"error": "observation_unavailable"}
 
-            if isinstance(reader, RegistryHospitalReader):
+            current_number_only = (
+                isinstance(reader, RegistryHospitalReader)
+                and capability_of(str(visit["hospital"]))
+                is SourceCapability.CURRENT_NUMBER_ONLY
+            )
+            if current_number_only:
+                # No clinic schedule exists to check against, so the hospital can
+                # confirm the clinic only on the visit day. The backend decides
+                # what today is; a refusal here changes nothing.
+                if visit_date > today:
+                    return {
+                        "error": "start_on_visit_day_only",
+                        "visit_date": visit_date.isoformat(),
+                    }
+                clinic_code = str(visit["clinic_code"])
+            elif isinstance(reader, RegistryHospitalReader):
                 preflight = await self._preflight_validate(
                     repository, visit_id, visit, visit_date, reader, timestamp
                 )
@@ -270,11 +287,15 @@ class SystemSendGate(_DurableObjectBase):
                     else observation.source_read or ("unavailable", "no_observation")
                 )
                 await repository.set_source_read(visit_id, status, reason)
+                if current_number_only:
+                    return {"error": _current_number_only_error(observation)}
                 return {"error": _START_ERRORS[status]}
             if observation is None:
                 await repository.set_source_read(
                     visit_id, "unavailable", "no_observation"
                 )
+                if current_number_only:
+                    return {"error": "hospital_page_unreachable"}
                 return {"error": "observation_unavailable"}
             try:
                 observed_at = _datetime(observation.observed_at)
@@ -812,6 +833,22 @@ _START_ERRORS = {
     "untrusted": "observation_untrusted",
     "invalid": "observation_invalid",
 }
+
+
+def _current_number_only_error(observation: ReadSkipped | ReadFailed) -> str:
+    """Split a refused Start read into "cannot find the clinic" and "unreachable".
+
+    A skipped read means the hospital answered but the clinic is not open yet or
+    is over; an empty or mismatched answer means the clinic is not shown. Any
+    other unavailable read means the hospital page could not be read.
+    """
+    if isinstance(observation, ReadSkipped):
+        return "hospital_cannot_find_clinic"
+    if observation.reason in {"empty_result", "scope_mismatch", "ambiguous_match"}:
+        return "hospital_cannot_find_clinic"
+    if observation.status == "unavailable":
+        return "hospital_page_unreachable"
+    return _START_ERRORS[observation.status]
 
 
 class _TestHospitalReader:

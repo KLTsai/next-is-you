@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as setupNotices from "../src/schedule-window.js";
 import {
+  currentNumberOnlyNotice,
   degradeNotice,
   rosterClinicError,
   startRefusalMessage,
@@ -99,6 +100,39 @@ test("visitErrorMessage maps the backend's Start-time error codes to user-facing
   assert.equal(visitErrorMessage(""), "");
 });
 
+test("a hospital with no clinic schedule explains each refused Start in plain words", () => {
+  assert.equal(
+    visitErrorMessage("start_on_visit_day_only", { visitDate: "2026-11-20" }),
+    "這家醫院沒有公布門診表，11/20 看診當天才能開始。",
+  );
+  assert.equal(
+    visitErrorMessage("start_on_visit_day_only", { visitDate: "2026-12-01" }),
+    "這家醫院沒有公布門診表，12/1 看診當天才能開始。",
+  );
+  assert.equal(
+    visitErrorMessage("hospital_cannot_find_clinic"),
+    "院方目前查不到這個診。如果還沒開診，請開診後再試；否則請核對診間代碼。",
+  );
+  assert.equal(
+    visitErrorMessage("hospital_page_unreachable"),
+    "暫時讀不到院方資料，請稍後再試。",
+  );
+});
+
+test("the visit-day refusal still reads without a date", () => {
+  assert.equal(
+    visitErrorMessage("start_on_visit_day_only"),
+    "這家醫院沒有公布門診表，看診當天才能開始。",
+  );
+});
+
+test("a hospital with no clinic schedule says so instead of blaming a failed read", () => {
+  const notice = currentNumberOnlyNotice();
+  assert.ok(notice.includes("沒有公布門診表"));
+  assert.ok(notice.includes("看診當天才能開始"));
+  assert.ok(!notice.includes("無法取得"));
+});
+
 test("a refused Start for an unpublished day shows the same text as the setup form, with a release time", () => {
   const input = {
     hospitalName: "臺大醫院總院",
@@ -134,6 +168,17 @@ test("startRefusalMessage falls back to the generic Start error text for other c
   assert.equal(
     startRefusalMessage({ code: "visit_date_out_of_schedule_window", hospitalName: "合成醫院", visitDate: "2026-12-05" }),
     "",
+  );
+});
+
+test("a refused Start for a hospital with no clinic schedule names the visit day the backend gave", () => {
+  assert.equal(
+    startRefusalMessage({ code: "start_on_visit_day_only", visitDate: "2026-11-20" }),
+    "這家醫院沒有公布門診表，11/20 看診當天才能開始。",
+  );
+  assert.equal(
+    startRefusalMessage({ code: "hospital_page_unreachable" }),
+    "暫時讀不到院方資料，請稍後再試。",
   );
 });
 

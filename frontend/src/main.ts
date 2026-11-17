@@ -27,6 +27,7 @@ import { canRequestStart, formatSourceStatus, formatVisitState, visitStatusKey }
 import { sourceLinkMarkup } from "./source-link.js";
 import { projectDashboardVisits } from "./dashboard-projection.js";
 import {
+  currentNumberOnlyNotice,
   degradeNotice as scheduleDegradeNotice,
   startRefusalMessage as scheduleStartRefusalMessage,
   rosterClinicError,
@@ -159,7 +160,7 @@ function errorText(error: unknown): string {
     visit_not_found: "找不到這筆提醒，請重新載入。",
   };
   if (error.status === 401 || error.status === 403) return "登入已失效或目前帳號沒有管理權限。";
-  const scheduleMessage = visitErrorMessage(error.code);
+  const scheduleMessage = visitErrorMessage(error.code, { visitDate: error.visitDate });
   if (scheduleMessage) return scheduleMessage;
   return labels[error.code] || "操作未完成，請重新載入後再試。";
 }
@@ -171,7 +172,9 @@ function startFailureText(error: unknown, item: OrganizerVisit): string {
       hospitalName: hospitalEntry(item.hospital)?.display_name,
       scheduleEnd: error.scheduleEnd,
       releaseTime: error.releaseTime,
-      visitDate: item.date,
+      // The backend names the day Start opens when it refuses a start-day-only
+      // hospital; otherwise the draft's own visit date is the day in question.
+      visitDate: error.visitDate ?? item.date,
     });
     if (refusal) return refusal;
   }
@@ -339,7 +342,9 @@ function clinicSectionMarkup(
       releaseTime: roster.release_time,
       visitDate: selectedDate,
     })
-    : degradeNotice(reason);
+    : entry.capability === "current_number_only"
+      ? currentNumberOnlyNotice()
+      : degradeNotice(reason);
   // The part labels come from the catalog, so the preview carries no hard-coded
   // hospital format. A mismatch is only a hint, never a submit gate.
   const labels = entry.clinic_code_labels;

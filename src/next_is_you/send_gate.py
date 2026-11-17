@@ -26,8 +26,8 @@ from next_is_you.domain import (
     ReadFailed,
     ReadSkipped,
     RosterQuery,
+    SourceCapability,
 )
-from next_is_you.domain import SourceCapability
 from next_is_you.hospital_registry import (
     ReaderDeps,
     RegistryHospitalReader,
@@ -192,14 +192,16 @@ class SystemSendGate(_DurableObjectBase):
     ) -> dict[str, Any]:
         """Start only after the gate obtains a fresh trusted exact-scope sample.
 
-        Pre-flight validation runs first: visit_date must not be in the past,
-        the hospital adapter's roster must list a matching
-        (session, room, doctor), and the schedule source must be reachable.
-        Same-day drafts whose stored clinic_type uses the schedule-side 診別
-        get their clinic_code rewritten to the today-side value so the
-        visit-day reader's (room, doctor, clinic_type) matcher keeps working.
-        Future-dated drafts transition to active without a live observation;
-        the scheduler polls them on visit day.
+        A visit_date in the past is refused first. Then the hospital's source
+        capability decides the path. A full-schedule hospital is asked through
+        `match_clinic` whether the draft is on its clinic schedule; the
+        reader's answer (matched, not scheduled, cancelled, not yet published,
+        unavailable) maps to the Start result, and a matched same-day draft
+        gets the canonical clinic_code the reader returns. A current-number-only
+        hospital has no schedule, so it skips that check and is refused on any
+        day before the visit day, with nothing stored. Future-dated drafts that
+        match transition to active without a live observation; the scheduler
+        polls them on visit day.
         """
         timestamp = _datetime(now)
         async with self._lock:
@@ -376,9 +378,8 @@ class SystemSendGate(_DurableObjectBase):
             timestamp,
         )
         if match.kind is MatchKind.NOT_YET_PUBLISHED:
-            await repository.set_source_read(
-                visit_id, "scope_mismatch", "scope_mismatch"
-            )
+            # Nothing to check against yet: the draft is valid and merely
+            # early, so it is kept unchanged (ticket #101), matching the sweep.
             refusal: dict[str, Any] = {"error": "visit_date_out_of_schedule_window"}
             if match.schedule_end is not None:
                 refusal["schedule_end"] = match.schedule_end.isoformat()
@@ -390,6 +391,11 @@ class SystemSendGate(_DurableObjectBase):
                 visit_id, "scope_mismatch", "scope_mismatch"
             )
             return {"error": "doctor_not_scheduled"}
+        if match.kind is MatchKind.NOT_APPLICABLE:
+            # Start has no schedule to consult for this hospital, so it cannot
+            # admit the draft: fail closed like any unavailable schedule.
+            await repository.set_source_read(visit_id, "unavailable", "no_observation")
+            return {"error": "schedule_unavailable"}
         if match.kind is MatchKind.UNAVAILABLE:
             if match.reason == "visit_date_past":
                 await repository.set_source_read(
@@ -848,12 +854,14 @@ def _current_number_only_error(observation: ReadSkipped | ReadFailed) -> str:
     other unavailable read means the hospital page could not be read.
     """
     if isinstance(observation, ReadSkipped):
-        return "hospital_cannot_find_clinic"
+        if observation.reason in {"clinic_not_started", "clinic_ended"}:
+            return "hospital_cannot_find_clinic"
+        return "hospital_page_unreachable"
     if observation.reason in {"empty_result", "scope_mismatch", "ambiguous_match"}:
         return "hospital_cannot_find_clinic"
     if observation.status == "unavailable":
         return "hospital_page_unreachable"
-    return _START_ERRORS[observation.status]
+    return _START_ERRORS.get(observation.status, "observation_unavailable")
 
 
 class _TestHospitalReader:

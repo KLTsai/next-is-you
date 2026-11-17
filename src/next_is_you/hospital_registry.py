@@ -15,10 +15,13 @@ from datetime import datetime
 from typing import Any, Callable, Mapping
 
 from next_is_you.domain import (
+    ClinicMatch,
+    ClinicMatchQuery,
     ClinicRoster,
     ClinicScope,
     Hospital,
     HospitalReader,
+    MatchOutcome,
     QueueObservation,
     ReadFailed,
     ReadSkipped,
@@ -118,6 +121,15 @@ class RegistryHospitalReader:
         if lister is None:
             return ClinicRoster(False, (), "no_observation")
         return await lister(query, now)
+
+    async def match_clinic(self, query: ClinicMatchQuery, now: datetime) -> ClinicMatch:
+        if capability_of(query.hospital) is not SourceCapability.FULL_SCHEDULE:
+            return ClinicMatch(MatchOutcome.UNAVAILABLE, reason="unsupported")
+        reader = self._reader_for(query.hospital)
+        matcher = getattr(reader, "match_clinic", None)
+        if matcher is None:
+            return ClinicMatch(MatchOutcome.UNAVAILABLE, reason="no_observation")
+        return await matcher(query, now)
 
     def _reader_for(self, hospital: Hospital) -> HospitalReader | None:
         cached = self._readers.get(hospital)

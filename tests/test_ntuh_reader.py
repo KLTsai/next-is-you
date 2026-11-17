@@ -12,10 +12,13 @@ from urllib.parse import parse_qsl
 import pytest
 
 from next_is_you.domain import (
+    ClinicMatch,
+    ClinicMatchQuery,
     ClinicRoster,
     ClinicScope,
     ClinicSession,
     Hospital,
+    MatchOutcome,
     QueueObservation,
     ReadFailed,
     ReadSkipped,
@@ -1287,3 +1290,125 @@ async def test_gate_roster_rejects_an_unknown_hospital() -> None:
         "not-a-hospital", "OPH", DAY.isoformat(), taipei(14, 0).isoformat()
     )
     assert result == {"available": False, "reason": "invalid_data", "clinics": []}
+
+
+def _match_query(visit_day, clinic_code: str, session=ClinicSession.MORNING):
+    return ClinicMatchQuery(Hospital.NTUH_MAIN, "OPH", visit_day, session, clinic_code)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("visit_day", "clinic_code", "session", "outcome", "canonical"),
+    [
+        (
+            SCHEDULE_FIRST_VISIT,
+            "03/合成醫師甲/角膜",
+            ClinicSession.MORNING,
+            MatchOutcome.MATCHED,
+            "03/合成醫師甲/角膜",
+        ),
+        # Clinic type is ignored and room and doctor are normalised.
+        (
+            SCHEDULE_FIRST_VISIT,
+            "03/ 合成醫師甲 /醫師約診",
+            ClinicSession.MORNING,
+            MatchOutcome.MATCHED,
+            "03/合成醫師甲/角膜",
+        ),
+        (
+            SCHEDULE_FIRST_VISIT,
+            "03/合成醫師甲/角膜",
+            ClinicSession.AFTERNOON,
+            MatchOutcome.NOT_SCHEDULED,
+            None,
+        ),
+        (
+            SCHEDULE_FIRST_VISIT,
+            "07/合成醫師丙/角膜",
+            ClinicSession.MORNING,
+            MatchOutcome.CANCELLED,
+            None,
+        ),
+        (
+            SCHEDULE_SECOND_VISIT,
+            "06/合成醫師己/角膜",
+            ClinicSession.MORNING,
+            MatchOutcome.CANCELLED,
+            None,
+        ),
+    ],
+)
+async def test_match_clinic_decides_each_schedule_outcome(
+    visit_day, clinic_code, session, outcome, canonical
+) -> None:
+    source = FakeSource(schedule=SCHEDULE_FIXTURE)
+    match = await reader(source).match_clinic(
+        _match_query(visit_day, clinic_code, session), _schedule_sim_now()
+    )
+    assert match == ClinicMatch(outcome, clinic_code=canonical)
+
+
+@pytest.mark.asyncio
+async def test_match_clinic_answers_not_yet_published_without_a_request() -> None:
+    source = FakeSource(schedule=SCHEDULE_FIXTURE)
+    beyond = SCHEDULE_SIM_TODAY + timedelta(days=15)
+    match = await reader(source).match_clinic(
+        _match_query(beyond, "03/合成醫師甲/角膜"), _schedule_sim_now()
+    )
+    assert match == ClinicMatch(MatchOutcome.NOT_YET_PUBLISHED)
+    assert source.requests == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("query_day", "clinic_code", "reason"),
+    [
+        (
+            SCHEDULE_SIM_TODAY - timedelta(days=1),
+            "03/合成醫師甲/角膜",
+            "visit_date_past",
+        ),
+        (SCHEDULE_FIRST_VISIT, "not-a-clinic-code", "invalid_data"),
+    ],
+)
+async def test_match_clinic_reports_unavailable_with_a_reason(
+    query_day, clinic_code, reason
+) -> None:
+    source = FakeSource(schedule=SCHEDULE_FIXTURE)
+    match = await reader(source).match_clinic(
+        _match_query(query_day, clinic_code), _schedule_sim_now()
+    )
+    assert match == ClinicMatch(MatchOutcome.UNAVAILABLE, reason=reason)
+
+
+@pytest.mark.asyncio
+async def test_match_clinic_rejects_an_unsupported_department() -> None:
+    source = FakeSource(schedule=SCHEDULE_FIXTURE)
+    query = ClinicMatchQuery(
+        Hospital.NTUH_MAIN,
+        "ENT",
+        SCHEDULE_FIRST_VISIT,
+        ClinicSession.MORNING,
+        "03/合成醫師甲/角膜",
+    )
+    match = await reader(source).match_clinic(query, _schedule_sim_now())
+    assert match == ClinicMatch(MatchOutcome.UNAVAILABLE, reason="scope_mismatch")
+    assert source.requests == []
+
+
+@pytest.mark.asyncio
+async def test_matches_made_at_one_clock_reading_share_one_schedule_read() -> None:
+    source = FakeSource(schedule=SCHEDULE_FIXTURE)
+    subject = reader(source)
+    now = _schedule_sim_now()
+    for code in ("03/合成醫師甲/角膜", "99/陌生醫師/角膜", "07/合成醫師丙/角膜"):
+        await subject.match_clinic(_match_query(SCHEDULE_FIRST_VISIT, code), now)
+    schedule_requests = [r for r in source.requests if r.url.startswith(SCHEDULE_PATH)]
+    assert len(schedule_requests) == 1
+    # A later reading asks the hospital again.
+    await subject.match_clinic(
+        _match_query(SCHEDULE_FIRST_VISIT, "03/合成醫師甲/角膜"),
+        now + timedelta(minutes=1),
+    )
+    schedule_requests = [r for r in source.requests if r.url.startswith(SCHEDULE_PATH)]
+    assert len(schedule_requests) == 2

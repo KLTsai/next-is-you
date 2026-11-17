@@ -8,9 +8,12 @@ from typing import Mapping
 import pytest
 
 from next_is_you.domain import (
+    ClinicMatch,
+    ClinicMatchQuery,
     ClinicOption,
     ClinicRoster,
     ClinicSession,
+    MatchOutcome,
     RosterQuery,
 )
 from next_is_you.scheduler import OutboxScheduler
@@ -32,15 +35,43 @@ def taipei(year: int, month: int, day: int, hour: int = 14) -> datetime:
 class FakeRosterReader:
     """Hospital-reader fake that implements the roster-listing contract.
 
-    Only `list_clinics` is implemented; the sweep needs nothing else. The
-    scripted roster is keyed by `(hospital, department, visit_date)` so
-    each (hospital, dept, date) group hits one entry. `calls` counts
-    invocations so the test can prove the sweep caches per group.
+    Only `match_clinic` is called by the sweep. Like a real reader it answers
+    from a scripted roster keyed by `(hospital, department, visit_date)` and
+    shares one roster read across matches made with the same clock reading.
+    `calls` counts roster reads so the test can prove one sweep shares reads
+    per group.
     """
 
     def __init__(self, rosters: Mapping[tuple[str, str, str], ClinicRoster]):
         self._rosters = rosters
         self.calls: list[RosterQuery] = []
+        self._shared: dict[tuple[str, str, str, datetime], ClinicRoster] = {}
+
+    async def match_clinic(self, query: ClinicMatchQuery, now: datetime) -> ClinicMatch:
+        group = (
+            query.hospital.value,
+            query.department_code,
+            query.visit_date.isoformat(),
+            now,
+        )
+        roster = self._shared.get(group)
+        if roster is None:
+            roster = await self.list_clinics(
+                RosterQuery(query.hospital, query.department_code, query.visit_date),
+                now,
+            )
+            self._shared[group] = roster
+        if not roster.available:
+            return ClinicMatch(MatchOutcome.UNAVAILABLE, reason=roster.reason)
+        room, doctor, _ = query.clinic_code.split("/")
+        for option in roster.clinics:
+            if (
+                option.session == query.session
+                and option.room == room
+                and option.doctor == doctor
+            ):
+                return ClinicMatch(MatchOutcome.MATCHED, clinic_code=option.clinic_code)
+        return ClinicMatch(MatchOutcome.NOT_SCHEDULED)
 
     async def list_clinics(self, query: RosterQuery, now: datetime) -> ClinicRoster:
         self.calls.append(query)

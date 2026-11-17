@@ -171,6 +171,45 @@ class ClinicRoster:
     reason: str
 
 
+class MatchOutcome(StrEnum):
+    """How a stored draft relates to a hospital's clinic schedule."""
+
+    MATCHED = "matched"
+    NOT_SCHEDULED = "not_scheduled"
+    CANCELLED = "cancelled"
+    NOT_YET_PUBLISHED = "not_yet_published"
+    UNAVAILABLE = "unavailable"
+
+
+@dataclass(frozen=True, slots=True)
+class ClinicMatchQuery:
+    """A stored draft's identity, as the reader is asked to find it.
+
+    `clinic_code` is opaque to the asker: only the hospital's reader knows how
+    to read it.
+    """
+
+    hospital: Hospital
+    department_code: str
+    visit_date: date
+    session: ClinicSession
+    clinic_code: str
+
+
+@dataclass(frozen=True, slots=True)
+class ClinicMatch:
+    """The reader's answer to "is this draft's clinic on the schedule?".
+
+    `clinic_code` carries the hospital's canonical code and is set only for
+    `MATCHED`. `reason` names the source reason and is set only for
+    `UNAVAILABLE`.
+    """
+
+    outcome: MatchOutcome
+    clinic_code: str | None = None
+    reason: str = ""
+
+
 class HospitalReader(Protocol):
     """The single interface the rest of the system reads a hospital through.
 
@@ -200,3 +239,11 @@ class ScheduleReader(Protocol):
     """
 
     async def list_clinics(self, query: RosterQuery, now: datetime) -> ClinicRoster: ...
+
+    async def match_clinic(self, query: ClinicMatchQuery, now: datetime) -> ClinicMatch:
+        """Decide whether a stored draft matches a row of the clinic schedule.
+
+        The reader owns clinic-code parsing, normalisation and its hospital's
+        status vocabulary; callers branch only on the returned outcome.
+        """
+        ...

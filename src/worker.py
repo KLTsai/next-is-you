@@ -608,6 +608,17 @@ def create_app(
                 ),
             }
             code, status = errors.get(result["error"], ("service_unavailable", 503))
+            if code == "visit_date_out_of_schedule_window":
+                return JSONResponse(
+                    {
+                        "error": {
+                            "code": code,
+                            "schedule_end_date": result.get("schedule_end_date"),
+                            "release_time": result.get("release_time"),
+                        }
+                    },
+                    status_code=status,
+                )
             return _api_error(code, status)
         return JSONResponse(result)
 

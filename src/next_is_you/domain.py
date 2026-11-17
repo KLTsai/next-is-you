@@ -210,12 +210,16 @@ class ClinicMatch:
 
     `clinic_code` carries the hospital's canonical code and is set only for
     `MATCHED`. `reason` names the source reason and is set only for
-    `UNAVAILABLE`.
+    `UNAVAILABLE`. `schedule_end_date` and `release_time` are set only for
+    `NOT_YET_PUBLISHED`, under the reader's own rule; each is `None` when the
+    hospital states none.
     """
 
     outcome: MatchOutcome
     clinic_code: str | None = None
     reason: str = ""
+    schedule_end_date: date | None = None
+    release_time: datetime | None = None
 
 
 class HospitalReader(Protocol):

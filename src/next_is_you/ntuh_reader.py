@@ -693,7 +693,11 @@ class NtuhProgressReader:
             return ClinicMatch(MatchOutcome.UNAVAILABLE, reason="visit_date_past")
         days_ahead = (query.visit_date - today).days
         if days_ahead > SCHEDULE_LOOKAHEAD_DAYS:
-            return ClinicMatch(MatchOutcome.NOT_YET_PUBLISHED)
+            return ClinicMatch(
+                MatchOutcome.NOT_YET_PUBLISHED,
+                schedule_end_date=today + timedelta(days=SCHEDULE_LOOKAHEAD_DAYS),
+                release_time=_schedule_release_time(query.visit_date),
+            )
         if days_ahead == 0:
             roster = await self._list_today_roster(query.department_code)
             if not roster.available:

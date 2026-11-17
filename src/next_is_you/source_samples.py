@@ -23,7 +23,6 @@ from typing import Any, Mapping, Sequence
 from next_is_you.domain import (
     ClinicScope,
     ClinicSession,
-    Hospital,
     QueueObservation,
     normalize_call_type,
 )
@@ -49,6 +48,8 @@ class ParseResult:
     reason: str
 
 
+NTUH_HOSPITAL_ID = "ntuh-main"
+SHIN_KONG_HOSPITAL_ID = "shin-kong-taipei"
 DEFAULT_MAX_AGE = timedelta(minutes=2)
 _SESSIONS = {
     "上午": ClinicSession.MORNING,
@@ -102,7 +103,7 @@ def parse_ntuh_fragment(
     max_age: timedelta = DEFAULT_MAX_AGE,
 ) -> ParseResult:
     """Parse an NTUH-shaped HTML sample with identity columns on each row."""
-    if not _valid_scope(expected, Hospital.NTUH_MAIN):
+    if not _valid_scope(expected, NTUH_HOSPITAL_ID):
         return ParseResult(ParseStatus.INVALID_SCOPE, None, "scope_incomplete")
     observed = _timestamp(observed_at)
     if observed is None or max_age <= timedelta(0):
@@ -179,7 +180,7 @@ def parse_shin_kong_rows(
     max_age: timedelta = DEFAULT_MAX_AGE,
 ) -> ParseResult:
     """Parse synthetic Shin Kong rows while requiring all visit identity fields."""
-    if not _valid_scope(expected, Hospital.SHIN_KONG_TAIPEI):
+    if not _valid_scope(expected, SHIN_KONG_HOSPITAL_ID):
         return ParseResult(ParseStatus.INVALID_SCOPE, None, "scope_incomplete")
     observed = _timestamp(observed_at)
     if observed is None or max_age <= timedelta(0):
@@ -269,7 +270,7 @@ def parse_shin_kong_payload(
     )
 
 
-def _valid_scope(scope: ClinicScope, hospital: Hospital) -> bool:
+def _valid_scope(scope: ClinicScope, hospital: str) -> bool:
     return (
         scope.hospital == hospital
         and bool(scope.department_code)

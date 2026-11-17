@@ -14,7 +14,6 @@ from next_is_you.domain import (
     ClinicMatchQuery,
     ClinicScope,
     ClinicSession,
-    Hospital,
     HospitalReader,
     MatchOutcome,
     ReadFailed,
@@ -261,7 +260,7 @@ class OutboxScheduler:
         drafts = await self._visits.drafts_due_for_preflight_sweep(
             today,
             [
-                hospital.value
+                hospital
                 for hospital, entry in hospital_registry.HOSPITAL_REGISTRY.items()
                 if entry.capability is SourceCapability.FULL_SCHEDULE
             ],
@@ -273,7 +272,7 @@ class OutboxScheduler:
         for draft in drafts:
             try:
                 query = ClinicMatchQuery(
-                    hospital=Hospital(str(draft["hospital"])),
+                    hospital=hospital_registry.require_registered(draft["hospital"]),
                     department_code=str(draft["department_code"]),
                     visit_date=datetime.fromisoformat(str(draft["visit_date"])).date(),
                     session=ClinicSession(str(draft["clinic_session"])),
@@ -428,7 +427,7 @@ class OutboxScheduler:
 
 def _scope(row: Mapping[str, Any]) -> ClinicScope:
     return ClinicScope(
-        hospital=Hospital(str(row["hospital"])),
+        hospital=hospital_registry.require_registered(row["hospital"]),
         visit_date=datetime.fromisoformat(str(row["visit_date"])).date(),
         department_code=str(row["department_code"]),
         clinic_code=str(row["clinic_code"]),

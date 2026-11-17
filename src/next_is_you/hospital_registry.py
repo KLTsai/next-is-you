@@ -19,7 +19,7 @@ from next_is_you.domain import (
     ClinicMatchQuery,
     ClinicRoster,
     ClinicScope,
-    Hospital,
+    HospitalId,
     HospitalReader,
     MatchOutcome,
     QueueObservation,
@@ -29,7 +29,12 @@ from next_is_you.domain import (
     SourceCapability,
     SupportedDepartment,
 )
-from next_is_you.ntuh_reader import SUPPORTED_DEPARTMENT, Fetcher, NtuhProgressReader
+from next_is_you.ntuh_reader import (
+    NTUH_HOSPITAL_ID,
+    SUPPORTED_DEPARTMENT,
+    Fetcher,
+    NtuhProgressReader,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,8 +86,8 @@ class HospitalEntry:
         return SourceCapability.CURRENT_NUMBER_ONLY
 
 
-HOSPITAL_REGISTRY: Mapping[Hospital, HospitalEntry] = {
-    Hospital.NTUH_MAIN: HospitalEntry(
+HOSPITAL_REGISTRY: Mapping[HospitalId, HospitalEntry] = {
+    NTUH_HOSPITAL_ID: HospitalEntry(
         display_name="臺大醫院總院",
         reader_type=NtuhProgressReader,
         progress_url=(
@@ -95,7 +100,7 @@ HOSPITAL_REGISTRY: Mapping[Hospital, HospitalEntry] = {
     ),
     # No reader until Issue #44 evidences a usable Shin Kong source; until then
     # it is offered to no one and reads fail closed.
-    Hospital.SHIN_KONG_TAIPEI: HospitalEntry(
+    "shin-kong-taipei": HospitalEntry(
         display_name="新光醫院（台北）",
         reader_type=None,
         progress_url="https://reg.skh.org.tw/",
@@ -103,7 +108,19 @@ HOSPITAL_REGISTRY: Mapping[Hospital, HospitalEntry] = {
 }
 
 
-def capability_of(hospital: Hospital) -> SourceCapability:
+def is_registered(hospital: object) -> bool:
+    """Whether `hospital` is an id the registry knows (retired ones included)."""
+    return isinstance(hospital, str) and hospital in HOSPITAL_REGISTRY
+
+
+def require_registered(hospital: object) -> HospitalId:
+    """Return `hospital` as an id, or raise ValueError when the registry lacks it."""
+    if not isinstance(hospital, str) or hospital not in HOSPITAL_REGISTRY:
+        raise ValueError("unknown hospital id")
+    return hospital
+
+
+def capability_of(hospital: HospitalId) -> SourceCapability:
     """What a hospital's source exposes, defaulting to unsupported if unknown."""
     entry = HOSPITAL_REGISTRY.get(hospital)
     return entry.capability if entry is not None else SourceCapability.UNSUPPORTED
@@ -114,7 +131,7 @@ class RegistryHospitalReader:
 
     def __init__(self, deps: ReaderDeps) -> None:
         self._deps = deps
-        self._readers: dict[Hospital, HospitalReader] = {}
+        self._readers: dict[HospitalId, HospitalReader] = {}
 
     async def observe(
         self, scope: ClinicScope, now: datetime
@@ -150,7 +167,7 @@ class RegistryHospitalReader:
             return ClinicMatch(MatchOutcome.UNAVAILABLE, reason="no_observation")
         return await matcher(query, now)
 
-    def _reader_for(self, hospital: Hospital) -> HospitalReader | None:
+    def _reader_for(self, hospital: HospitalId) -> HospitalReader | None:
         cached = self._readers.get(hospital)
         if cached is not None:
             return cached

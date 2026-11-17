@@ -44,7 +44,6 @@ from next_is_you.domain import (
     ClinicRoster,
     ClinicScope,
     ClinicSession,
-    Hospital,
     MatchOutcome,
     QueueObservation,
     ReadFailed,
@@ -63,6 +62,7 @@ SELECTOR_PATH = f"{WEBREG_BASE}/ClinicCurrentLightNo"
 LIGHT_TABLE_URL = f"{WEBREG_BASE}/DeptLightTable"
 SCHEDULE_PATH = f"{WEBREG_BASE}/RegDeptSchedule"
 BRANCH_CODE = "T0"
+NTUH_HOSPITAL_ID = "ntuh-main"
 SUPPORTED_DEPARTMENT = "OPH"
 # RegDeptSchedule publishes the next two weekdays-filled calendar weeks; dates
 # past this cap are not reachable until they enter the window and are reported
@@ -564,7 +564,7 @@ class NtuhProgressReader:
         rather than offering a partial list.
         """
         if (
-            query.hospital != Hospital.NTUH_MAIN
+            query.hospital != NTUH_HOSPITAL_ID
             or query.department_code != SUPPORTED_DEPARTMENT
         ):
             return ClinicRoster(False, (), "scope_mismatch")
@@ -668,7 +668,7 @@ class NtuhProgressReader:
         window is answered without contacting the hospital.
         """
         if (
-            query.hospital != Hospital.NTUH_MAIN
+            query.hospital != NTUH_HOSPITAL_ID
             or query.department_code != SUPPORTED_DEPARTMENT
         ):
             return ClinicMatch(MatchOutcome.UNAVAILABLE, reason="scope_mismatch")
@@ -807,7 +807,7 @@ class NtuhProgressReader:
     ) -> QueueObservation | ReadSkipped | ReadFailed:
         key = parse_clinic_key(scope.clinic_code)
         if (
-            scope.hospital != Hospital.NTUH_MAIN
+            scope.hospital != NTUH_HOSPITAL_ID
             or scope.department_code != SUPPORTED_DEPARTMENT
             or scope.session not in AMPM_CODES
             or key is None

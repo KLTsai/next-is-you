@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Mapping
 
@@ -13,9 +14,11 @@ from next_is_you.domain import (
     ClinicOption,
     ClinicRoster,
     ClinicSession,
+    Hospital,
     MatchOutcome,
     RosterQuery,
 )
+from next_is_you import hospital_registry
 from next_is_you.scheduler import OutboxScheduler
 from test_scheduler_outbox import LocalD1
 
@@ -61,6 +64,8 @@ class FakeRosterReader:
                 now,
             )
             self._shared[group] = roster
+        if roster.reason == "visit_date_out_of_schedule_window":
+            return ClinicMatch(MatchOutcome.NOT_YET_PUBLISHED)
         if not roster.available:
             return ClinicMatch(MatchOutcome.UNAVAILABLE, reason=roster.reason)
         room, doctor, _ = query.clinic_code.split("/")
@@ -333,37 +338,98 @@ async def test_sweep_runs_again_on_the_next_taipei_day() -> None:
     assert len(reader.calls) == 2
 
 
+_UNPUBLISHED = ClinicRoster(False, (), "visit_date_out_of_schedule_window")
+
+
 @pytest.mark.asyncio
-async def test_sweep_validates_a_draft_exactly_at_the_window_edge() -> None:
+async def test_sweep_skips_an_unpublished_day_then_checks_it_once_published() -> None:
+    """Fixture/mock: today + 20 days, through the scheduler tick."""
     database = LocalD1()
     repository = await _repo(database)
-    now = taipei(2026, 11, 9, 14)
-    edge = date(2026, 11, 23)  # today + 14 days
-    await _seed_draft(repository, visit_id="v-edge", visit_day=edge, now=now)
-    reader = FakeRosterReader(
-        {
-            ("ntuh-main", "OPH", edge.isoformat()): _draft_match(
-                ClinicSession.MORNING, "03", "合成醫師甲"
-            ),
-        }
+    day_one = taipei(2026, 11, 9, 14)
+    far = date(2026, 11, 29)  # today + 20 days
+    await _seed_draft(repository, visit_id="v-far", visit_day=far, now=day_one)
+    rosters: dict[tuple[str, str, str], ClinicRoster] = {
+        ("ntuh-main", "OPH", far.isoformat()): _UNPUBLISHED,
+    }
+    reader = FakeRosterReader(rosters)
+    scheduler = _scheduler(repository, reader)
+
+    first = await scheduler.prepare_tick(day_one)
+    assert first.drafts_scope_mismatch == 0
+    # Not flagged: source-read status untouched, but marked checked today.
+    assert await _source_read(database, "v-far") == ("unavailable", "no_observation")
+    assert await _preflight_date(database, "v-far") == "2026-11-09"
+
+    # Same day again: already checked, no second read.
+    await scheduler.prepare_tick(day_one + timedelta(minutes=5))
+    assert len(reader.calls) == 1
+
+    # The hospital publishes the day; the next Taipei day's sweep matches it.
+    rosters[("ntuh-main", "OPH", far.isoformat())] = _draft_match(
+        ClinicSession.MORNING, "03", "合成醫師甲"
     )
-    scheduler = _scheduler(repository, reader)
-    plan = await scheduler.prepare_tick(now)
-    assert plan.drafts_rechecked == 1
+    day_two = taipei(2026, 11, 10, 14)
+    second = await scheduler.prepare_tick(day_two)
+    assert second.drafts_rechecked == 1
+    assert second.drafts_scope_mismatch == 0
+    assert await _preflight_date(database, "v-far") == "2026-11-10"
 
 
 @pytest.mark.asyncio
-async def test_sweep_ignores_a_draft_beyond_the_window() -> None:
+async def test_sweep_flags_a_published_day_without_the_doctor() -> None:
     database = LocalD1()
     repository = await _repo(database)
     now = taipei(2026, 11, 9, 14)
-    beyond = date(2026, 11, 24)  # today + 15 days
-    await _seed_draft(repository, visit_id="v-far", visit_day=beyond, now=now)
+    far = date(2026, 12, 20)  # far beyond any fixed range
+    await _seed_draft(repository, visit_id="v-far", visit_day=far, now=now)
+    reader = FakeRosterReader(
+        {("ntuh-main", "OPH", far.isoformat()): _empty_available()}
+    )
+    plan = await _scheduler(repository, reader).prepare_tick(now)
+    assert plan.drafts_scope_mismatch == 1
+    assert await _source_read(database, "v-far") == ("scope_mismatch", "scope_mismatch")
+
+
+@pytest.mark.asyncio
+async def test_sweep_leaves_a_hospital_without_a_clinic_schedule_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class CurrentNumberOnly:
+        def __init__(self, storage, fetch) -> None:
+            pass
+
+    entry = hospital_registry.HOSPITAL_REGISTRY[Hospital.NTUH_MAIN]
+    monkeypatch.setattr(
+        hospital_registry,
+        "HOSPITAL_REGISTRY",
+        {Hospital.NTUH_MAIN: replace(entry, reader_type=CurrentNumberOnly)},
+    )
+    database = LocalD1()
+    repository = await _repo(database)
+    now = taipei(2026, 11, 9, 14)
+    await _seed_draft(
+        repository, visit_id="v-cn", visit_day=date(2026, 11, 20), now=now
+    )
     reader = FakeRosterReader({})
-    scheduler = _scheduler(repository, reader)
-    plan = await scheduler.prepare_tick(now)
+    plan = await _scheduler(repository, reader).prepare_tick(now)
     assert plan.drafts_rechecked == 0
     assert reader.calls == []
+    assert await _preflight_date(database, "v-cn") is None
+
+
+def test_no_sweep_query_or_rule_names_a_day_count() -> None:
+    """Static check: the sweep source carries no fixed day range."""
+    import inspect
+    import re
+
+    for fn in (
+        VisitRepository.drafts_due_for_preflight_sweep,
+        OutboxScheduler._preflight_sweep,
+    ):
+        source = inspect.getsource(fn)
+        assert not re.search(r"timedelta\(days=\s*\d{2,}", source)
+        assert not re.search(r"\b14\b", source)
 
 
 @pytest.mark.asyncio

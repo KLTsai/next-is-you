@@ -16,7 +16,15 @@ from typing import Any, Mapping, Sequence
 
 import pytest
 
-from next_is_you.domain import Hospital, SourceCapability, SupportedDepartment
+from next_is_you.domain import (
+    ClinicMatchQuery,
+    ClinicSession,
+    Hospital,
+    MatchOutcome,
+    RosterQuery,
+    SourceCapability,
+    SupportedDepartment,
+)
 from next_is_you.hospital_registry import HOSPITAL_REGISTRY, HospitalEntry
 from next_is_you.persistence import Statement, VisitRepository
 
@@ -136,3 +144,37 @@ async def test_every_registered_id_can_be_stored_with_a_visit(
     stored = await repo.get_visit("contract-visit")
     assert stored is not None
     assert stored["hospital"] == hospital.value
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("hospital", "entry"), CASES)
+async def test_a_day_past_the_clinic_schedule_end_date_makes_no_request(
+    hospital: Hospital, entry: HospitalEntry
+) -> None:
+    """Fixture/mock: a day no hospital has published reaches no transport.
+
+    The day is far past any clinic schedule end date a hospital publishes
+    (the survey's longest is 91 days), so a daily sweep can add no load.
+    """
+    if entry.capability is not SourceCapability.FULL_SCHEDULE:
+        pytest.skip("only a hospital that lists a clinic schedule has an end date")
+    requests: list[object] = []
+
+    async def recording_fetch(request: object) -> object:
+        requests.append(request)
+        raise AssertionError("a request reached the hospital transport")
+
+    assert entry.reader_type is not None
+    reader = entry.reader_type(object(), recording_fetch)
+    now = datetime(2026, 11, 9, 6, 0, tzinfo=timezone.utc)
+    far_day = date(2027, 11, 9)
+    department = entry.departments[0].code
+
+    roster = await reader.list_clinics(RosterQuery(hospital, department, far_day), now)
+    assert roster.available is False
+    for session in ClinicSession:
+        match = await reader.match_clinic(
+            ClinicMatchQuery(hospital, department, far_day, session, "any/code"), now
+        )
+        assert match.outcome is MatchOutcome.NOT_YET_PUBLISHED
+    assert requests == []

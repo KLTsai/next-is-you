@@ -918,23 +918,28 @@ class VisitRepository:
         )
 
     async def drafts_due_for_preflight_sweep(
-        self, today: date
+        self, today: date, hospitals: Sequence[str]
     ) -> list[Mapping[str, Any]]:
-        """Drafts in [today+1, today+14] that have not been swept today."""
-        window_start = (today + timedelta(days=1)).isoformat()
-        window_end = (today + timedelta(days=14)).isoformat()
-        today_iso = today.isoformat()
+        """Drafts dated after today, of the given hospitals, not swept today.
+
+        The caller names the hospitals that publish a clinic schedule; how far
+        ahead any of them has published is the hospital reader's business.
+        """
+        if not hospitals:
+            return []
+        placeholders = ", ".join("?" for _ in hospitals)
         return await self._store.fetch_all(
             Statement(
-                """SELECT id, hospital, visit_date, department_code, clinic_code,
+                f"""SELECT id, hospital, visit_date, department_code, clinic_code,
                     clinic_session, doctor_code, room_code
                 FROM visits
                 WHERE state = 'draft'
-                    AND visit_date >= ? AND visit_date <= ?
+                    AND visit_date > ?
+                    AND hospital IN ({placeholders})
                     AND (preflight_last_checked_date IS NULL
                          OR preflight_last_checked_date != ?)
                 ORDER BY hospital, department_code, visit_date, id""",
-                (window_start, window_end, today_iso),
+                (today.isoformat(), *hospitals, today.isoformat()),
             )
         )
 

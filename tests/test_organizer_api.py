@@ -402,3 +402,105 @@ def test_hospital_catalog_response_is_unchanged_for_ntuh_and_shin_kong():
             await http.aclose()
 
     asyncio.run(scenario())
+
+
+# --- Registry-owned hospital ids (#105): local integration -------------------
+
+UNKNOWN_HOSPITAL = "not-in-the-registry"
+
+
+def _visit_body(hospital: str) -> dict[str, Any]:
+    return {
+        "hospital": hospital,
+        "date": "2026-09-29",
+        "department_code": "MED",
+        "clinic_code": "MED-A",
+        "session": "morning",
+        "patient_number": 85,
+        "recipient_ids": ["eligible"],
+    }
+
+
+def _visit_rows(store: SQLiteStore) -> list[tuple]:
+    return [
+        tuple(row)
+        for row in store.connection.execute("SELECT * FROM visits ORDER BY id")
+    ]
+
+
+def test_unknown_hospital_id_is_rejected_on_every_accepting_path_with_no_write():
+    async def scenario():
+        store, http = make_client()
+        try:
+            headers = authorize(http)
+            created = await http.post(
+                "/api/organizer/visits",
+                json=_visit_body("ntuh-main"),
+                headers=headers,
+            )
+            assert created.status_code == 201
+            visit_id = created.json()["id"]
+            before = _visit_rows(store)
+            bad = _visit_body(UNKNOWN_HOSPITAL)
+
+            create = await http.post("/api/organizer/visits", json=bad, headers=headers)
+            update = await http.patch(
+                f"/api/organizer/visits/{visit_id}", json=bad, headers=headers
+            )
+            correct = await http.post(
+                f"/api/organizer/visits/{visit_id}/correct", json=bad, headers=headers
+            )
+            clinics = await http.get(
+                f"/api/organizer/hospitals/{UNKNOWN_HOSPITAL}/clinics",
+                params={"department": "OPH", "date": "2026-09-29"},
+            )
+
+            for response in (create, update, correct, clinics):
+                assert response.status_code == 400
+                assert response.json() == {"error": {"code": "invalid_request"}}
+            assert _visit_rows(store) == before
+        finally:
+            await http.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_a_hospital_registered_only_in_the_registry_passes_id_validation(
+    monkeypatch,
+):
+    from next_is_you import hospital_registry
+
+    monkeypatch.setattr(
+        hospital_registry,
+        "HOSPITAL_REGISTRY",
+        {
+            **hospital_registry.HOSPITAL_REGISTRY,
+            "registry-only-test": hospital_registry.HospitalEntry(
+                display_name="Registry only",
+                reader_type=None,
+                official_link="https://registry-only.example/",
+            ),
+        },
+    )
+    seen: list[str] = []
+
+    async def list_clinics(self, hospital, department, day, now):
+        seen.append(hospital)
+        return {"available": False, "reason": "unsupported", "clinics": []}
+
+    monkeypatch.setattr(Gate, "list_clinics", list_clinics, raising=False)
+
+    async def scenario():
+        _, http = make_client()
+        try:
+            authorize(http)
+            response = await http.get(
+                "/api/organizer/hospitals/registry-only-test/clinics",
+                params={"department": "OPH", "date": "2026-09-29"},
+            )
+            assert response.status_code == 200
+            assert seen == ["registry-only-test"]
+        finally:
+            await http.aclose()
+
+    asyncio.run(scenario())

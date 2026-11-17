@@ -49,7 +49,7 @@ class FakeRosterReader:
 
     async def match_clinic(self, query: MatchQuery, now: datetime) -> ClinicMatch:
         key = (
-            query.hospital.value,
+            query.hospital,
             query.department_code,
             query.visit_date.isoformat(),
         )

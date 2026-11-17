@@ -1,4 +1,4 @@
-export type Hospital = "ntuh-main" | "shin-kong-taipei";
+export type Hospital = string;
 export type Session = "morning" | "afternoon" | "evening";
 export type SourceCapability = "full_schedule" | "current_number_only" | "unsupported";
 export type VisitState = "draft" | "active" | "stopping" | "stopped" | "expired";

@@ -154,6 +154,25 @@ class ClinicOption:
     doctor: str
     clinic_type: str
     clinic_code: str
+    # Written by the reader, shown by everything else as given: the way the
+    # hospital identifies the clinic, and every labelled field it publishes
+    # that helps a person confirm the clinic (room, location, clinic type,
+    # substitute doctor, status), in display order as (name, value) pairs.
+    label: str = ""
+    details: tuple[tuple[str, str], ...] = ()
+
+
+def clinic_label(room: str, doctor: str, session_name: str) -> str:
+    """Join the segments a hospital publishes into one dropdown label.
+
+    A hospital without room numbers passes an empty room, and the label then
+    has no empty segment and no stray separator.
+    """
+    head = " · ".join(part for part in (room.strip(), doctor.strip()) if part)
+    session = session_name.strip()
+    if head and session:
+        return f"{head}（{session}）"
+    return head or session
 
 
 @dataclass(frozen=True, slots=True)

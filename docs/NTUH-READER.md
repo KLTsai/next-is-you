@@ -82,6 +82,8 @@ Pre-flight matches on `(visit_date, session, room, doctor)` only. The schedule's
 
 Cards carry a status marker inside `<div class="tag"><div class="first-reg">...</div></div>`. The reader drops rows whose status is `停診` or `颱風停診` (the clinic will not run that day). Registration-restriction markers (`額滿`, `已逾當日掛號時間`, `代診不續掛`, `代診可續掛`, `僅存本院初診`, `本院初診`, `本科初診`, `本科複診`, `18:00開放`) leave the clinic running and keep the row in the roster, since a patient who already has a number is unaffected by registration-side limits.
 
+Each listed clinic also carries a dropdown `label` (`room · doctor（session）`, for example `05 · 合成醫師乙（早診）`) and ordered `details`. Today's roster lists 診間, 醫師, 診別 and 時段 from the light-table card. A future day lists 診間, 醫師, 科別 (the text before the `|` in `.sub-spec`), 診別, 時段 and, when the card shows one, 狀態 (the status marker verbatim, which is where 額滿 and 代診 markers appear).
+
 ### Reason codes returned to the setup picker and Start
 
 - `visit_date_past` - the chosen date is before Taipei today. Returned by both `list_clinics` and Start.

@@ -29,6 +29,10 @@ export interface ClinicRoster {
   available: boolean;
   reason: string;
   clinics: ClinicOption[];
+  // Present when the day is not yet published: the last day the hospital's
+  // clinic schedule covers, and when the hospital says the day will be added.
+  schedule_end?: string | null;
+  release_time?: string | null;
 }
 export type SourceReadStatus = "usable" | "unavailable" | "stale" | "untrusted" | "scope_mismatch" | "invalid";
 export type SourceReadReason = "none" | "no_observation" | "timeout" | "stale_sample" | "untrusted_source" | "scope_mismatch" | "empty_result" | "schema_drift" | "access_denied" | "ambiguous_match" | "invalid_data";

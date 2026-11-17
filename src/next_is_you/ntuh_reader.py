@@ -31,7 +31,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from typing import Any, Awaitable, Callable, Mapping, Protocol
@@ -565,7 +565,19 @@ class NtuhProgressReader:
         if days_ahead == 0:
             return await self._list_today_roster(query.department_code)
         if days_ahead > SCHEDULE_LOOKAHEAD_DAYS:
-            return ClinicRoster(False, (), "visit_date_out_of_schedule_window")
+            # NTUH states its rule: schedule from midnight 14 days before
+            # consultation, so a day opens at 00:00 Taipei 14 days earlier.
+            return ClinicRoster(
+                False,
+                (),
+                "visit_date_out_of_schedule_window",
+                schedule_end=today + timedelta(days=SCHEDULE_LOOKAHEAD_DAYS),
+                release_time=datetime.combine(
+                    query.visit_date - timedelta(days=SCHEDULE_LOOKAHEAD_DAYS),
+                    time(0, 0),
+                    tzinfo=TAIPEI,
+                ),
+            )
         return await self._list_future_schedule(query, today)
 
     async def _list_today_roster(self, department_code: str) -> ClinicRoster:

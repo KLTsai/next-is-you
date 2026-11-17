@@ -1,18 +1,17 @@
-export const SCHEDULE_LOOKAHEAD_DAYS: number;
+import type { ClinicRoster } from "./organizer-api.js";
 
-export function addDaysISO(iso: string, days: number): string;
+export function unpublishedDayNotice(input: {
+  hospitalName: string;
+  scheduleEnd: string;
+  releaseTime: string | null | undefined;
+  visitDate: string;
+}): string;
 
-export function withinScheduleWindow(
-  date: string,
-  today: string,
-  lookahead?: number,
-): boolean;
-
-export function beyondScheduleWindow(
-  date: string,
-  today: string,
-  lookahead?: number,
-): boolean;
+export function rosterClinicError(
+  roster: ClinicRoster | null,
+  clinic: string,
+  isToday: boolean,
+): string;
 
 export function degradeNotice(reason: string): string;
 

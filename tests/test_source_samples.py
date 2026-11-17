@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from next_is_you.domain import ClinicScope, ClinicSession, Hospital
+from next_is_you.domain import ClinicScope, ClinicSession
 from next_is_you.source_samples import (
     ParseStatus,
     parse_ntuh_fragment,
@@ -21,7 +21,7 @@ SHIN_KONG_FIXTURE = (FIXTURES / "shin_kong_taipei.json").read_text()
 @pytest.fixture
 def ntuh_scope() -> ClinicScope:
     return ClinicScope(
-        hospital=Hospital.NTUH_MAIN,
+        hospital="ntuh-main",
         visit_date=date(2026, 9, 27),
         department_code="MED",
         clinic_code="MED-101",
@@ -34,7 +34,7 @@ def ntuh_scope() -> ClinicScope:
 @pytest.fixture
 def shin_kong_scope() -> ClinicScope:
     return ClinicScope(
-        hospital=Hospital.SHIN_KONG_TAIPEI,
+        hospital="shin-kong-taipei",
         visit_date=date(2026, 9, 27),
         department_code="ND0004",
         clinic_code="236",

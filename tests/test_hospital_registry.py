@@ -9,6 +9,8 @@ from next_is_you.domain import (
     ClinicRoster,
     ClinicScope,
     ClinicSession,
+    MatchKind,
+    MatchQuery,
     QueueObservation,
     ReadFailed,
     RosterQuery,
@@ -359,6 +361,51 @@ class TestRegistryContract:
                 listed += 1
                 assert option.label.strip()
         assert listed > 0
+
+    @pytest.mark.asyncio
+    async def test_a_day_past_the_schedule_end_date_makes_no_request(
+        self, hospital
+    ) -> None:
+        # Fixture/mock: the daily sweep asks about days the hospital has not
+        # published, so the reader must answer those without contacting the
+        # hospital, however far ahead the day is.
+        from datetime import timedelta
+
+        entry = hospital_registry.HOSPITAL_REGISTRY[hospital]
+        if entry.capability is not SourceCapability.FULL_SCHEDULE:
+            return
+        assert hospital in _ROSTER_FIXTURES, "supply a roster fixture"
+        make_source, queries, now = _ROSTER_FIXTURES[hospital]()
+        source = make_source()
+        reader = entry.make_reader(ReaderDeps(LocalDurableStorage(), source))
+        template = queries[0]
+        far = RosterQuery(
+            template.hospital, template.department_code, now.date() + timedelta(365)
+        )
+        # The end date comes from the reader's own answer for a far day; no
+        # request is needed for that answer either.
+        roster = await reader.list_clinics(far, now)
+        assert not roster.available and roster.schedule_end is not None
+        past_end = RosterQuery(
+            far.hospital,
+            far.department_code,
+            roster.schedule_end + timedelta(days=1),
+        )
+        answer = await reader.list_clinics(past_end, now)
+        assert not answer.available
+        assert answer.schedule_end == roster.schedule_end
+        match = await reader.match_clinic(
+            MatchQuery(
+                past_end.hospital,
+                past_end.department_code,
+                past_end.visit_date,
+                ClinicSession.MORNING,
+                "any/any",
+            ),
+            now,
+        )
+        assert match.kind is MatchKind.NOT_YET_PUBLISHED
+        assert source.requests == []
 
     def test_official_link_is_fixed_https(self, hospital) -> None:
         from urllib.parse import urlparse

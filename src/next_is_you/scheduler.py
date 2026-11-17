@@ -241,13 +241,15 @@ class OutboxScheduler:
         )
 
     async def _preflight_sweep(self, now: datetime) -> tuple[int, int]:
-        """Re-validate drafts in `[today+1, today+14]` once per Taipei day.
+        """Re-validate every future draft once per Taipei day.
 
         Asks the hospital's reader whether each draft is still on its clinic
         schedule and branches only on the answer. A draft that is no longer
         scheduled, or that the hospital cancelled, flips `latest_source_read_*`
         to the organizer-attention signal. A transient read failure leaves the
-        draft untouched and retries on the next Taipei day.
+        draft untouched and retries on the next Taipei day. A day the hospital
+        has not published yet marks the draft checked today and changes nothing
+        else, so it is asked again once the hospital publishes that day.
         """
         matcher = getattr(self._hospital, "match_clinic", None)
         if matcher is None:
@@ -293,6 +295,11 @@ class OutboxScheduler:
                     draft_id, "scope_mismatch", "scope_mismatch"
                 )
                 mismatched += 1
+            elif match.kind is MatchKind.NOT_YET_PUBLISHED:
+                # Nothing to check against yet: do not flag, leave the
+                # source-read status alone, and ask again on a later day.
+                await self._visits.mark_preflight_checked(draft_id, today)
+                continue
             elif match.kind is MatchKind.MATCHED:
                 # The draft still matches; clear a prior scope_mismatch flag
                 # so an earlier bad run does not linger as a false alarm.
@@ -300,8 +307,7 @@ class OutboxScheduler:
                     draft_id, "unavailable", "no_observation"
                 )
             else:
-                # Not scheduled, cancelled by the hospital, or (inside today's
-                # sweep range, unchanged behavior) not yet published.
+                # Not scheduled, or cancelled by the hospital.
                 await self._visits.set_source_read(
                     draft_id, "scope_mismatch", "scope_mismatch"
                 )

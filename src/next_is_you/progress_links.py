@@ -1,21 +1,22 @@
-"""Server-owned official hospital links for the organizer visit projection."""
+"""Server-owned official hospital links for the organizer visit projection.
+
+The link itself lives in each hospital's registry entry; this module only
+resolves a stored hospital id to it and refuses anything that is not a fixed
+HTTPS link.
+"""
 
 from __future__ import annotations
 
-from types import MappingProxyType
-
-
-_PROGRESS_LINKS = MappingProxyType(
-    {
-        "ntuh-main": "https://registration.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0",
-        "shin-kong-taipei": "https://reg.skh.org.tw/",
-    }
-)
+from next_is_you import hospital_registry
+from next_is_you.domain import Hospital
 
 
 def progress_link(hospital: str) -> str | None:
-    """Return the fixed HTTPS source link for a supported hospital, if any."""
-    url = _PROGRESS_LINKS.get(hospital)
-    if url is None or not url.startswith("https://"):
+    """Return the fixed HTTPS source link for a registered hospital, if any."""
+    try:
+        entry = hospital_registry.HOSPITAL_REGISTRY.get(Hospital(hospital))
+    except ValueError:
         return None
-    return url
+    if entry is None or not entry.official_link.startswith("https://"):
+        return None
+    return entry.official_link

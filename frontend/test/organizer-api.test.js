@@ -152,3 +152,27 @@ test("typed API failures expose only the approved error code", async () => {
     return true;
   });
 });
+
+test("a refused Start for an unpublished day exposes the end date and release time", async () => {
+  const fetcher = async () => response({
+    error: {
+      code: "visit_date_out_of_schedule_window",
+      schedule_end: "2026-12-01",
+      release_time: "2026-11-21T00:00:00+08:00",
+    },
+  }, 409);
+  await assert.rejects(startVisit("v1", { fetcher, csrfToken: "csrf-local" }), (error) => {
+    assert.equal(error.code, "visit_date_out_of_schedule_window");
+    assert.equal(error.scheduleEnd, "2026-12-01");
+    assert.equal(error.releaseTime, "2026-11-21T00:00:00+08:00");
+    return true;
+  });
+});
+
+test("a refusal without a release time leaves it null", async () => {
+  const fetcher = async () => response({ error: { code: "visit_date_out_of_schedule_window", schedule_end: "2026-12-01" } }, 409);
+  await assert.rejects(startVisit("v1", { fetcher, csrfToken: "csrf-local" }), (error) => {
+    assert.equal(error.releaseTime, null);
+    return true;
+  });
+});

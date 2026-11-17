@@ -54,7 +54,6 @@ const DEGRADE_MESSAGES = Object.freeze({
   timeout: "讀取院方名單逾時，已切換為手動輸入。",
   schema_drift: "院方頁面格式無法辨識，已切換為手動輸入。",
   scope_mismatch: "此科別不在支援範圍，已切換為手動輸入。",
-  visit_date_out_of_schedule_window: "院方尚未公布這一天的門診表，暫時改用手動輸入；公布後系統會重新驗證醫師排班。",
   visit_date_past: "看診日期已過，請選擇今天或之後的日期。",
 });
 
@@ -67,9 +66,19 @@ const VISIT_ERROR_MESSAGES = Object.freeze({
   doctor_not_scheduled: "所選醫師在那天並沒有看診，請重新選擇醫師或日期。",
   clinic_combo_mismatch: "科別、醫師與診間的組合與院方資料不符，請重新選擇。",
   schedule_unavailable: "暫時無法驗證醫師排班（院方頁回應異常），請稍後再試。",
-  visit_date_out_of_schedule_window: "院方尚未公布這一天的門診表，暫時無法驗證醫師排班；公布後系統會重新驗證。",
 });
 
 export function visitErrorMessage(code) {
   return VISIT_ERROR_MESSAGES[code] ?? "";
+}
+
+// The text for a refused Start. A not-yet-published day reuses the setup form's
+// notice; any other code uses the generic Start error text, and "" means the
+// caller has no specific text for it.
+export function startRefusalMessage({ code, hospitalName, scheduleEnd, releaseTime, visitDate }) {
+  if (code === "visit_date_out_of_schedule_window") {
+    if (!scheduleEnd || !hospitalName) return "";
+    return unpublishedDayNotice({ hospitalName, scheduleEnd, releaseTime, visitDate });
+  }
+  return visitErrorMessage(code);
 }

@@ -1090,7 +1090,11 @@ async def test_preflight_blocks_start_when_date_is_out_of_schedule_window() -> N
     beyond = _PREFLIGHT_SIM_SOURCE_DATE + timedelta(days=20)
     await seed_ntuh_at(database, gate, "far", beyond)
     result = await gate.start_visit("far", _preflight_now().isoformat())
-    assert result == {"error": "visit_date_out_of_schedule_window"}
+    assert result == {
+        "error": "visit_date_out_of_schedule_window",
+        "schedule_end": "2026-11-23",
+        "release_time": "2026-11-15T00:00:00+08:00",
+    }
     assert source.urls == []
     assert counts(database, "far")[:2] == ("scope_mismatch", "scope_mismatch")
 

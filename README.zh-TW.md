@@ -27,7 +27,7 @@ Next is you 就是替你做這件事的小工具。擁有者在瀏覽器開啟�
 
 **進行中**
 
-- [ ] 可替換的醫院 adapter 後端邊界（`HospitalReader` 介面、醫院註冊表、能力描述）與新增醫院的文件指南（[docs/ADDING-A-HOSPITAL.md](docs/ADDING-A-HOSPITAL.md)） - [#45](https://github.com/KLTsai/next-is-you/issues/45)。介面、註冊表與指南已經合併進主線。仍有三件未完成：前端的醫院 union 型別與寫死的 14 天排班視窗仍帶著單一醫院的行為假設、兩則視窗提示文字仍對使用者寫出「NTUH」、以及 issue 要求的合成醫院降級測試尚未存在。
+- [ ] 可替換的醫院 adapter 後端邊界（`HospitalReader` 介面、醫院註冊表、能力描述）與新增醫院的文件指南（[docs/ADDING-A-HOSPITAL.md](docs/ADDING-A-HOSPITAL.md)） - [#45](https://github.com/KLTsai/next-is-you/issues/45)。介面、註冊表與指南已經合併進主線。剩下的工作已在 2026-11-17 重新規劃為三個 PR：門診表規則與診間比對只存在各醫院自己的 reader 裡；註冊表自動推導醫院等級，並加上 contract test；前端不再寫出任何醫院或規則。細節見 issue。
 - [ ] 管理者主導的 LINE 邀請與移除 UI：已合併並在本地驗證過；用真實家庭 LINE 帳號走一次完整流程仍待進行 - [#19](https://github.com/KLTsai/next-is-you/issues/19)
 - [ ] 台大眼科 reader：已具備 fixture 與本地整合證據；來源的請求契約與 markup 已人工實地擷取，但 reader 本身的線上行為尚未驗證 - [#20](https://github.com/KLTsai/next-is-you/issues/20)
 - [ ] 私人儲存復原與營運就緒 - [#21](https://github.com/KLTsai/next-is-you/issues/21)
@@ -168,6 +168,19 @@ Next is you 是一個私人家庭工具。它不會：
 - 加入付費方案功能、依賴外部服務的 status badge、或行銷頁面。
 
 在擁有者本人的手機實測（[Issue #22](https://github.com/KLTsai/next-is-you/issues/22)）明確授權真實提醒之前，所有環境下的提醒發送都處於保留狀態。
+
+## 免責聲明與來源讀取
+
+Next is you 不是任何醫院的官方服務，與任何醫院也沒有關係。它是私人、非營利的家庭工具，不收費，也不開放給大眾使用。它不保證讀到的內容正確或即時：一切以院方網頁與診間現場燈號為準，提醒也不代表號碼已經被叫到。
+
+讀取醫院網頁時遵守以下規則：
+
+- 只讀任何訪客都能開啟的頁面，頻率很低，而且只讀草稿指定的那一個診。
+- 絕不繞過登入、驗證碼、同意按鈕、身分驗證或封鎖，並以真實身分連線，不偽裝用戶端。
+- 不保存原始回應、不轉載任何內容，並附上院方官方網頁連結。
+- 院方拒絕存取時就停止讀取該院；院方有官方開放資料時優先使用。
+
+這些規則背後的來源調查在 [research/automated-access-taiwan-law.md](research/automated-access-taiwan-law.md) 與 [research/hospital-schedule-and-progress-survey.md](research/hospital-schedule-and-progress-survey.md)，兩者都不是法律意見。
 
 ## 隱私
 

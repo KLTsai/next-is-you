@@ -4,6 +4,20 @@ The language used to build and deliver Next is you, a reminder service for hospi
 
 ## Language
 
+### Hospitals
+
+**Clinic schedule**:
+What a hospital publishes about its outpatient clinics: which doctor consults in which room, in which session, on which day. Shown to users as 門診表. Always written in full, never as a bare "schedule".
+_Avoid_: Schedule (alone), timetable, registration window, 掛號視窗
+
+**Clinic schedule end date**:
+The last day a hospital's clinic schedule currently covers. A visit after it cannot yet be checked against the hospital. Shown to users as 門診表最後一天.
+_Avoid_: Schedule window, lookahead, schedule horizon, last schedulable date
+
+**Clinic schedule release time**:
+The moment a hospital says it will add a given day to its clinic schedule. Known only when the hospital states it publicly; otherwise it is unknown, never estimated. Shown to users as 門診表公布時間.
+_Avoid_: Booking open time, registration open time
+
 ### Delivery
 
 **Captain**:

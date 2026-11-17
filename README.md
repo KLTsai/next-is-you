@@ -27,7 +27,7 @@ Honest status as of today. The GitHub tracker is the authoritative source. Nothi
 
 **In progress**
 
-- [ ] Reusable hospital-adapter backend boundary (`HospitalReader` interface, hospital registry, capability descriptor) and a documented hospital-integration guide ([docs/ADDING-A-HOSPITAL.md](docs/ADDING-A-HOSPITAL.md)) - [#45](https://github.com/KLTsai/next-is-you/issues/45). The interface, registry and guide have merged. Three things are still open: the frontend's hospital union type and its hard-coded 14-day schedule window still name one hospital's behavior, the two window messages still say "NTUH" to the user, and the synthetic-hospital degradation test the issue asks for does not exist.
+- [ ] Reusable hospital-adapter backend boundary (`HospitalReader` interface, hospital registry, capability descriptor) and a documented hospital-integration guide ([docs/ADDING-A-HOSPITAL.md](docs/ADDING-A-HOSPITAL.md)) - [#45](https://github.com/KLTsai/next-is-you/issues/45). The interface, registry and guide have merged. The remaining work was revised on 2026-11-17 into three pull requests: each hospital's reader becomes the only place that knows its clinic schedule rules and how to match a clinic, the registry derives each hospital's capability and gains a contract test, and the frontend stops naming any hospital or rule. The issue lists the details.
 - [ ] Organizer-managed LINE enrollment and removal UI: merged and verified locally; a live walkthrough with a real family LINE account is still open - [#19](https://github.com/KLTsai/next-is-you/issues/19)
 - [ ] NTU ophthalmology reader: fixture and local integration evidence in place; the source's request contract and markup were captured by hand, but the reader's own live behavior is unverified - [#20](https://github.com/KLTsai/next-is-you/issues/20)
 - [ ] Private storage recovery and operator readiness - [#21](https://github.com/KLTsai/next-is-you/issues/21)
@@ -168,6 +168,19 @@ Next is you is a private family tool. It will not:
 - Add paid-plan features, status badges that depend on external services, or marketing surfaces.
 
 Reminder sends remain held in every environment until the owner's handset pilot ([Issue #22](https://github.com/KLTsai/next-is-you/issues/22)) explicitly authorizes a real reminder.
+
+## Disclaimer and source access
+
+Next is you is not an official service of any hospital and is not affiliated with one. It is a private, non-commercial family tool that charges nothing and is not offered to the public. It does not guarantee that what it reads is correct or current: the hospital's own pages and the on-site display in the clinic always take precedence, and a reminder never confirms that a number has been called.
+
+It reads hospital pages under these rules:
+
+- Only pages any visitor can open, at a low rate, and only the clinic a draft names.
+- It never bypasses a login, CAPTCHA, consent button, identity check, or block, and it identifies itself honestly instead of disguising its client.
+- It keeps no raw responses, republishes nothing, and links the owner to the hospital's official page.
+- It stops reading a hospital that refuses access, and prefers official open data where a hospital publishes it.
+
+The source research behind these rules is in [research/automated-access-taiwan-law.md](research/automated-access-taiwan-law.md) and [research/hospital-schedule-and-progress-survey.md](research/hospital-schedule-and-progress-survey.md). Neither is legal advice.
 
 ## Privacy
 

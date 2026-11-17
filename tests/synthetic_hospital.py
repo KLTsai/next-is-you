@@ -1,9 +1,9 @@
 """A synthetic hospital that publishes only the current number (#104).
 
 Fixture/mock only. It is labelled "合成醫院（僅供測試）" and is not evidence
-that any real hospital is supported. It borrows the `shin-kong-taipei` id until
-the database accepts other ids (#95), so tests substitute it into the registry
-for the duration of one test and never ship it.
+that any real hospital is supported. It has an id of its own, which the database
+stores because it no longer enumerates hospitals (#95). Tests substitute it into
+the registry for the duration of one test and never ship it.
 
 Its reader has no `list_clinics`, so the registry derives it as current number
 only. Its transport is a scripted fake: the scripted `fetch` returns the clinic's
@@ -25,7 +25,7 @@ from next_is_you.domain import (
 )
 from next_is_you.hospital_registry import HospitalEntry
 
-SYNTHETIC_ID = "shin-kong-taipei"
+SYNTHETIC_ID = "synthetic-current-number-only"
 SYNTHETIC_NAME = "合成醫院（僅供測試）"
 SYNTHETIC_LINK = "https://synthetic-hospital.example/progress"
 

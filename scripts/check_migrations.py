@@ -58,6 +58,7 @@ def main() -> None:
     ):
         raise SystemExit("expected migration columns are missing from visits")
     _check_near_reminder_rules(connection)
+    _check_hospital_ids_are_open(connection)
     print(f"Applied {len(MIGRATIONS)} migrations; SQLite schema checks passed.")
 
 
@@ -113,6 +114,22 @@ def _check_near_reminder_rules(connection: sqlite3.Connection) -> None:
     connection.execute("DELETE FROM recipients WHERE id = 'cm-r'")
     if connection.execute("SELECT COUNT(*) FROM outbound_events").fetchone()[0] != 0:
         raise SystemExit("withdrawing a recipient did not cascade its events")
+
+
+def _check_hospital_ids_are_open(connection: sqlite3.Connection) -> None:
+    """Confirm the database does not enumerate hospitals (ADR 0002)."""
+    sql = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE name = 'visits'"
+    ).fetchone()[0]
+    if "hospital IN" in sql:
+        raise SystemExit("visits still enumerates hospitals in a CHECK constraint")
+    connection.execute(
+        "INSERT INTO visits (id, hospital, visit_date, department_code, clinic_code, "
+        "clinic_session, patient_number, state, created_at) "
+        "VALUES ('cm-third', 'synthetic-third', '2026-09-27', 'MED', 'MED-1', "
+        "'morning', 1, 'draft', '2026-09-27T00:00:00Z')"
+    )
+    connection.execute("DELETE FROM visits WHERE id = 'cm-third'")
 
 
 if __name__ == "__main__":

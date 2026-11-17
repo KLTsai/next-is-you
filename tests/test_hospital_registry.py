@@ -270,8 +270,9 @@ def contract_hospitals() -> list:
     """Every registered hospital, plus the synthetic current-number-only one.
 
     Each case is (label, hospital id, entry to register or None for the real
-    entry). The synthetic hospital borrows an id until #95, so it is substituted
-    into the registry for the test and is never registered for real.
+    entry). The synthetic hospital has an id of its own, so it is substituted
+    into the registry for the test and is never registered for real; storing it
+    with a visit proves the database does not enumerate hospitals.
     """
     from synthetic_hospital import SYNTHETIC_ID, synthetic_entry
 

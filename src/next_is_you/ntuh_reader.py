@@ -39,10 +39,13 @@ from urllib.parse import urlencode
 
 from next_is_you.domain import (
     ClinicOption,
+    ClinicMatch,
     ClinicRoster,
     ClinicScope,
     ClinicSession,
     Hospital,
+    MatchKind,
+    MatchQuery,
     QueueObservation,
     ReadFailed,
     ReadSkipped,
@@ -65,6 +68,8 @@ SUPPORTED_DEPARTMENT = "OPH"
 # past this cap are not reachable until they enter the window and are reported
 # as `visit_date_out_of_schedule_window` for the picker to degrade gracefully.
 SCHEDULE_LOOKAHEAD_DAYS = 14
+# One schedule read serves every match asked within this many seconds.
+_SCHEDULE_MEMO_SECONDS = 60
 # The site negotiates its language, and the rendering decides whether rows read
 # "11 診 / 合成醫師丙" or "Room 11 / ...". The owner enters the clinic from a
 # Traditional Chinese registration slip, so the reader pins that rendering.
@@ -530,6 +535,9 @@ class NtuhProgressReader:
     def __init__(self, state: ReaderState, fetch: Fetcher) -> None:
         self._state = state
         self._fetch = fetch
+        self._schedule_memo: dict[
+            tuple[str, date], tuple[datetime, str, list[ScheduleRow]]
+        ] = {}
 
     async def observe(
         self, scope: ClinicScope, now: datetime
@@ -568,6 +576,102 @@ class NtuhProgressReader:
             return ClinicRoster(False, (), "visit_date_out_of_schedule_window")
         return await self._list_future_schedule(query, today)
 
+    async def _future_schedule_rows(
+        self, department_code: str, today: date, memo_at: datetime | None = None
+    ) -> tuple[str, list[ScheduleRow]]:
+        """The department's schedule rows, or the status the read failed with.
+
+        With `memo_at`, a read made within `_SCHEDULE_MEMO_SECONDS` is reused, so a
+        sweep matching many drafts of one department costs the hospital one request.
+        """
+        memo_key = (department_code, today)
+        if memo_at is not None:
+            memo = self._schedule_memo.get(memo_key)
+            if memo is not None and 0 <= (memo_at - memo[0]).total_seconds() < (
+                _SCHEDULE_MEMO_SECONDS
+            ):
+                return memo[1], memo[2]
+        try:
+            status, rows = await asyncio.wait_for(
+                self._fetch_schedule_rows(department_code, today),
+                REQUEST_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            status, rows = "timeout", []
+        except Exception:
+            status, rows = "no_observation", []
+        if memo_at is not None:
+            self._schedule_memo[memo_key] = (memo_at, status, rows)
+        return status, rows
+
+    async def match_clinic(self, query: MatchQuery, now: datetime) -> ClinicMatch:
+        """Decide whether a stored draft is on NTUH's clinic schedule.
+
+        Matches on (session, room, doctor) and ignores the clinic type, because
+        the schedule's 診別 and the light table's clinic type use different
+        vocabularies. A matched answer carries the canonical clinic code of the
+        row found, so a same-day draft can be rewritten to what monitoring reads.
+        A row marked `停診` or `颱風停診` answers as cancelled by the hospital.
+        """
+        if (
+            query.hospital != Hospital.NTUH_MAIN
+            or query.department_code != SUPPORTED_DEPARTMENT
+        ):
+            return ClinicMatch(MatchKind.UNAVAILABLE, reason="scope_mismatch")
+        today = now.astimezone(TAIPEI).date()
+        if query.visit_date < today:
+            return ClinicMatch(MatchKind.UNAVAILABLE, reason="visit_date_past")
+        days_ahead = (query.visit_date - today).days
+        if days_ahead > SCHEDULE_LOOKAHEAD_DAYS:
+            return ClinicMatch(MatchKind.NOT_YET_PUBLISHED)
+        key = parse_clinic_key(query.clinic_code)
+        if key is None:
+            return ClinicMatch(MatchKind.UNAVAILABLE, reason="invalid_data")
+
+        def same_clinic(session: ClinicSession, room: str, doctor: str) -> bool:
+            return (
+                session == query.session
+                and _norm(room) == _norm(key.room)
+                and _norm(doctor) == _norm(key.doctor)
+            )
+
+        if days_ahead == 0:
+            roster = await self._list_today_roster(query.department_code)
+            if not roster.available:
+                return ClinicMatch(MatchKind.UNAVAILABLE, reason=roster.reason)
+            found = next(
+                (o for o in roster.clinics if same_clinic(o.session, o.room, o.doctor)),
+                None,
+            )
+            if found is None:
+                return ClinicMatch(MatchKind.NOT_SCHEDULED)
+            return ClinicMatch(MatchKind.MATCHED, found.clinic_code)
+
+        status, rows = await self._future_schedule_rows(
+            query.department_code, today, memo_at=now
+        )
+        if status != "ok":
+            return ClinicMatch(MatchKind.UNAVAILABLE, reason=status)
+        day_rows = [row for row in rows if row.visit_date == query.visit_date]
+        live = [r for r in day_rows if r.status not in _SCHEDULE_CANCELLED_STATUSES]
+        found_row = next(
+            (r for r in live if same_clinic(r.session, r.room, r.doctor)), None
+        )
+        if found_row is not None:
+            return ClinicMatch(
+                MatchKind.MATCHED,
+                f"{found_row.room}/{found_row.doctor}/{found_row.clinic_type}",
+            )
+        if any(
+            same_clinic(r.session, r.room, r.doctor)
+            for r in day_rows
+            if r.status in _SCHEDULE_CANCELLED_STATUSES
+        ):
+            return ClinicMatch(MatchKind.CANCELLED)
+        if not live:
+            return ClinicMatch(MatchKind.UNAVAILABLE, reason="no_observation")
+        return ClinicMatch(MatchKind.NOT_SCHEDULED)
+
     async def _list_today_roster(self, department_code: str) -> ClinicRoster:
         """Today's roster, merged across all three sessions from the light table."""
         options: list[ClinicOption] = []
@@ -597,15 +701,7 @@ class NtuhProgressReader:
         markers) only limit new registration and leave the clinic running, so
         a holder of an existing number still has a clinic and the row stays.
         """
-        try:
-            status, rows = await asyncio.wait_for(
-                self._fetch_schedule_rows(query.department_code, today),
-                REQUEST_TIMEOUT_SECONDS,
-            )
-        except TimeoutError:
-            return ClinicRoster(False, (), "timeout")
-        except Exception:
-            return ClinicRoster(False, (), "no_observation")
+        status, rows = await self._future_schedule_rows(query.department_code, today)
         if status != "ok":
             return ClinicRoster(False, (), status)
         matching = [

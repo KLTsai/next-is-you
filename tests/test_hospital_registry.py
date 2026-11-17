@@ -65,6 +65,22 @@ class _RecordingReader:
         )
 
 
+OFFICIAL = "https://hospital.example/progress"
+
+
+class _CurrentOnlyReader:
+    async def observe(self, scope, now):
+        return None
+
+    async def observe_for_start(self, scope, now):
+        return None
+
+
+class _FullReader(_CurrentOnlyReader):
+    async def list_clinics(self, query, now):
+        return ClinicRoster(False, (), "no_observation")
+
+
 def test_capability_reflects_the_registered_tier() -> None:
     assert capability_of(Hospital.NTUH_MAIN) is SourceCapability.FULL_SCHEDULE
     # No reader exists until #44 evidences a source.
@@ -94,7 +110,7 @@ async def test_dispatches_by_hospital_and_builds_the_reader_once(monkeypatch) ->
         "HOSPITAL_REGISTRY",
         {
             Hospital.NTUH_MAIN: HospitalEntry(
-                "Test General", SourceCapability.FULL_SCHEDULE, build
+                "Test General", _FullReader, OFFICIAL, build_reader=build
             )
         },
     )
@@ -134,8 +150,9 @@ async def test_current_number_only_tier_still_reads(monkeypatch) -> None:
         {
             Hospital.SHIN_KONG_TAIPEI: HospitalEntry(
                 "Current Only",
-                SourceCapability.CURRENT_NUMBER_ONLY,
-                lambda _deps: reader,
+                _CurrentOnlyReader,
+                OFFICIAL,
+                build_reader=lambda _deps: reader,
             )
         },
     )
@@ -161,7 +178,10 @@ async def test_roster_is_routed_to_a_full_schedule_reader(monkeypatch) -> None:
         "HOSPITAL_REGISTRY",
         {
             Hospital.NTUH_MAIN: HospitalEntry(
-                "Test General", SourceCapability.FULL_SCHEDULE, lambda _deps: reader
+                "Test General",
+                _FullReader,
+                OFFICIAL,
+                build_reader=lambda _deps: reader,
             )
         },
     )
@@ -180,3 +200,117 @@ async def test_roster_for_an_unsupported_hospital_is_unavailable() -> None:
         RosterQuery(Hospital.SHIN_KONG_TAIPEI, "OPH", date(2026, 9, 27)), NOW
     )
     assert roster == ClinicRoster(False, (), "unsupported")
+
+
+# --- Derived capability (#99) -------------------------------------------------
+
+
+def test_capability_is_derived_from_the_reader_type() -> None:
+    # fixture/mock: no reader means unsupported.
+    assert HospitalEntry("A", None, OFFICIAL).capability is SourceCapability.UNSUPPORTED
+    # A reader that can list a clinic schedule means full schedule.
+    assert (
+        HospitalEntry("B", _FullReader, OFFICIAL).capability
+        is SourceCapability.FULL_SCHEDULE
+    )
+    # Otherwise current number only.
+    assert (
+        HospitalEntry("C", _CurrentOnlyReader, OFFICIAL).capability
+        is SourceCapability.CURRENT_NUMBER_ONLY
+    )
+
+
+def test_capability_is_not_a_field_anyone_fills_in() -> None:
+    import dataclasses
+
+    names = {f.name for f in dataclasses.fields(HospitalEntry)}
+    assert "capability" not in names
+
+
+def test_capability_is_known_without_building_a_reader() -> None:
+    def explode(_deps):
+        raise AssertionError("reader must not be built to learn capability")
+
+    entry = HospitalEntry("D", _FullReader, OFFICIAL, build_reader=explode)
+    assert entry.capability is SourceCapability.FULL_SCHEDULE
+
+
+@pytest.mark.asyncio
+async def test_retired_hospital_derives_unsupported_and_fails_closed(
+    monkeypatch,
+) -> None:
+    import dataclasses
+
+    from next_is_you.hospital_registry import HOSPITAL_REGISTRY
+
+    retired = dataclasses.replace(
+        HOSPITAL_REGISTRY[Hospital.NTUH_MAIN], reader_type=None, build_reader=None
+    )
+    monkeypatch.setattr(
+        hospital_registry, "HOSPITAL_REGISTRY", {Hospital.NTUH_MAIN: retired}
+    )
+    # Entry stays, so the name is still shown; it just derives as unsupported.
+    assert retired.display_name == "臺大醫院總院"
+    assert capability_of(Hospital.NTUH_MAIN) is SourceCapability.UNSUPPORTED
+    dispatcher = RegistryHospitalReader(ReaderDeps(storage=object(), fetch=object()))
+    unavailable = ReadFailed("unavailable", "no_observation")
+    assert await dispatcher.observe(_scope(), NOW) == unavailable
+    assert await dispatcher.observe_for_start(_scope(), NOW) == unavailable
+    roster = await dispatcher.list_clinics(
+        RosterQuery(Hospital.NTUH_MAIN, "OPH", date(2026, 9, 27)), NOW
+    )
+    assert roster == ClinicRoster(False, (), "unsupported")
+
+
+# --- Registry contract (#99): every registered hospital must pass -------------
+
+from pathlib import Path  # noqa: E402
+import sqlite3  # noqa: E402
+
+_MIGRATIONS = sorted((Path(__file__).resolve().parents[1] / "migrations").glob("*.sql"))
+
+
+def contract_hospitals() -> list[Hospital]:
+    # Later tickets add the synthetic hospital here.
+    return list(hospital_registry.HOSPITAL_REGISTRY)
+
+
+@pytest.mark.parametrize("hospital", contract_hospitals(), ids=lambda h: h.value)
+class TestRegistryContract:
+    def test_capability_derives_from_the_reader_type(self, hospital) -> None:
+        entry = hospital_registry.HOSPITAL_REGISTRY[hospital]
+        if entry.reader_type is None:
+            expected = SourceCapability.UNSUPPORTED
+        elif callable(getattr(entry.reader_type, "list_clinics", None)):
+            expected = SourceCapability.FULL_SCHEDULE
+        else:
+            expected = SourceCapability.CURRENT_NUMBER_ONLY
+        assert entry.capability is expected
+        assert capability_of(hospital) is expected
+
+    def test_supported_hospital_offers_a_department(self, hospital) -> None:
+        entry = hospital_registry.HOSPITAL_REGISTRY[hospital]
+        if entry.capability is not SourceCapability.UNSUPPORTED:
+            assert len(entry.departments) >= 1
+
+    def test_official_link_is_fixed_https(self, hospital) -> None:
+        from urllib.parse import urlparse
+
+        entry = hospital_registry.HOSPITAL_REGISTRY[hospital]
+        parsed = urlparse(entry.official_link)
+        assert parsed.scheme == "https" and parsed.hostname
+        assert not parsed.username and not parsed.password
+
+    def test_hospital_id_can_be_stored_with_a_visit(self, hospital) -> None:
+        connection = sqlite3.connect(":memory:")
+        for migration in _MIGRATIONS:
+            connection.executescript(migration.read_text())
+        connection.execute(
+            "INSERT INTO visits (id, hospital, visit_date, department_code, "
+            "clinic_code, clinic_session, patient_number, state, created_at) "
+            "VALUES ('v1', ?, '2026-09-27', 'OPH', 'C-1', 'afternoon', 85, "
+            "'draft', '2026-09-27T09:00:00Z')",
+            (hospital.value,),
+        )
+        row = connection.execute("SELECT hospital FROM visits").fetchone()
+        assert row == (hospital.value,)

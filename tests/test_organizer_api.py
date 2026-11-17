@@ -332,3 +332,30 @@ def test_synthetic_organizer_session_requires_explicit_niy006_test_binding():
             assert authorized.json() == {"error": {"code": "service_unavailable"}}
 
     asyncio.run(scenario())
+
+
+def test_hospital_catalog_response_is_unchanged_for_ntuh_and_shin_kong():
+    # Snapshot (fixture/mock): the exact bytes the organizer's catalog returned
+    # before the registry derived capability and owned the official link.
+    expected = (
+        '{"hospitals":[{"hospital":"ntuh-main","display_name":"臺大醫院總院",'
+        '"capability":"full_schedule","source_url":"https://registration.ntuh.gov.tw'
+        '/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0",'
+        '"clinic_code_labels":["診間","醫師","門診別"],'
+        '"departments":[{"code":"OPH","display_name":"眼科"}]},'
+        '{"hospital":"shin-kong-taipei","display_name":"新光醫院（台北）",'
+        '"capability":"unsupported","source_url":"https://reg.skh.org.tw/",'
+        '"clinic_code_labels":[],"departments":[]}]}'
+    ).encode()
+
+    async def scenario():
+        _store, http = make_client()
+        try:
+            authorize(http)
+            response = await http.get("/api/organizer/hospitals")
+            assert response.status_code == 200
+            assert response.content == expected
+        finally:
+            await http.aclose()
+
+    asyncio.run(scenario())

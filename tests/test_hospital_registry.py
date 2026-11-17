@@ -266,9 +266,25 @@ import sqlite3  # noqa: E402
 _MIGRATIONS = sorted((Path(__file__).resolve().parents[1] / "migrations").glob("*.sql"))
 
 
-def contract_hospitals() -> list[str]:
-    # Later tickets add the synthetic hospital here.
-    return list(hospital_registry.HOSPITAL_REGISTRY)
+def contract_hospitals() -> list:
+    """Every registered hospital, plus the synthetic current-number-only one.
+
+    Each case is (label, hospital id, entry to register or None for the real
+    entry). The synthetic hospital borrows an id until #95, so it is substituted
+    into the registry for the test and is never registered for real.
+    """
+    from synthetic_hospital import SYNTHETIC_ID, synthetic_entry
+
+    cases = [
+        pytest.param((hospital, None), id=hospital)
+        for hospital in hospital_registry.HOSPITAL_REGISTRY
+    ]
+    cases.append(
+        pytest.param(
+            (SYNTHETIC_ID, synthetic_entry()), id="synthetic-current-number-only"
+        )
+    )
+    return cases
 
 
 def _ntuh_roster_fixture():
@@ -291,8 +307,23 @@ def _ntuh_roster_fixture():
 _ROSTER_FIXTURES = {"ntuh-main": _ntuh_roster_fixture}
 
 
-@pytest.mark.parametrize("hospital", contract_hospitals(), ids=lambda h: h)
+@pytest.fixture
+def hospital(request, monkeypatch):
+    hospital_id, entry = request.param
+    if entry is not None:
+        monkeypatch.setitem(hospital_registry.HOSPITAL_REGISTRY, hospital_id, entry)
+    return hospital_id
+
+
+@pytest.mark.parametrize("hospital", contract_hospitals(), indirect=True)
 class TestRegistryContract:
+    def test_the_synthetic_hospital_is_current_number_only(self, hospital) -> None:
+        from synthetic_hospital import SYNTHETIC_NAME
+
+        entry = hospital_registry.HOSPITAL_REGISTRY[hospital]
+        if entry.display_name == SYNTHETIC_NAME:
+            assert entry.capability is SourceCapability.CURRENT_NUMBER_ONLY
+
     def test_capability_derives_from_the_reader_type(self, hospital) -> None:
         entry = hospital_registry.HOSPITAL_REGISTRY[hospital]
         if entry.reader_type is None:

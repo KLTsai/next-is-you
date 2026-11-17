@@ -606,6 +606,9 @@ def create_app(
                     "visit_date_out_of_schedule_window",
                     409,
                 ),
+                "start_on_visit_day_only": ("start_on_visit_day_only", 409),
+                "hospital_cannot_find_clinic": ("hospital_cannot_find_clinic", 409),
+                "hospital_page_unreachable": ("hospital_page_unreachable", 503),
             }
             code, status = errors.get(result["error"], ("service_unavailable", 503))
             if code == "visit_date_out_of_schedule_window":
@@ -617,6 +620,10 @@ def create_app(
                 return JSONResponse(
                     {"error": {"code": code, **detail}}, status_code=status
                 )
+            if code == "start_on_visit_day_only" and "visit_date" in result:
+                # Only the visit date rides along: it is what the organizer needs
+                # to know when the refusal says "start on the visit day".
+                return _api_error(code, status, visit_date=str(result["visit_date"]))
             return _api_error(code, status)
         return JSONResponse(result)
 
@@ -1059,8 +1066,8 @@ def _bounded_code(value: Any) -> str:
     return value.strip()
 
 
-def _api_error(code: str, status_code: int) -> JSONResponse:
-    return JSONResponse({"error": {"code": code}}, status_code=status_code)
+def _api_error(code: str, status_code: int, **details: str) -> JSONResponse:
+    return JSONResponse({"error": {"code": code, **details}}, status_code=status_code)
 
 
 def _binding(env: Any, name: str) -> str:

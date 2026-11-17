@@ -55,7 +55,7 @@ public source exposes:
 | Capability | The source exposes | User experience |
 |---|---|---|
 | `FULL_SCHEDULE` | The day's roster for a department and session (which doctors and rooms are consulting) **and** the current called number | Cascading picker: choose department and date, pick a doctor from a live dropdown, type only the appointment number |
-| `CURRENT_NUMBER_ONLY` | Only the current called number for an identified clinic, no roster | Manual entry with pre-submit validation |
+| `CURRENT_NUMBER_ONLY` | Only the current called number for an identified clinic, no roster | Manual entry, labelled with the hospital's clinic-code parts, and no clinic schedule request. A draft can be saved for any future day. Start is allowed on the visit day only (the backend decides), and admits the visit only when the Start read confirms the clinic; the refusals are `start_on_visit_day_only`, `hospital_cannot_find_clinic` and `hospital_page_unreachable`, each leaving the draft unchanged and sending the family nothing. The daily recheck skips these drafts |
 | `UNSUPPORTED` | Neither, or nothing permitted/public | Not offered for automatic monitoring (manual-reminder path or excluded from the picker) |
 
 Feasibility questions to answer before committing to a reader (this is the kind

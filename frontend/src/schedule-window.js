@@ -61,6 +61,12 @@ export function degradeNotice(reason) {
   return DEGRADE_MESSAGES[reason] ?? "目前無法取得門診名單，已切換為手動輸入。";
 }
 
+// Shown above manual entry for a hospital that publishes no clinic schedule:
+// nothing failed, there is simply no clinic schedule to pick from.
+export function currentNumberOnlyNotice() {
+  return "這家醫院沒有公布門診表，請照院方進度頁上的診間資料手動輸入。草稿隨時可以儲存，看診當天才能開始提醒。";
+}
+
 const VISIT_ERROR_MESSAGES = Object.freeze({
   visit_date_past: "看診日期已過，請選擇今天或之後的日期。",
   doctor_not_scheduled: "所選醫師在那天並沒有看診，請重新選擇醫師或日期。",
@@ -68,8 +74,22 @@ const VISIT_ERROR_MESSAGES = Object.freeze({
   schedule_unavailable: "暫時無法驗證醫師排班（院方頁回應異常），請稍後再試。",
 });
 
-export function visitErrorMessage(code) {
-  return VISIT_ERROR_MESSAGES[code] ?? "";
+// Start refusals for a hospital that publishes no clinic schedule. The backend
+// decides which one applies; the frontend only words it.
+function visitDayOnlyMessage(visitDate) {
+  const match = /^\d{4}-(\d{2})-(\d{2})$/.exec(visitDate ?? "");
+  const day = match ? `${Number(match[1])}/${Number(match[2])} ` : "";
+  return `這家醫院沒有公布門診表，${day}看診當天才能開始。`;
+}
+
+const CURRENT_NUMBER_ONLY_MESSAGES = Object.freeze({
+  hospital_cannot_find_clinic: "院方目前查不到這個診。如果還沒開診，請開診後再試；否則請核對診間代碼。",
+  hospital_page_unreachable: "暫時讀不到院方資料，請稍後再試。",
+});
+
+export function visitErrorMessage(code, { visitDate } = {}) {
+  if (code === "start_on_visit_day_only") return visitDayOnlyMessage(visitDate);
+  return CURRENT_NUMBER_ONLY_MESSAGES[code] ?? VISIT_ERROR_MESSAGES[code] ?? "";
 }
 
 // The text for a refused Start. A not-yet-published day reuses the setup form's
@@ -80,5 +100,5 @@ export function startRefusalMessage({ code, hospitalName, scheduleEnd, releaseTi
     if (!scheduleEnd || !hospitalName) return "";
     return unpublishedDayNotice({ hospitalName, scheduleEnd, releaseTime, visitDate });
   }
-  return visitErrorMessage(code);
+  return visitErrorMessage(code, { visitDate });
 }

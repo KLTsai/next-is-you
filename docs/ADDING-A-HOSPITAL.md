@@ -81,17 +81,16 @@ still being evidenced; reads for it fail closed and it is offered to no one.
    request contract and a real sample; verify identity and freshness. You can
    validate a captured sample offline with `source_samples.py` before writing any
    transport.
-2. **Add the `Hospital` value** in `domain.py` if it is not already there.
-3. **Write the reader module**, for example `shin_kong_reader.py`, implementing
+2. **Write the reader module**, for example `shin_kong_reader.py`, implementing
    `HospitalReader` (`observe` and `observe_for_start`). For a `FULL_SCHEDULE`
    source also implement `ScheduleReader.list_clinics` so the picker can offer a
    doctor/room dropdown. Keep every hospital specific inside it. Honor the
    invariants below.
-4. **Register it** in `HOSPITAL_REGISTRY` with its `display_name`,
+3. **Register it** in `HOSPITAL_REGISTRY` with its `display_name`,
    `reader_type` (for example `ShinKongReader`, built as
    `reader_type(deps.storage, deps.fetch)` unless you pass `build_reader`),
    `official_link`, departments and clinic-code labels.
-5. **Add fixture-driven tests** for the reader. The registry contract test in
+4. **Add fixture-driven tests** for the reader. The registry contract test in
    `tests/test_hospital_registry.py` runs against every registered hospital, so
    a new entry is checked automatically. Make no live request in tests.
 
@@ -101,17 +100,19 @@ graceful degradation) is tracked in #47.
 
 ## The contract
 
-Until #95 lands, a new hospital touches these places. After #95 only the reader
-module and the registry entry remain.
+A new hospital touches these places:
 
 1. The reader module (`src/next_is_you/<hospital>_reader.py`).
 2. `HOSPITAL_REGISTRY` in `hospital_registry.py` (reader type, display name,
    official link, departments, clinic-code labels).
-3. The `Hospital` enum in `domain.py`.
-4. The `hospital` CHECK constraint in `migrations/0001_initial.sql`, which needs
-   a table rebuild migration to extend. #95 removes this.
-5. The frontend hospital type and any frontend hospital knowledge, until the
+3. The frontend hospital type and any frontend hospital knowledge, until the
    frontend change in #97 lands.
+
+There is no database step and no enum step. The database does not enumerate
+hospitals and a hospital id is a plain string the registry owns (ADR 0002,
+`docs/adr/0002-hospital-list-lives-in-code.md`), so adding a hospital needs no
+migration and never puts stored reminders at risk. An id the registry does not
+know is rejected at the API with no write.
 
 The registry contract test (`tests/test_hospital_registry.py`, class
 `TestRegistryContract`) runs for every registered hospital. It checks that the

@@ -68,8 +68,16 @@ class Gate:
     ):
         return await self.visits.add_recipient(visit_id, recipient_id, now)
 
-    async def start_visit(self, _visit_id: str, _now: str):
-        return {"error": "observation_unavailable"}
+    async def start_visit(self, visit_id: str, _now: str):
+        scripted = {
+            "day-only": {
+                "error": "start_on_visit_day_only",
+                "visit_date": "2026-11-20",
+            },
+            "not-found": {"error": "hospital_cannot_find_clinic"},
+            "unreachable": {"error": "hospital_page_unreachable"},
+        }
+        return scripted.get(visit_id, {"error": "observation_unavailable"})
 
     async def stop_visit(self, visit_id: str, _now: str):
         return "stopped" if visit_id == "existing" else None
@@ -281,6 +289,41 @@ def test_mutations_recheck_allowlist_and_start_returns_typed_safe_error():
             assert started.status_code == 503
             assert started.json() == {"error": {"code": "observation_unavailable"}}
             assert "detail" not in started.json()
+        finally:
+            await http.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_start_on_a_current_number_only_hospital_returns_its_typed_refusals():
+    async def scenario():
+        _, http = make_client()
+        try:
+            headers = authorize(http)
+            day_only = await http.post(
+                "/api/organizer/visits/day-only/start", headers=headers
+            )
+            assert day_only.status_code == 409
+            assert day_only.json() == {
+                "error": {
+                    "code": "start_on_visit_day_only",
+                    "visit_date": "2026-11-20",
+                }
+            }
+            not_found = await http.post(
+                "/api/organizer/visits/not-found/start", headers=headers
+            )
+            assert not_found.status_code == 409
+            assert not_found.json() == {
+                "error": {"code": "hospital_cannot_find_clinic"}
+            }
+            unreachable = await http.post(
+                "/api/organizer/visits/unreachable/start", headers=headers
+            )
+            assert unreachable.status_code == 503
+            assert unreachable.json() == {
+                "error": {"code": "hospital_page_unreachable"}
+            }
         finally:
             await http.aclose()
 

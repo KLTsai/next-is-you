@@ -201,6 +201,8 @@ def test_local_http_acceptance_journey() -> None:
             assert held_roster.json() == {
                 "available": False,
                 "reason": "no_observation",
+                "schedule_end_date": None,
+                "release_time": None,
                 "clinics": [],
             }
             # A malformed hospital is rejected before reaching the gate.

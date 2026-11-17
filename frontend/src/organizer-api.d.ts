@@ -28,6 +28,11 @@ export interface ClinicOption {
 export interface ClinicRoster {
   available: boolean;
   reason: string;
+  // Set when the hospital has not published the day yet: the last day its clinic
+  // schedule covers (YYYY-MM-DD) and, only when the hospital states one, the
+  // release time of the requested day (ISO timestamp).
+  schedule_end_date: string | null;
+  release_time: string | null;
   clinics: ClinicOption[];
 }
 export type SourceReadStatus = "usable" | "unavailable" | "stale" | "untrusted" | "scope_mismatch" | "invalid";

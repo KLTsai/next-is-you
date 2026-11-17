@@ -94,7 +94,7 @@ Each listed clinic also carries a dropdown `label` (`room · doctor（session）
 
 ### Daily sweep (Issue #58, R1)
 
-A once-per-Taipei-day sweep runs over drafts whose `visit_date` falls in `[today+1, today+14]`. Drafts of the same `(hospital, department)` share one schedule fetch. For each draft the sweep matches on `(session, room, doctor)`; a draft whose doctor is no longer on the schedule, or whose matching row has status `停診`/`颱風停診`, transitions to `scope_mismatch` and raises the standard organizer-attention signal. A schedule read that fails is a no-op this run; the sweep retries the next day. Drafts whose `visit_date` is today are handled by the Start-time resolve step, not the sweep. Drafts beyond `today+14` are left alone until they enter the window.
+A once-per-Taipei-day sweep runs over every draft whose `visit_date` is after today and that has not been checked today, for hospitals that publish a clinic schedule. No day count bounds the query; the reader decides whether a day is published. Drafts of the same `(hospital, department)` share one schedule fetch. For each draft the sweep matches on `(session, room, doctor)`; a draft whose doctor is no longer on the schedule, or whose matching row has status `停診`/`颱風停診`, transitions to `scope_mismatch` and raises the standard organizer-attention signal. A schedule read that fails is a no-op this run; the sweep retries the next day. Drafts whose `visit_date` is today are handled by the Start-time resolve step, not the sweep. A day the hospital has not published yet marks the draft checked today and leaves its source-read status untouched, so the next Taipei day asks again; the reader answers that without contacting the hospital.
 
 ## Recovery
 
@@ -102,5 +102,5 @@ A once-per-Taipei-day sweep runs over drafts whose `visit_date` falls in `[today
 - "來源沒有可用資料" all day with no reminder: the clinic never showed a number for the department, session and clinic code entered. Open the official page, pick the same department and session, and compare the card's room, doctor and clinic type against the draft; a session or a doctor that does not match is the usual cause, and the reader cannot tell that apart from a clinic that has not started.
 - Access refused: do not retry by hand around it. Open the official page in a browser to see what changed. The block lasts for the rest of that day.
 - Scope mismatch or schema drift: correct the department and clinic code, or update the parser after a fresh manual check of the page.
-- `visit_date_out_of_schedule_window` on a draft: the chosen date is more than two weeks out. The draft is held; the daily sweep will validate it as soon as it enters the window.
+- `visit_date_out_of_schedule_window` on a draft: the chosen date is more than two weeks out. The draft is held; the daily sweep will validate it on the first sweep after the hospital publishes that day.
 - `doctor_not_scheduled` or `schedule_unavailable` at Start: open the setup form, re-pick the doctor from the dropdown (now constrained to the schedule), or wait a few minutes and retry if the source was briefly down.

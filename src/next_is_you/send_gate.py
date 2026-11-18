@@ -764,6 +764,23 @@ class SystemSendGate(_DurableObjectBase):
         self._test_request_release.set()
         return True
 
+    async def seed_pending_test_recipient(self, recipient_id: str, now: str) -> str:
+        """Create a recipient who joined by invitation but has not consented yet."""
+        self._require_test_mode()
+        timestamp = _datetime(now).isoformat().replace("+00:00", "Z")
+        subject = "U" + hashlib.sha256(recipient_id.encode()).hexdigest()[:32]
+        store = CloudflareD1Store(_field(self.env, "DB"))
+        await store.execute(
+            Statement(
+                """INSERT OR IGNORE INTO recipients (
+                    id, line_subject, display_name, consented_at,
+                    friendship_checked_at, active, created_at
+                ) VALUES (?, ?, 'Synthetic joiner', NULL, ?, 0, ?)""",
+                (recipient_id, subject, timestamp, timestamp),
+            )
+        )
+        return subject
+
     async def seed_test_visit(
         self,
         visit_id: str,

@@ -4,6 +4,20 @@ The language used to build and deliver Next is you, a reminder service for hospi
 
 ## Language
 
+### People
+
+**Organizer**:
+The person who sets up reminders: signs in with LINE, invites recipients, drafts a visit, and presses Start and Stop. Only LINE accounts the captain has allowed can be organizers.
+_Avoid_: Owner, user, manager
+
+**Recipient**:
+A family member who accepted an invitation and agreed to receive reminders on LINE. An organizer may also be a recipient with the same LINE account.
+_Avoid_: Member, subscriber, audience
+
+**Live pilot**:
+The first time a deployed copy of the product really reads the hospital and sends a reminder to a handset, with the captain as organizer and recipient, before any family member is invited.
+_Avoid_: Launch, go-live, beta
+
 ### Hospitals
 
 **Clinic schedule**:
@@ -21,7 +35,7 @@ _Avoid_: Booking open time, registration open time
 ### Sending
 
 **Send hold**:
-The standing rule that a deployed copy of the product sends no reminder, reads no hospital and calls no LINE until the captain releases it. Expired data is still cleaned up under it.
+The temporary rule, in force until the live pilot, that a deployed copy of the product sends no reminder, reads no hospital and calls no LINE. Once the pre-live gates pass it is removed from production for good, not toggled. Expired data is still cleaned up under it.
 _Avoid_: Configuration hold, production hold, send-gate hold
 
 **Recovery hold**:

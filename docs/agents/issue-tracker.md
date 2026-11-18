@@ -15,6 +15,27 @@ Commands below match the installed `gh-axi issue --help`. Pass `-R KLTsai/next-i
 
 Record concrete scope, observable acceptance, dependencies, and non-goals before implementation. Preserve adopted decisions and link historical evidence. Do not bulk-create new issues for every retired local ticket.
 
+## Labels
+
+Every open issue carries exactly one state label and at least one `area:*` label.
+
+| State label | Meaning | Next step |
+|---|---|---|
+| `needs-grilling` | Holds decisions the captain has not made yet. | `/grill-with-docs`. Its output is decisions plus `ready-for-agent` work, not code. |
+| `ready-for-agent` | Scope, non-goals and blocking edges are written, and every acceptance criterion is checkable and names its evidence label. | `/implement` (one session per ticket), then `/no-mistakes`. |
+| `blocked` | Waits on the issues named under "Blocked by". | Nothing until they close. |
+| `future-direction` | Deliberately parked. | Not worked on before the live pilot. |
+
+`area:*` labels name the part of the product. `autorelease: *` labels belong to Release Please; do not apply them by hand.
+
+## Workflow and definition of done
+
+- Decisions come first: anything unclear goes through `/grill-with-docs` before an issue is marked `ready-for-agent`. Exploration tools (firstmate, free-form notes) may feed a grilling session but never produce `ready-for-agent` issues directly.
+- Work that spans several sessions goes `/to-spec` then `/to-tickets`. Small, fully decided work goes straight to `/implement`. All of it is built in this repository's own session (see `research/firstmate-and-matt-skills-workflow.md`, Option A).
+- Each acceptance criterion names its evidence label (fixture/mock, local integration, live provider) and is ticked only with a pointer to the evidence: a test name, a PR, a log excerpt or a screenshot.
+- A merged PR does not by itself finish an issue. Close it only when every criterion is ticked with evidence; reopen it if `Closes #N` closed it early.
+- When issues are merged into another, comment on each one first with where it went and which decisions moved, list the source issues in the new issue, then close the old ones as not planned.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.**

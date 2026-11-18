@@ -29,7 +29,7 @@ function render(): void {
   if (state === "joined") {
     app.innerHTML = `<section class="panel consent-panel" aria-labelledby="consent-heading">
       <p class="eyebrow">家人候診提醒</p><h1 id="consent-heading">已加入</h1>
-      ${joinedMessages().map((line, index) => `<p class="message"${index === 0 ? ' role="status"' : ""}>${escapeHtml(line)}</p>`).join("")}
+      <div role="status">${joinedMessages().map((line) => `<p class="message">${escapeHtml(line)}</p>`).join("")}</div>
     </section>`;
     return;
   }

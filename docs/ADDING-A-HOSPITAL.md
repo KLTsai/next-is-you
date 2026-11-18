@@ -97,8 +97,8 @@ still being evidenced; reads for it fail closed and it is offered to no one.
    a new entry is checked automatically. Make no live request in tests.
 
 The catalog and roster endpoints already serve a newly registered hospital from
-the backend; wiring the setup UI to consume them (the cascading picker and
-graceful degradation) is tracked in #47.
+the backend, and the setup UI consumes them (the cascading picker and
+graceful degradation, shipped in #47) without naming any hospital.
 
 ## The contract
 
@@ -107,9 +107,6 @@ A new hospital touches these places:
 1. The reader module (`src/next_is_you/<hospital>_reader.py`).
 2. `HOSPITAL_REGISTRY` in `hospital_registry.py` (reader type, display name,
    official link, departments, clinic-code labels).
-3. The frontend hospital type and any frontend hospital knowledge, until the
-   frontend change in #97 lands.
-
 There is no database step and no enum step. The database does not enumerate
 hospitals and a hospital id is a plain string the registry owns (ADR 0002,
 `docs/adr/0002-hospital-list-lives-in-code.md`), so adding a hospital needs no

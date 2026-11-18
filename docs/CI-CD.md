@@ -154,8 +154,8 @@ the failing step in the run, then either fix forward with a new commit, which
 deploys automatically once its gates pass, or correct the cause outside the
 repository (for example the Cloudflare token) and re-run only the failed job.
 Do not edit an applied migration. If staging has to be held while you
-investigate, pause it first. Staging holds no real data, so a database that
-cannot be repaired can be recreated and the migrations re-applied.
+investigate, pause it first. Staging holds no real data, but recreating its database changes the
+pinned database id in `wrangler.staging.jsonc`, so that needs the owner's decision.
 
 ## Everyday flow
 

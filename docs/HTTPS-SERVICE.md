@@ -73,7 +73,7 @@ availability limits, not permission to upgrade. Account quotas include other
 applications. One minute Cron means 1,440 invocations/day, each using the same
 named gate. The production hold returns before scheduler preparation, hospital
 access or LINE sends; it also defers scheduler cleanup. Do not store patient data
-in this bootstrap. Full live workload/retention measurement belongs to ticket 08.
+in this bootstrap. Full live workload/retention measurement belongs to acceptance criterion 6 of #22.
 
 The Free plan is the proposed plan for this held bootstrap, not proven sufficient for
 this Python/FastAPI app's deployed CPU, startup, memory, or workload. Check those
@@ -369,7 +369,7 @@ verification.
 | 2 LINE round trip | **Partly confirmed, 2026-10-27.** The owner completed a real LINE login and reached organizer access, and the exact callback returned to this origin. The `403` for an account outside the allowlist and the `401` for a callback with missing state or code were not exercised and remain unverified. |
 | 3 Recovery hold | **Confirmed, 2026-10-27.** The owner set recovery hold and the status endpoint reported the four expected values. Not re-checked since that date. |
 | 4 D1 persistence | **Partly confirmed, 2026-10-28.** The owner created one unused invitation through the existing API and a direct read-only query against the remote database returned the expected row count. The before/after-redeploy comparison was not repeated, though the service has been redeployed several times since with no indication of data loss. |
-| 5 Cron and platform metrics | **Deferred, not run**, consistent with this issue's acceptance wording, which defers full live workload measurement to ticket 08. |
+| 5 Cron and platform metrics | **Deferred, not run**, consistent with this issue's acceptance wording, which defers full live workload measurement to acceptance criterion 6 of #22. |
 
 What this pass did not establish: survival of data across a deployment,
 restored-backup consistency, and live notification deduplication. No deployed

@@ -58,8 +58,8 @@ place.
 
 | Action | Page and control | Success | Pending | Failure | Stop | Recovery |
 | --- | --- | --- | --- | --- | --- | --- |
-| **Merge a pull request** | Pull request page, **Merge pull request**. Result on **Actions -> CI** and the repository **Deployments** list (environment `staging`). | The run on `main` is green. `Deploy staging` is green and the new deployment names the commit. | The run is in progress, or `Deploy staging` shows pending behind an earlier staging deployment. Nothing to do. | A gate is red and named on the run page; `Deploy staging` is skipped and staging keeps its previous commit. Or `Deploy staging` is red: a migration or deploy step failed. | Pause staging before merging (last row). Or cancel the run in **Actions -> CI -> Cancel workflow**, which does not undo a step already finished. | Fix forward with a new pull request. A flaky gate: **Re-run failed jobs**. A failed staging step: see [Recovery from a failed staging migration](#staging-follows-main). |
-| **Merge the release PR** | Pull request `chore(main): release X.Y.Z`, **Merge pull request**. Result on **Actions -> CI** (Release Please job), the **Tags** list, and the **Releases** page. | The merge commit is tagged `vX.Y.Z`, the PR is labelled `autorelease: tagged`, and a draft Release exists, visible to the captain only. No Release is published. | Its own checks are held for approval (the PR is pushed by `github-actions[bot]`); approve them as in step 3 of [Everyday flow](#everyday-flow). After the merge, the run on `main` is in progress. The tag appears when that run's Release Please job finishes. | A gate on the merge commit is red, so Release Please does not run and no tag exists. | Do not merge. Leaving the PR open collects more changes into the same version; closing it makes Release Please open a fresh one. After merging, rejecting the version needs no action: do not promote it. | Fix forward and re-run the failed jobs; Release Please tags once every gate is green. A rejected version keeps its tag, its changelog section and no Release; its fix ships as the next version. |
+| **Merge a pull request** | Pull request page, **Squash and merge** (the only method the repository allows). Result on **Actions -> CI** and the repository **Deployments** list (environment `staging`). | The run on `main` is green. `Deploy staging` is green and the new deployment names the commit. | The run is in progress, or `Deploy staging` shows pending behind an earlier staging deployment. Nothing to do. | A gate is red and named on the run page; `Deploy staging` is skipped and staging keeps its previous commit. Or `Deploy staging` is red: a migration or deploy step failed. | Pause staging before merging (last row). Or cancel the run in **Actions -> CI -> Cancel workflow**, which does not undo a step already finished. | Fix forward with a new pull request. A flaky gate: **Re-run failed jobs**. A failed staging step: see [Recovery from a failed staging migration](#staging-follows-main). |
+| **Merge the release PR** | Pull request `chore(main): release X.Y.Z`, **Squash and merge**. Result on **Actions -> CI** (Release Please job), the **Tags** list, and the **Releases** page. | The squash commit is tagged `vX.Y.Z`, the PR is labelled `autorelease: tagged`, and a draft Release exists, visible to the captain only. No Release is published. | Its own checks are held for approval (the PR is pushed by `github-actions[bot]`); approve them as in step 3 of [Everyday flow](#everyday-flow). After the merge, the run on `main` is in progress. The tag appears when that run's Release Please job finishes. | A gate on the merge commit is red, so Release Please does not run and no tag exists. | Do not merge. Leaving the PR open collects more changes into the same version; closing it makes Release Please open a fresh one. After merging, rejecting the version needs no action: do not promote it. | Fix forward and re-run the failed jobs; Release Please tags once every gate is green. A rejected version keeps its tag, its changelog section and no Release; its fix ships as the next version. |
 | **Promote** | **Actions -> Promote -> Run workflow**, **Use workflow from: Branch: main**, enter the version, **Run workflow**. Result on the run page and the **Releases** page. | Both jobs green. The run summary names the commit; the Release is published and marked **Latest**; `npm run status` shows the version as production. | The run is queued behind another Promote (group `production-deploy`; only the newest waiting run is kept). Nothing to do. | `Promote guard` is red: the summary shows `Refused:` and `To clear it:`, and nothing deployed. Or `Deploy` is red at a migration or deploy step: no Release is published, and a migration that already applied stays applied. | Cancel the run in **Actions -> Promote -> Cancel workflow** before `Deploy` starts. After production migrations have applied, there is no clean stop: roll forward. | Do the clearing action and run Promote again. Running it again for the same version is harmless: applied migrations are skipped and a published Release keeps its notes and state, and only its Latest mark is set again. If production is wrong meanwhile, use the native rollback below. |
 | **Rollback** | Same as Promote, with an earlier version number. | Promote succeeds for the earlier version, and production runs its code. Its Release was already published, so none is created; the **Latest** mark moves to it, so the Releases page names what production runs. A failed or refused Promote leaves Latest where it was. If only the Latest step fails, the run stays green and its summary says `Latest Release: NOT moved`; set it by hand with `gh release edit vX.Y.Z --latest`. | As for Promote. | As for Promote. Usually the guard refusing because staging shows another commit. | As for Promote. | Read [Rollback](#rollback) first: it restores code only, so the earlier code runs against today's database. Re-run that version's pipeline run in **Actions -> CI** so staging shows it, then run Promote. To go forward again, repeat for the newer version. The native rollback is the emergency path if Promote is unusable; it skips the guard. |
 | **Pause staging** | **Settings -> Secrets and variables -> Actions**, the **Variables** tab, **New repository variable**: name `STAGING_DEPLOY_PAUSED`, value `true`, **Add variable**. If it already exists, edit its value. | The next push to `main` passes its gates, shows `Deploy staging` as skipped, and the run is green. `npm run status` reports that automatic staging deployment is paused. | A staging job already queued or running when you set the variable still deploys: the variable is read when the run starts. Wait for it to finish before relying on the pause. | Any other value (`1`, `yes`, `true` with a stray space) pauses nothing: the next push deploys. `npm run status` then prints a `not paused` line naming the value, and the pipeline run of each push to `main` shows the warning **Staging deployment is not paused** on its run page. A typo in the variable's name also pauses nothing, and nothing warns about it: `npm run status` shows no `paused` line. | Delete the variable, or set it to `false`. | Resume, then push or re-run the pipeline run of the commit you want shown on staging. Promote refuses while staging shows another commit, so a forgotten pause surfaces there and in `npm run status`. |
@@ -170,7 +170,7 @@ pinned database id in `wrangler.staging.jsonc`, so that needs the owner's decisi
    the release manifest. Opening the PR creates no tag and no Release. A range
    of only `docs`, `chore`, `ci`, `test`, `build`, `refactor`, and `style`
    commits opens none.
-3. Review and merge that release PR. Its merge commit is the version, and the
+3. Review and merge that release PR. Its squash commit is the version, and the
    Release Please run that follows tags it `vX.Y.Z`, creates a draft GitHub
    Release (not published), and relabels the merged PR `autorelease: tagged`
    (see [Release PR merge](#release-pr-merge-creates-the-tag)).
@@ -201,7 +201,7 @@ pinned database id in `wrangler.staging.jsonc`, so that needs the owner's decisi
      git diff --check
      ```
 
-   Either way the merge commit is checked again on `main`, and Promote refuses
+   Either way the squash commit is checked again on `main`, and Promote refuses
    the version until those checks pass.
 4. Check the version on staging. Three things, in this order:
 
@@ -215,8 +215,7 @@ pinned database id in `wrangler.staging.jsonc`, so that needs the owner's decisi
      (the repository's **Deployments** list, environment `staging`) and the
      commit the tag points at (the **Tags** list).
    - **If it is not, put it there.** Open **Actions -> CI** and find the
-     version's pipeline run: the run on `main` titled `Merge pull request #N
-     from KLTsai/release-please--branches--main--components--next-is-you`,
+     version's pipeline run: the run on `main` titled `chore(main): release X.Y.Z (#N)`,
      where `N` is the release PR's number. From a terminal,
      `gh run list --workflow CI --commit <the tag's commit>` lists it. Open it
      and press **Re-run all jobs**. A re-run deploys the commit it ran for,
@@ -324,7 +323,7 @@ The deployment branch policies must therefore be:
 The Release Please run triggered by the merge of a release PR then, per the
 library source (`release-please` 17.6.0, bundled by the pinned action v5.0.0):
 
-1. creates the `refs/tags/vX.Y.Z` reference on the merge commit (a 422 because
+1. creates the `refs/tags/vX.Y.Z` reference on the squash commit (a 422 because
    the tag already exists is ignored, so a re-run is harmless);
 2. creates a draft GitHub Release for that tag, which GitHub does not show
    publicly and which is not a published Release;
@@ -360,6 +359,14 @@ delayed or rejected Promote can no longer stall versioning. The
 `check:release` script that guarded the old gap is gone.
 
 ## Release and rollback rules
+
+Pull requests are squash-merged only (`allow_merge_commit` and
+`allow_rebase_merge` are off, the squash commit title is the PR title and its
+message is blank). So the PR title is the one Conventional Commit that lands on
+`main`, and Release Please counts each PR once. With merge commits the body of
+`Merge pull request #N` repeated the PR title, so every PR was listed twice in
+release PR #114 (#126). A PR title that is not a Conventional Commit is skipped
+by Release Please without any warning, so write it as one.
 
 Release Please reads Conventional Commit messages:
 

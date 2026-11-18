@@ -220,3 +220,23 @@ async def test_the_sweep_needs_no_registry_entry_to_skip_a_not_applicable_draft(
     status = row(database)[5:7]
     assert status[0] != "scope_mismatch"
     assert await repository.drafts_due_for_preflight_sweep(TODAY) == []
+
+
+@pytest.mark.asyncio
+async def test_stop_after_start_behaves_as_it_does_for_any_hospital() -> None:
+    """Outcome-table row "Stop after Start: unchanged" (#45, #104)."""
+    source = SyntheticSource(7)
+    database, gate = await gate_with_visit(source)
+    await seed(database, TODAY)
+    assert await gate.start_visit("v", NOW.isoformat()) == {"state": "active"}
+    requests_after_start = list(source.requests)
+
+    stopped = await gate.stop_visit("v", NOW.isoformat())
+
+    assert stopped == "stopped"
+    assert row(database)[0] == "stopped"
+    # Stopping reads nothing from the hospital and messages nobody.
+    assert source.requests == requests_after_start
+    assert event_count(database) == 0
+    # Stop is idempotent, as for every hospital.
+    assert await gate.stop_visit("v", NOW.isoformat()) == "stopped"

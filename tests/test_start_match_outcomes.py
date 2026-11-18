@@ -94,3 +94,69 @@ async def test_start_reports_each_clinic_match_outcome(outcome: str) -> None:
     assert counts(database, "v")[:2] == stored
     events = database.connection.execute("SELECT COUNT(*) FROM outbound_events")
     assert events.fetchone()[0] == 0
+
+
+def _every_clinic_cancelled(page: str) -> str:
+    """The schedule fixture with every card marked as a typhoon cancellation."""
+    import re
+
+    without_tags = re.sub(r'<div class="tag">.*?</div></div>', "", page)
+    return without_tags.replace(
+        '<div class="sub-spec"',
+        '<div class="tag"><div class="first-reg">颱風停診</div></div>\n'
+        '<div class="sub-spec"',
+    )
+
+
+@pytest.mark.asyncio
+async def test_start_says_not_scheduled_when_the_hospital_cancelled_every_clinic() -> (
+    None
+):
+    """#98 behavior change: a fully cancelled day is "not scheduled", not
+    "schedule unavailable", so the organizer is not told to retry (fixture/mock)."""
+    source = FakeSource(schedule=_every_clinic_cancelled(SCHEDULE_FIXTURE))
+    database, gate = await gate_with_visit(source)
+    await seed_ntuh_at(
+        database,
+        gate,
+        "v",
+        SCHEDULE_FIRST_VISIT,
+        clinic_code="03/合成醫師甲/角膜",
+        session="morning",
+    )
+
+    result = await gate.start_visit("v", _preflight_now().isoformat())
+
+    assert result == {"error": "doctor_not_scheduled"}
+    assert counts(database, "v")[:2] == ("scope_mismatch", "scope_mismatch")
+    events = database.connection.execute("SELECT COUNT(*) FROM outbound_events")
+    assert events.fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_start_refuses_an_unparseable_clinic_code_without_asking_the_hospital() -> (
+    None
+):
+    """#98 behavior change: a malformed code is refused before any read, and the
+    draft keeps its code (fixture/mock). Wording and early detection: #110."""
+    source = FakeSource(schedule=SCHEDULE_FIXTURE)
+    database, gate = await gate_with_visit(source)
+    await seed_ntuh_at(
+        database,
+        gate,
+        "v",
+        SCHEDULE_FIRST_VISIT,
+        clinic_code="not a clinic code",
+        session="morning",
+    )
+
+    result = await gate.start_visit("v", _preflight_now().isoformat())
+
+    assert result == {"error": "observation_invalid"}
+    assert source.urls == []
+    stored = database.connection.execute(
+        "SELECT clinic_code, state FROM visits WHERE id = 'v'"
+    ).fetchone()
+    assert tuple(stored) == ("not a clinic code", "draft")
+    events = database.connection.execute("SELECT COUNT(*) FROM outbound_events")
+    assert events.fetchone()[0] == 0

@@ -188,7 +188,7 @@ Next is you 的設計是盡量少留東西：
 
 - **會儲存什麼：** 邀請紀錄、同意紀錄，以及用於排程與去重複的 outbox events。不會留存任何原始醫院 response body；reader 只保留比對到的欄位（診間、醫師、clinic type、目前叫號）給擁有者草稿指定的那一間門診。
 - **當天截止：** 看診日當天台北時間 23:59 之後，active reminders 會過期，不再送出任何通知。
-- **active-data 清理：** drafts 與過期的 reminders 會在台北 23:59 截止後 48 小時內清掉；停止的 reminders 會在 Stop 後 48 小時內清掉。
+- **active-data 清理：** drafts 與過期的 reminders 會在台北 23:59 截止滿 48 小時後的第一次排程執行時清掉；停止的 reminders 則在 Stop 滿 48 小時後清掉。暫停發送（send hold）期間清理照常進行。recovery hold 期間只清過期的 drafts，其餘資料等 hold 解除後再清。
 - **移除：** 由管理者直接移除成員；本階段沒有收件人自助退出功能。成員被移除後，其紀錄即被刪除。
 - **備份：** 備份保留期與 active-data 清理分開管理；相關部署儲存與備份 gate 詳見 [pre-live checklist](docs/PRE-LIVE-CHECKLIST.md)。
 

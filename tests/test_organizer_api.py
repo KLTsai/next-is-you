@@ -138,7 +138,16 @@ def authorize(
     return {"x-csrf-token": session.csrf_token}
 
 
-def test_organizer_reads_eligible_roster_and_creates_draft_with_auth_and_csrf():
+def test_organizer_reads_eligible_roster_and_creates_draft_with_auth_and_csrf(
+    monkeypatch,
+):
+    from next_is_you import hospital_registry
+    from synthetic_hospital import SYNTHETIC_ID, SYNTHETIC_LINK, synthetic_entry
+
+    monkeypatch.setitem(
+        hospital_registry.HOSPITAL_REGISTRY, SYNTHETIC_ID, synthetic_entry()
+    )
+
     async def scenario():
         store, http = make_client()
         try:
@@ -179,23 +188,21 @@ def test_organizer_reads_eligible_roster_and_creates_draft_with_auth_and_csrf():
             )
             assert updated.status_code == 200
             assert updated.json() == {"id": created.json()["id"], "state": "draft"}
-            shin_kong = {**body, "hospital": "shin-kong-taipei", "clinic_code": "MED-B"}
+            second = {**body, "hospital": SYNTHETIC_ID, "clinic_code": "MED-B"}
             assert (
-                await http.post(
-                    "/api/organizer/visits", json=shin_kong, headers=headers
-                )
+                await http.post("/api/organizer/visits", json=second, headers=headers)
             ).status_code == 201
             listing = await http.get("/api/organizer/visits")
             assert listing.status_code == 200
             visits = {visit["hospital"]: visit for visit in listing.json()["visits"]}
             assert visits["ntuh-main"]["session"] == "evening"
             assert visits["ntuh-main"]["patient_number"] == 86
-            assert visits["shin-kong-taipei"]["patient_number"] == 85
+            assert visits[SYNTHETIC_ID]["patient_number"] == 85
             assert (
                 visits["ntuh-main"]["source_url"]
                 == "https://registration.ntuh.gov.tw/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0"
             )
-            assert visits["shin-kong-taipei"]["source_url"] == "https://reg.skh.org.tw/"
+            assert visits[SYNTHETIC_ID]["source_url"] == SYNTHETIC_LINK
             for visit in visits.values():
                 assert visit["source_read"] == {
                     "status": "unavailable",
@@ -499,6 +506,46 @@ def test_unknown_hospital_id_is_rejected_on_every_accepting_path_with_no_write()
             for response in (create, update, correct, clinics):
                 assert response.status_code == 400
                 assert response.json() == {"error": {"code": "invalid_request"}}
+            assert _visit_rows(store) == before
+        finally:
+            await http.aclose()
+
+    asyncio.run(scenario())
+
+
+UNSUPPORTED_HOSPITAL = "shin-kong-taipei"
+
+
+def test_unsupported_hospital_is_refused_on_every_draft_path_with_no_write():
+    async def scenario():
+        store, http = make_client()
+        try:
+            headers = authorize(http)
+            created = await http.post(
+                "/api/organizer/visits",
+                json=_visit_body("ntuh-main"),
+                headers=headers,
+            )
+            assert created.status_code == 201
+            visit_id = created.json()["id"]
+            before = _visit_rows(store)
+            unsupported = _visit_body(UNSUPPORTED_HOSPITAL)
+
+            create = await http.post(
+                "/api/organizer/visits", json=unsupported, headers=headers
+            )
+            update = await http.patch(
+                f"/api/organizer/visits/{visit_id}", json=unsupported, headers=headers
+            )
+            correct = await http.post(
+                f"/api/organizer/visits/{visit_id}/correct",
+                json=unsupported,
+                headers=headers,
+            )
+
+            for response in (create, update, correct):
+                assert response.status_code == 400
+                assert response.json() == {"error": {"code": "hospital_unsupported"}}
             assert _visit_rows(store) == before
         finally:
             await http.aclose()

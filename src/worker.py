@@ -847,6 +847,27 @@ def create_app(
                 ),
             )
             return response
+        if operation == "pending-recipient-session":
+            subject = await gate.seed_pending_test_recipient(
+                str(body["recipient_id"]), str(body["now"])
+            )
+            settings = _login_settings(request)
+            now = int(request.app.state.clock())
+            session = issue_session(
+                subject, "recipient", settings.session_secret, now=now
+            )
+            response = JSONResponse({"issued": True})
+            response.set_cookie(
+                SESSION_COOKIE_NAME,
+                session.value,
+                **session_cookie_options(max_age=session.expires_at - now),
+            )
+            response.set_cookie(
+                CSRF_COOKIE_NAME,
+                session.csrf_token,
+                **csrf_cookie_options(max_age=session.expires_at - now),
+            )
+            return response
         if operation == "seed":
             seeded = await gate.seed_test_visit(
                 str(body["visit_id"]),

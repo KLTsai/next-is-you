@@ -1,5 +1,4 @@
 import "./style.css";
-import { joinedMessages } from "./recipient-consent-copy.js";
 
 const app = document.querySelector<HTMLElement>("#consent-app");
 
@@ -29,7 +28,7 @@ function render(): void {
   if (state === "joined") {
     app.innerHTML = `<section class="panel consent-panel" aria-labelledby="consent-heading">
       <p class="eyebrow">家人候診提醒</p><h1 id="consent-heading">已加入</h1>
-      <div role="status">${joinedMessages().map((line) => `<p class="message">${escapeHtml(line)}</p>`).join("")}</div>
+      <div role="status"><p class="message">已加入，可以關閉這個頁面了。</p><p class="message">如果你也是管理者，不帶邀請連結再次使用 LINE 登入，就會回到管理者畫面。</p></div>
     </section>`;
     return;
   }

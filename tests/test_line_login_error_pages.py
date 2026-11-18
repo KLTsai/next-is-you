@@ -82,6 +82,7 @@ def assert_plain_page(response, status: int, cause: str, next_step: str) -> None
     assert '<html lang="zh-Hant">' in text
     assert cause in text
     assert next_step in text
+    assert "本服務非醫院官方服務" in text
     for leaked in INTERNAL_DETAILS:
         assert leaked not in text
 

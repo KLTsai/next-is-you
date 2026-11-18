@@ -1254,3 +1254,43 @@ def test_setup_form_shows_the_readers_label_and_the_chosen_clinics_details(tmp_p
         finally:
             context.close()
             browser.close()
+
+
+def test_rehearsal_joined_family_member_is_told_how_to_return_to_the_manager_view(
+    tmp_path,
+):
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = int(listener.getsockname()[1])
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        context = browser.new_context(viewport={"width": 390, "height": 800})
+        origin = f"http://127.0.0.1:{port}"
+        context.route(
+            "**/*",
+            lambda route: (
+                route.continue_()
+                if route.request.url.startswith(origin + "/")
+                else route.abort()
+            ),
+        )
+        page = context.new_page()
+        try:
+            with rehearsal(tmp_path, port):
+                control(
+                    page,
+                    origin,
+                    "pending-recipient-session",
+                    {"recipient_id": "synthetic-joiner", "now": "2026-11-18T01:00:00Z"},
+                )
+                page.goto(origin + "/recipient/consent")
+                page.get_by_role("button", name="確認加入").click()
+                joined = page.get_by_role("status")
+                expect(joined).to_contain_text("已加入，可以關閉這個頁面了。")
+                expect(joined).to_contain_text(
+                    "不帶邀請連結再次使用 LINE 登入，就會回到管理者畫面"
+                )
+                page.screenshot(path=str(tmp_path / "joined.png"))
+        finally:
+            context.close()
+            browser.close()

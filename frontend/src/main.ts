@@ -25,12 +25,12 @@ import type {
 } from "./organizer-api.js";
 import { canRequestStart, formatSourceStatus, formatVisitState, visitStatusKey } from "./visit-state.js";
 import { sourceLinkMarkup } from "./source-link.js";
+import { clinicCodePreview, hasUnsavedChanges, SETUP_FIELDS, setupFormErrors } from "./setup-form.js";
 import { projectDashboardVisits } from "./dashboard-projection.js";
 import {
   currentNumberOnlyNotice,
   degradeNotice as scheduleDegradeNotice,
   startRefusalMessage as scheduleStartRefusalMessage,
-  rosterClinicError,
   unpublishedDayNotice,
   visitErrorMessage,
 } from "./schedule-window.js";
@@ -236,27 +236,18 @@ function hasUnsavedFormChanges(): boolean {
   const form = document.querySelector<HTMLFormElement>("#visit-form");
   if (!form) return false;
   const data = new FormData(form);
-  const saved = editing?.visit;
-  const present = (name: string): boolean => Boolean(form.elements.namedItem(name));
-  const changed = (name: string, savedValue: string): boolean =>
-    present(name) && String(data.get(name) ?? "") !== savedValue;
-  const baselineRecipients = saved?.recipients.map((recipient) => recipient.id).sort() ?? [];
-  const currentRecipients = present("recipient_ids")
-    ? data.getAll("recipient_ids").map(String).sort()
-    : baselineRecipients;
-  // A new draft auto-selects the only hospital and its default department, so
-  // those defaults are not user edits. The roster-mode session is a derived
-  // hidden field; an empty value (no doctor picked yet) is not an edit either.
-  const currentHospital = String(data.get("hospital") ?? firstHospital());
-  const defaultDept = hospitalEntry(currentHospital)?.departments[0]?.code ?? "";
-  const sessionValue = String(data.get("session") ?? "");
-  return changed("hospital", saved?.hospital ?? firstHospital())
-    || changed("date", saved?.date ?? "")
-    || (present("patient_number") && String(data.get("patient_number") ?? "") !== (initialPatientNumber ?? ""))
-    || changed("department_code", saved?.department_code ?? defaultDept)
-    || changed("clinic_code", saved?.clinic_code ?? "")
-    || (present("session") && sessionValue !== "" && sessionValue !== (saved?.session ?? "morning"))
-    || currentRecipients.join("\u0000") !== baselineRecipients.join("\u0000");
+  const current: Record<string, string | string[]> = {};
+  for (const name of SETUP_FIELDS) {
+    if (form.elements.namedItem(name)) current[name] = String(data.get(name) ?? "");
+  }
+  if (form.elements.namedItem("recipient_ids")) current.recipient_ids = data.getAll("recipient_ids").map(String);
+  return hasUnsavedChanges({
+    current,
+    saved: editing?.visit,
+    firstHospital: firstHospital(),
+    firstDepartmentOf: (hospital) => hospitalEntry(hospital)?.departments[0]?.code,
+    initialPatientNumber,
+  });
 }
 
 function blockNavigationWithUnsavedChanges(): boolean {
@@ -275,18 +266,8 @@ function errorMarkup(field: string): string {
 // The manual clinic-code parse preview, labelled from the catalog so it carries
 // no hard-coded hospital format. Returned separately so it can be patched in
 // place on input without re-rendering (and destroying) the whole form.
-function clinicPreview(labels: readonly string[], value: string): { cls: string; html: string } {
-  if (!labels.length || !value) return { cls: "", html: "" };
-  const parts = value.split("/").map((part) => part.trim());
-  if (parts.length === labels.length && parts.every(Boolean)) {
-    const read = labels.map((label, index) => `${escapeHtml(label)} <b>${escapeHtml(parts[index])}</b>`).join("｜");
-    return { cls: "", html: `系統讀到：${read} <span class="ok">✓</span>` };
-  }
-  return { cls: "warn", html: `格式通常為「${escapeHtml(labels.join("/"))}」，請對照院方進度頁。` };
-}
-
 function clinicPreviewMarkup(labels: readonly string[], value: string): string {
-  const { cls, html } = clinicPreview(labels, value);
+  const { cls, html } = clinicCodePreview(labels, value);
   return `<div class="parse-preview ${cls}" id="clinic-preview"${html ? "" : " hidden"}>${html}</div>`;
 }
 
@@ -631,28 +612,19 @@ function readForm(form: HTMLFormElement): VisitInput | null {
 // the backend Start (fail-closed); this only improves the setup experience.
 function validateForm(form: HTMLFormElement): boolean {
   const data = new FormData(form);
-  const errors: Record<string, string> = {};
   const hospital = String(data.get("hospital") ?? "");
   const department = String(data.get("department_code") ?? "");
   const date = String(data.get("date") ?? "");
-  const clinic = String(data.get("clinic_code") ?? "").trim();
-  const today = todayTaipei();
-  if (date && date < today) {
-    errors.date = "看診日期已過，請選擇今天或之後的日期。";
-  }
-  const entry = hospitalEntry(hospital);
-  const rosterReady = roster !== null
-    && rosterKey === selectionKey(hospital, department, date)
-    && roster.available;
-  // A chosen clinic must be in the clinic schedule the backend returned,
-  // whenever one was returned. Without one (manual entry), the backend Start
-  // validates authoritatively.
-  if (entry?.capability === "full_schedule" && rosterReady) {
-    const clinicError = rosterClinicError(roster, clinic, date === today);
-    if (clinicError) errors.clinic_code = clinicError;
-  }
-  formErrors = errors;
-  return Object.keys(errors).length === 0;
+  formErrors = setupFormErrors({
+    date,
+    clinic: String(data.get("clinic_code") ?? "").trim(),
+    today: todayTaipei(),
+    fullSchedule: hospitalEntry(hospital)?.capability === "full_schedule",
+    roster,
+    rosterKey,
+    selectionKey: selectionKey(hospital, department, date),
+  });
+  return Object.keys(formErrors).length === 0;
 }
 
 function bindActions(): void {
@@ -747,7 +719,7 @@ function bindActions(): void {
       rememberFormValues();
       const hospital = formValue("hospital", editing?.visit.hospital ?? firstHospital());
       const labels = hospitalEntry(hospital)?.clinic_code_labels ?? [];
-      const { cls, html } = clinicPreview(labels, clinicInput.value);
+      const { cls, html } = clinicCodePreview(labels, clinicInput.value);
       previewNode.className = `parse-preview ${cls}`;
       previewNode.innerHTML = html;
       previewNode.hidden = !html;

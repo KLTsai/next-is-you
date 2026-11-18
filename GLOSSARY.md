@@ -18,11 +18,21 @@ _Avoid_: Schedule window, lookahead, schedule horizon, last schedulable date
 The moment a hospital says it will add a given day to its clinic schedule. Known only when the hospital states it publicly; otherwise it is unknown, never estimated. Shown to users as 門診表公布時間.
 _Avoid_: Booking open time, registration open time
 
+### Sending
+
+**Send hold**:
+The standing rule that a deployed copy of the product sends no reminder, reads no hospital and calls no LINE until the captain releases it. Expired data is still cleaned up under it.
+_Avoid_: Configuration hold, production hold, send-gate hold
+
+**Recovery hold**:
+A stop on all sending that the system enters when it cannot prove what it has sent, or that the captain sets by hand before a restore or rollback. It lasts until the captain releases it after reconciling, and while it holds only expired drafts are deleted.
+_Avoid_: Reconciliation hold, operator hold
+
 ### Delivery
 
 **Captain**:
-The one person who decides what is accepted into the product and which version reaches production. Everyone else, human or agent, proposes.
-_Avoid_: Admin, release manager
+The one person who decides what is accepted into the product and which version reaches production. Everyone else, human or agent, proposes. Also the one who operates production, including setting and releasing holds.
+_Avoid_: Admin, release manager, owner, operator
 
 **Pipeline run**:
 The single pass through the checks that one change starts, with whatever it goes on to deliver. Re-running it delivers that same change again.

@@ -382,6 +382,31 @@ Release Please reads Conventional Commit messages:
 - A breaking-change marker or a `Release-As` footer can still release on a
   hidden type, so avoid them on non-user-facing commits.
 
+### Why the proposed version stays put
+
+Staging, the release PR and production use different markers, so they rarely
+show the same text:
+
+| Place | What it shows | It changes when |
+| --- | --- | --- |
+| Staging | A commit, never a version | A push to `main` deploys (see [At a glance](#at-a-glance) for the skips) |
+| Release PR | The version Release Please proposes, and the changes it would contain | A pull request with a visible type (`feat`, `fix`, `perf`) merges |
+| Tag `vX.Y.Z` | A version | The captain merges the release PR |
+| Production | The version of the newest successful Promote | The captain runs Promote |
+
+The proposed number is the highest level among every commit since the last tag,
+not one step per commit. While the last tag is `v0.2.3`, one `feat:` makes the
+proposal `0.3.0`. Each later `feat:` or `fix:` adds a line to the same release
+PR and raises its change count, but the number stays `0.3.0`, because no commit
+is above the level already reached. It moves only after that version is tagged
+(then a `fix:` proposes `0.3.1` and a `feat:` proposes `0.4.0`) or when a
+breaking change raises the level.
+
+So an unmerged release PR is a proposal, not a version. `package.json` and
+`.github/.release-please-manifest.json` keep the last tagged number until the
+release PR merges. Staging already runs every change the release PR lists, but
+it never shows the number.
+
 Production migrations are forward-only. See [Rollback](#rollback).
 
 ## Promote

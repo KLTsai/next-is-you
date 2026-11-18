@@ -224,7 +224,11 @@ def test_local_runtime_keeps_dotenv_values_server_side_and_uses_fake_oauth(
     assert local_app.state.send_gate is None
     assert test_control.status_code == 404
     for response_text in (start.text, callback.text, index.text, script.text):
-        assert all(value not in response_text for value in values.values())
+        assert all(
+            value not in response_text
+            for name, value in values.items()
+            if name != "NIY006_LOCAL_TEST_MODE"  # a one-character flag, not a secret
+        )
     logged_names = [
         name
         for name, value in values.items()

@@ -32,6 +32,15 @@ from next_is_you.identity import IdentityRepository, hash_invitation
 from next_is_you.domain import ClinicSession
 from next_is_you.hospital_registry import HOSPITAL_REGISTRY, require_registered
 from next_is_you.progress_links import progress_link
+from next_is_you.login_error_page import (
+    FRIENDSHIP_MISSING,
+    FRIENDSHIP_UNVERIFIABLE,
+    INVITATION_INVALID,
+    NOT_MANAGER,
+    NOT_VERIFIED,
+    UNAVAILABLE,
+    login_error_page,
+)
 from next_is_you.line_login import LineOAuthClient, WorkersLineOAuthClient
 from next_is_you.line_messaging import (
     LineFriendshipClient,
@@ -167,13 +176,9 @@ def create_app(
         identity = _identity_repository(request)
         if invitation:
             if not config.ready or identity is None:
-                return JSONResponse(
-                    {"detail": "Recipient invitations are unavailable"}, status_code=503
-                )
+                return login_error_page(UNAVAILABLE)
             if not await identity.invitation_is_valid(invitation, _now(request)):
-                return JSONResponse(
-                    {"detail": "Invitation is invalid or expired"}, status_code=410
-                )
+                return login_error_page(INVITATION_INVALID)
             transaction = issue_login_transaction(
                 config.session_secret,
                 now=now,
@@ -182,10 +187,7 @@ def create_app(
             )
         else:
             if not config.organizer_login_ready:
-                return JSONResponse(
-                    {"detail": "Organizer LINE Login is not configured"},
-                    status_code=503,
-                )
+                return login_error_page(UNAVAILABLE)
             transaction = issue_login_transaction(config.session_secret, now=now)
         scope = "openid profile" if transaction.flow == "recipient" else "openid"
         query = urlencode(
@@ -210,9 +212,7 @@ def create_app(
     async def line_login_callback(request: Request) -> Response:
         config = _login_settings(request)
         if not config.ready:
-            return JSONResponse(
-                {"detail": "LINE Login is not configured"}, status_code=503
-            )
+            return login_error_page(UNAVAILABLE)
         state_cookie = request.cookies.get(LOGIN_TRANSACTION_COOKIE_NAME)
         returned_state = request.query_params.get("state", "")
         code = request.query_params.get("code", "")
@@ -227,9 +227,7 @@ def create_app(
                 now=now,
             )
         except AuthError:
-            response = JSONResponse(
-                {"detail": "LINE Login could not be verified"}, status_code=401
-            )
+            response = login_error_page(NOT_VERIFIED)
             _clear_login_cookie(response)
             return response
 
@@ -242,42 +240,30 @@ def create_app(
                 nonce=transaction.nonce,
             )
         except Exception:
-            response = JSONResponse(
-                {"detail": "LINE Login could not be verified"}, status_code=401
-            )
+            response = login_error_page(NOT_VERIFIED)
             _clear_login_cookie(response)
             return response
 
         if transaction.flow == "recipient":
             repository = _identity_repository(request)
             if repository is None or transaction.invitation_hash is None:
-                response = JSONResponse(
-                    {"detail": "Recipient invitations are unavailable"}, status_code=503
-                )
+                response = login_error_page(UNAVAILABLE)
                 _clear_login_cookie(response)
                 return response
             friendship = _friendship_client(request)
             if friendship is None:
-                response = JSONResponse(
-                    {"detail": "Friendship verification is unavailable"},
-                    status_code=503,
-                )
+                response = login_error_page(FRIENDSHIP_UNVERIFIABLE)
                 _clear_login_cookie(response)
                 return response
             friendship_result = await friendship.check_friendship(
                 identity.user_access_token
             )
             if friendship_result.is_friend is None:
-                response = JSONResponse(
-                    {"detail": "Friendship could not be verified"}, status_code=503
-                )
+                response = login_error_page(FRIENDSHIP_UNVERIFIABLE)
                 _clear_login_cookie(response)
                 return response
             if not friendship_result.is_friend:
-                response = JSONResponse(
-                    {"detail": "Add the official account before enrolling"},
-                    status_code=409,
-                )
+                response = login_error_page(FRIENDSHIP_MISSING)
                 _clear_login_cookie(response)
                 return response
             enrolled_at = _now(request)
@@ -288,10 +274,7 @@ def create_app(
                 friendship_checked_at=enrolled_at,
             )
             if not accepted:
-                response = JSONResponse(
-                    {"detail": "Invitation is invalid, expired, or already used"},
-                    status_code=410,
-                )
+                response = login_error_page(INVITATION_INVALID)
                 _clear_login_cookie(response)
                 return response
             subject = identity.subject
@@ -299,9 +282,7 @@ def create_app(
             destination = "/recipient/consent"
         else:
             if identity.subject not in config.organizer_subjects:
-                response = JSONResponse(
-                    {"detail": "This LINE account is not authorized"}, status_code=403
-                )
+                response = login_error_page(NOT_MANAGER)
                 _clear_login_cookie(response)
                 return response
             subject = identity.subject
@@ -311,9 +292,7 @@ def create_app(
         try:
             session = issue_session(subject, role, config.session_secret, now=now)
         except AuthError:
-            response = JSONResponse(
-                {"detail": "LINE Login is not configured"}, status_code=503
-            )
+            response = login_error_page(UNAVAILABLE)
             _clear_login_cookie(response)
             return response
         response = RedirectResponse(destination, status_code=303)

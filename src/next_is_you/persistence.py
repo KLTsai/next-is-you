@@ -1026,8 +1026,3 @@ class VisitRepository:
                 (iso_utc(now),),
             )
         )
-
-    async def delete_expired(self, now: datetime) -> int:
-        return await self.delete_expired_drafts(now) + await self.delete_expired_visits(
-            now
-        )

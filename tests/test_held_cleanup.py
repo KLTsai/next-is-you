@@ -97,7 +97,7 @@ async def test_second_send_hold_tick_after_a_deletion_is_not_a_ledger_mismatch()
     assert (await gate.scheduler_status())["recovery_hold"] is False
 
 
-async def set_by_hand(gate: SystemSendGate, database: LocalD1) -> None:
+async def set_by_hand(gate: SystemSendGate, _database: LocalD1) -> None:
     assert await gate.hold_for_reconciliation()
 
 

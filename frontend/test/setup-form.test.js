@@ -201,3 +201,8 @@ test("the patient number is compared with the initial one", () => {
   assert.equal(unsaved({ current: { patient_number: "12" }, initialPatientNumber: "12" }), false);
   assert.equal(unsaved({ current: { patient_number: "13" }, initialPatientNumber: "12" }), true);
 });
+
+test("a hidden recipient list is not an edit, even when the saved draft has recipients", () => {
+  const { recipient_ids: _recipients, ...visible } = SAVED_FIELDS;
+  assert.equal(unsaved({ saved: SAVED, current: visible }), false);
+});

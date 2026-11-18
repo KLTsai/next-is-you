@@ -367,12 +367,9 @@ class SystemSendGate(_DurableObjectBase):
         been rewritten by the resolve step), or `{"error": "..."}` with one
         of the Issue #58 error codes.
         """
+        # `start_visit`, the only caller, has already refused a past visit date
+        # with the same timestamp, so the visit day here is today or later.
         today = timestamp.astimezone(TAIPEI).date()
-        if visit_date < today:
-            await repository.set_source_read(
-                visit_id, "scope_mismatch", "visit_date_past"
-            )
-            return {"error": "visit_date_past"}
 
         try:
             hospital_enum = str(visit["hospital"])

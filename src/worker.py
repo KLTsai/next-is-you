@@ -29,8 +29,12 @@ from next_is_you.auth import (
     verify_session,
 )
 from next_is_you.identity import IdentityRepository, hash_invitation
-from next_is_you.domain import ClinicSession
-from next_is_you.hospital_registry import HOSPITAL_REGISTRY, require_registered
+from next_is_you.domain import ClinicSession, SourceCapability
+from next_is_you.hospital_registry import (
+    HOSPITAL_REGISTRY,
+    capability_of,
+    require_registered,
+)
 from next_is_you.progress_links import progress_link
 from next_is_you.login_error_page import (
     FRIENDSHIP_MISSING,
@@ -493,13 +497,10 @@ def create_app(
         _, denied = await _authorized(request, "organizer", csrf=True)
         if denied:
             return denied
-        body = await _organizer_body(request)
-        if body is None:
-            return _api_error("invalid_request", 400)
-        parsed = _visit_input(body)
+        parsed = _draft_input(await _organizer_body(request))
+        if isinstance(parsed, Response):
+            return parsed
         repository = _visit_repository(request)
-        if parsed is None:
-            return _api_error("invalid_request", 400)
         if repository is None:
             return _api_error("service_unavailable", 503)
         visit_id = str(uuid.uuid4())
@@ -518,10 +519,9 @@ def create_app(
         _, denied = await _authorized(request, "organizer", csrf=True)
         if denied:
             return denied
-        body = await _organizer_body(request)
-        parsed = _visit_input(body) if body is not None else None
-        if parsed is None:
-            return _api_error("invalid_request", 400)
+        parsed = _draft_input(await _organizer_body(request))
+        if isinstance(parsed, Response):
+            return parsed
         gate = _send_gate(request)
         if gate is None:
             return _api_error("service_unavailable", 503)
@@ -628,11 +628,10 @@ def create_app(
         _, denied = await _authorized(request, "organizer", csrf=True)
         if denied:
             return denied
-        body = await _organizer_body(request)
-        parsed = _visit_input(body) if body is not None else None
+        parsed = _draft_input(await _organizer_body(request))
+        if isinstance(parsed, Response):
+            return parsed
         gate = _send_gate(request)
-        if parsed is None:
-            return _api_error("invalid_request", 400)
         if gate is None:
             return _api_error("service_unavailable", 503)
         rpc_request = json.dumps(
@@ -1058,6 +1057,21 @@ def _visit_input(body: Mapping[str, Any]) -> dict[str, Any] | None:
         }
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def _draft_input(body: Mapping[str, Any] | None) -> dict[str, Any] | Response:
+    """Validate a draft body for every path that saves one, or answer the refusal.
+
+    A registered hospital that cannot be monitored is refused on its own code:
+    the setup form already disables it, and this keeps a direct API request from
+    saving a draft that Start could never accept.
+    """
+    parsed = _visit_input(body) if body is not None else None
+    if parsed is None:
+        return _api_error("invalid_request", 400)
+    if capability_of(parsed["hospital"]) is SourceCapability.UNSUPPORTED:
+        return _api_error("hospital_unsupported", 400)
+    return parsed
 
 
 def _bounded_code(value: Any) -> str:

@@ -149,6 +149,7 @@ function errorText(error: unknown): string {
   const labels: Record<string, string> = {
     service_unavailable: "目前無法使用提醒服務。",
     invalid_request: "資料不完整或格式不正確，請檢查後再試。",
+    hospital_unsupported: "這家醫院目前無法設定提醒，請改選其他醫院。",
     ineligible_recipients: "通知對象已無法接收提醒，請重新選擇。",
     invalid_lifecycle_state: "提醒狀態已變更，請重新載入。",
     observation_unavailable: "目前沒有可用的可信院方觀察，提醒維持草稿。",

@@ -97,8 +97,8 @@ still being evidenced; reads for it fail closed and it is offered to no one.
    a new entry is checked automatically. Make no live request in tests.
 
 The catalog and roster endpoints already serve a newly registered hospital from
-the backend; wiring the setup UI to consume them (the cascading picker and
-graceful degradation) is tracked in #47.
+the backend, and the setup UI consumes them (the cascading picker and
+graceful degradation, shipped in #47) without naming any hospital.
 
 ## The contract
 

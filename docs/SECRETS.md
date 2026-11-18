@@ -31,7 +31,7 @@ Local development reads from the untracked `.env` file described in
 ### What differs between the two environments
 
 Staging and production share one LINE Login channel (`2011753957`), which is
-what Issue #55 intends: each environment registers its own callback URL on that
+what ADR 0001 records: each environment registers its own callback URL on that
 channel rather than owning a separate channel.
 
 - `LINE_LOGIN_CHANNEL_SECRET` is therefore **the same value** in both. It

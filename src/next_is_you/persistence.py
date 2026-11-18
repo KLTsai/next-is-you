@@ -1004,17 +1004,25 @@ class VisitRepository:
             )
         )
 
-    async def delete_expired(self, now: datetime) -> int:
-        timestamp = iso_utc(now)
+    async def delete_expired_drafts(self, now: datetime) -> int:
+        """Drafts never sent anything and sit outside the scheduler ledger."""
+        return await self._store.execute(
+            Statement(
+                "DELETE FROM visits WHERE state = 'draft' AND draft_expires_at <= ?",
+                (iso_utc(now),),
+            )
+        )
+
+    async def delete_expired_visits(self, now: datetime) -> int:
+        """Stopped and expired visits whose 48 hours have run out."""
         return await self._store.execute(
             Statement(
                 """DELETE FROM visits
-                WHERE (state = 'draft' AND draft_expires_at <= ?)
-                   OR (state IN ('stopped', 'expired') AND delete_after <= ?
-                       AND NOT EXISTS (
-                           SELECT 1 FROM outbound_events
-                           WHERE visit_id = visits.id AND outcome = 'in_flight'
-                       ))""",
-                (timestamp, timestamp),
+                WHERE state IN ('stopped', 'expired') AND delete_after <= ?
+                AND NOT EXISTS (
+                    SELECT 1 FROM outbound_events
+                    WHERE visit_id = visits.id AND outcome = 'in_flight'
+                )""",
+                (iso_utc(now),),
             )
         )

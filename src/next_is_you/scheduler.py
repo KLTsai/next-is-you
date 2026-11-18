@@ -53,6 +53,15 @@ class TickPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class LifecycleCounts:
+    stops_finalized: int = 0
+    visits_expired: int = 0
+    withdrawals_erased: int = 0
+    drafts_deleted: int = 0
+    visits_deleted: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class SendResult:
     outcome: str
     started: bool
@@ -74,18 +83,28 @@ class OutboxScheduler:
         self._line = line_sender
         self._clock = clock
 
-    async def recover(self, now: datetime) -> int:
-        """Classify persisted in-flight sends from a prior invocation as uncertain."""
-        return await self._visits.recover_in_flight_events(now)
+    async def run_lifecycle(self, now: datetime) -> LifecycleCounts:
+        """Advance stored data through its lifecycle without any outside request.
 
-    async def prepare_tick(self, now: datetime) -> TickPlan:
+        Runs on every tick that is not under a recovery hold, including ticks
+        under the send hold. Sends interrupted by a prior invocation are marked
+        unknown first so the steps that wait on them can proceed.
+        """
         if now.tzinfo is None:
             raise ValueError("scheduler time must be timezone-aware")
+        await self._visits.recover_in_flight_events(now)
+        return LifecycleCounts(
+            stops_finalized=await self._visits.finalize_stopping(now),
+            visits_expired=await self._visits.expire_due_visits(now),
+            withdrawals_erased=await self._visits.erase_settled_withdrawals(),
+            drafts_deleted=await self._visits.delete_expired_drafts(now),
+            visits_deleted=await self._visits.delete_expired_visits(now),
+        )
 
-        await self._visits.finalize_stopping(now)
-        await self._visits.expire_due_visits(now)
-        await self._visits.erase_settled_withdrawals()
-        await self._visits.delete_expired(now)
+    async def prepare_tick(self, now: datetime) -> TickPlan:
+        """Read hospitals and queue reminders. Call `run_lifecycle` first."""
+        if now.tzinfo is None:
+            raise ValueError("scheduler time must be timezone-aware")
 
         rechecked, mismatched = await self._preflight_sweep(now)
 

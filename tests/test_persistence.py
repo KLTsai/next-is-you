@@ -86,9 +86,9 @@ async def test_draft_is_removed_at_its_retention_deadline() -> None:
     store, repo = await seeded_repository()
     await make_draft(repo)
 
-    assert await repo.delete_expired(at("2026-09-29T15:58:59Z")) == 0
+    assert await repo.delete_expired_drafts(at("2026-09-29T15:58:59Z")) == 0
     assert await repo.get_visit("v1") is not None
-    assert await repo.delete_expired(at("2026-09-29T15:59:00Z")) == 1
+    assert await repo.delete_expired_drafts(at("2026-09-29T15:59:00Z")) == 1
     assert await repo.get_visit("v1") is None
     await store.close()
 
@@ -251,8 +251,8 @@ async def test_stop_waits_for_inflight_send_before_terminal_retention_clock() ->
     ).fetchone()
     assert visit["state"] == "stopped"
     assert visit["delete_after"] == "2026-09-29T01:02:00Z"
-    assert await repo.delete_expired(at("2026-09-29T01:01:59Z")) == 0
-    assert await repo.delete_expired(at("2026-09-29T01:02:00Z")) == 1
+    assert await repo.delete_expired_visits(at("2026-09-29T01:01:59Z")) == 0
+    assert await repo.delete_expired_visits(at("2026-09-29T01:02:00Z")) == 1
     assert await repo.get_visit("v1") is None
     await store.close()
 
@@ -275,8 +275,8 @@ async def test_cutoff_is_based_on_taipei_2359_and_retains_terminal_data_48_hours
     assert visit["stopped_at"] == "2026-09-27T15:59:00Z"
     assert visit["delete_after"] == "2026-09-29T15:59:00Z"
 
-    assert await repo.delete_expired(at("2026-09-29T15:58:59Z")) == 0
-    assert await repo.delete_expired(at("2026-09-29T15:59:00Z")) == 1
+    assert await repo.delete_expired_visits(at("2026-09-29T15:58:59Z")) == 0
+    assert await repo.delete_expired_visits(at("2026-09-29T15:59:00Z")) == 1
     assert not await repo.start("v1", at("2026-09-30T00:00:00Z"))
     await store.close()
 
@@ -298,11 +298,11 @@ async def test_cleanup_does_not_delete_a_terminal_visit_with_an_inflight_event()
         "UPDATE visits SET state = 'expired', delete_after = '2026-09-28T00:00:00Z' WHERE id = 'v1'"
     )
 
-    assert await repo.delete_expired(at("2026-09-29T00:00:00Z")) == 0
+    assert await repo.delete_expired_visits(at("2026-09-29T00:00:00Z")) == 0
     store.connection.execute(
         "UPDATE outbound_events SET outcome = 'unknown' WHERE id = 'e1'"
     )
-    assert await repo.delete_expired(at("2026-09-29T00:00:00Z")) == 1
+    assert await repo.delete_expired_visits(at("2026-09-29T00:00:00Z")) == 1
     assert (
         store.connection.execute("SELECT COUNT(*) FROM outbound_events").fetchone()[0]
         == 0

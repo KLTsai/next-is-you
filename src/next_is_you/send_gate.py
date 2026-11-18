@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from dataclasses import asdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping, Sequence
 
@@ -35,7 +36,7 @@ from next_is_you.hospital_registry import (
     require_registered,
 )
 from next_is_you.ntuh_reader import WorkersFetcher
-from next_is_you.scheduler import OutboxScheduler, TickPlan
+from next_is_you.scheduler import LifecycleCounts, OutboxScheduler, TickPlan
 
 try:
     from workers import DurableObject as _DurableObjectBase
@@ -60,23 +61,38 @@ class SystemSendGate(_DurableObjectBase):
         self._test_request_release = asyncio.Event()
 
     async def scheduled_tick(self, now: str | None = None) -> dict[str, Any]:
-        tick_time = _datetime(now)
+        result = await self._scheduled_tick(_datetime(now), now is not None)
+        print(json.dumps({"event": "scheduled_tick", **result}))
+        return result
+
+    async def _scheduled_tick(
+        self, tick_time: datetime, fixed_clock: bool
+    ) -> dict[str, Any]:
         async with self._lock:
-            if await self._held():
-                return {"held": True}
+            # A recovery hold freezes everything the ledger covers until the
+            # captain reconciles; expired drafts are outside it and still go.
+            if await self._recovery_held():
+                return _held_result(await self._delete_expired_drafts(tick_time))
             if not await self._check_ledger():
-                return {"held": True, "reason": "d1_ledger_mismatch"}
+                return {
+                    **_held_result(await self._delete_expired_drafts(tick_time)),
+                    "reason": "d1_ledger_mismatch",
+                }
             clock = (
                 (lambda: tick_time)
-                if now is not None
+                if fixed_clock
                 else lambda: datetime.now(timezone.utc)
             )
             scheduler = self._scheduler(clock)
-            await scheduler.recover(tick_time)
+            cleaned = await scheduler.run_lifecycle(tick_time)
+            await self._save_ledger()
+            if not local_test_mode(self.env):
+                # Send hold: nothing below may read a hospital or call LINE.
+                return _held_result(cleaned)
             plan = await scheduler.prepare_tick(tick_time)
             await self._save_ledger()
 
-        result = _plan_result(plan)
+        result = {**_plan_result(plan), **asdict(cleaned)}
         for event_id in plan.event_ids:
             async with self._lock:
                 if await self._held():
@@ -596,6 +612,14 @@ class SystemSendGate(_DurableObjectBase):
             "hospital_reader_available": self._hospital_reader() is not None,
         }
 
+    async def _delete_expired_drafts(self, now: datetime) -> LifecycleCounts:
+        return LifecycleCounts(
+            drafts_deleted=await self._repository().delete_expired_drafts(now)
+        )
+
+    async def _recovery_held(self) -> bool:
+        return (await self.ctx.storage.get("recovery_hold")) is True
+
     async def _held(self) -> bool:
         # Issue #18 is a held service bootstrap. Only the synthetic local
         # rehearsal can send; a token or resume request cannot release production.
@@ -969,6 +993,10 @@ def _datetime(value: str | None) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError("gate timestamps must be timezone-aware")
     return parsed.astimezone(timezone.utc)
+
+
+def _held_result(cleaned: LifecycleCounts) -> dict[str, Any]:
+    return {"held": True, **asdict(cleaned)}
 
 
 def _plan_result(plan: TickPlan) -> dict[str, Any]:

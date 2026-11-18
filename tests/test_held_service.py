@@ -53,7 +53,9 @@ async def test_non_test_environment_cannot_send_or_resume_even_with_test_flag(
     if environment is not None:
         env["NIY_ENVIRONMENT"] = environment
     gate = SystemSendGate(LocalContext(storage), env)
-    assert await gate.scheduled_tick("2026-09-27T13:00:00Z") == {"held": True}
+    tick = await gate.scheduled_tick("2026-09-27T13:00:00Z")
+    assert tick["held"] is True
+    assert "requests_started" not in tick
     await gate.hold_for_reconciliation()
     assert not await gate.resume_after_reconciliation(True)
     restarted = SystemSendGate(LocalContext(storage), env)

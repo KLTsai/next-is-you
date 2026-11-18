@@ -190,7 +190,7 @@ Next is you is designed to keep as little as it needs:
 
 - **What is stored:** invitation records, consent records, and outbox events for scheduling and deduplication. No raw hospital response bodies are retained; the reader keeps only the matched row's fields (room, doctor, clinic type, current number) for the clinic the owner's draft names.
 - **Appointment cutoff:** at 23:59 Taipei time on the appointment date, active reminders expire and no further notices are sent.
-- **Active-data cleanup:** drafts and expired reminders are cleaned up 48 hours after the Taipei-midnight cutoff; stopped reminders are cleaned up 48 hours after Stop.
+- **Active-data cleanup:** drafts and expired reminders are cleaned up by the first scheduled run at or after 48 hours past the 23:59 Taipei cutoff; stopped reminders, 48 hours after Stop. Cleanup also runs while sends are held. During a recovery hold only expired drafts are cleaned up; everything else waits until the hold is released.
 - **Removal:** the organizer removes a member directly; there is no recipient-facing self-service withdrawal in this pass. When a member is removed, their record is erased.
 - **Backups:** backup retention is tracked separately from active-data cleanup; see the [pre-live checklist](docs/PRE-LIVE-CHECKLIST.md) for the deployed storage and backup gates.
 

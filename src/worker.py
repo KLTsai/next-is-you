@@ -29,8 +29,8 @@ from next_is_you.auth import (
     verify_session,
 )
 from next_is_you.identity import IdentityRepository, hash_invitation
-from next_is_you.domain import ClinicSession, Hospital
-from next_is_you.hospital_registry import HOSPITAL_REGISTRY
+from next_is_you.domain import ClinicSession
+from next_is_you.hospital_registry import HOSPITAL_REGISTRY, require_registered
 from next_is_you.progress_links import progress_link
 from next_is_you.line_login import LineOAuthClient, WorkersLineOAuthClient
 from next_is_you.line_messaging import (
@@ -472,10 +472,10 @@ def create_app(
             {
                 "hospitals": [
                     {
-                        "hospital": hospital.value,
+                        "hospital": hospital,
                         "display_name": entry.display_name,
                         "capability": entry.capability.value,
-                        "source_url": progress_link(hospital.value),
+                        "source_url": progress_link(hospital),
                         "clinic_code_labels": list(entry.clinic_code_labels),
                         "departments": [
                             {"code": dept.code, "display_name": dept.display_name}
@@ -497,7 +497,7 @@ def create_app(
         if not department or len(department) > 64 or not day:
             return _api_error("invalid_request", 400)
         try:
-            Hospital(hospital)
+            require_registered(hospital)
             date.fromisoformat(day)
         except (ValueError, TypeError):
             return _api_error("invalid_request", 400)
@@ -606,8 +606,24 @@ def create_app(
                     "visit_date_out_of_schedule_window",
                     409,
                 ),
+                "start_on_visit_day_only": ("start_on_visit_day_only", 409),
+                "hospital_cannot_find_clinic": ("hospital_cannot_find_clinic", 409),
+                "hospital_page_unreachable": ("hospital_page_unreachable", 503),
             }
             code, status = errors.get(result["error"], ("service_unavailable", 503))
+            if code == "visit_date_out_of_schedule_window":
+                detail = {
+                    key: result[key]
+                    for key in ("schedule_end", "release_time")
+                    if result.get(key)
+                }
+                return JSONResponse(
+                    {"error": {"code": code, **detail}}, status_code=status
+                )
+            if code == "start_on_visit_day_only" and "visit_date" in result:
+                # Only the visit date rides along: it is what the organizer needs
+                # to know when the refusal says "start on the visit day".
+                return _api_error(code, status, visit_date=str(result["visit_date"]))
             return _api_error(code, status)
         return JSONResponse(result)
 
@@ -1007,7 +1023,7 @@ def _visit_input(body: Mapping[str, Any]) -> dict[str, Any] | None:
             "recipient_ids",
         }:
             return None
-        hospital = Hospital(str(body["hospital"])).value
+        hospital = require_registered(str(body["hospital"]))
         clinic_session = ClinicSession(str(body["session"])).value
         visit_day = date.fromisoformat(str(body["date"]))
         department_code = _bounded_code(body["department_code"])
@@ -1050,8 +1066,8 @@ def _bounded_code(value: Any) -> str:
     return value.strip()
 
 
-def _api_error(code: str, status_code: int) -> JSONResponse:
-    return JSONResponse({"error": {"code": code}}, status_code=status_code)
+def _api_error(code: str, status_code: int, **details: str) -> JSONResponse:
+    return JSONResponse({"error": {"code": code, **details}}, status_code=status_code)
 
 
 def _binding(env: Any, name: str) -> str:

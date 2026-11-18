@@ -1,4 +1,4 @@
-export type Hospital = "ntuh-main" | "shin-kong-taipei";
+export type Hospital = string;
 export type Session = "morning" | "afternoon" | "evening";
 export type SourceCapability = "full_schedule" | "current_number_only" | "unsupported";
 export type VisitState = "draft" | "active" | "stopping" | "stopped" | "expired";
@@ -23,12 +23,25 @@ export interface ClinicOption {
   doctor: string;
   clinic_type: string;
   clinic_code: string;
+  // Written by the hospital's reader and shown as given: the dropdown text,
+  // and every labelled field the hospital publishes for the clinic.
+  label: string;
+  details: ClinicDetail[];
+}
+
+export interface ClinicDetail {
+  label: string;
+  value: string;
 }
 
 export interface ClinicRoster {
   available: boolean;
   reason: string;
   clinics: ClinicOption[];
+  // Present when the day is not yet published: the last day the hospital's
+  // clinic schedule covers, and when the hospital says the day will be added.
+  schedule_end?: string | null;
+  release_time?: string | null;
 }
 export type SourceReadStatus = "usable" | "unavailable" | "stale" | "untrusted" | "scope_mismatch" | "invalid";
 export type SourceReadReason = "none" | "no_observation" | "timeout" | "stale_sample" | "untrusted_source" | "scope_mismatch" | "empty_result" | "schema_drift" | "access_denied" | "ambiguous_match" | "invalid_data";
@@ -67,6 +80,10 @@ export interface VisitInput {
 export class OrganizerApiError extends Error {
   status: number;
   code: string;
+  visitDate: string | null;
+  // Set when Start refuses a day the hospital has not published yet.
+  scheduleEnd: string | null;
+  releaseTime: string | null;
 }
 
 export function listRecipients(options?: object): Promise<{ recipients: Recipient[] }>;

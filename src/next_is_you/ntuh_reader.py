@@ -31,7 +31,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from typing import Any, Awaitable, Callable, Mapping, Protocol
@@ -39,10 +39,13 @@ from urllib.parse import urlencode
 
 from next_is_you.domain import (
     ClinicOption,
+    clinic_label,
+    ClinicMatch,
     ClinicRoster,
     ClinicScope,
     ClinicSession,
-    Hospital,
+    MatchKind,
+    MatchQuery,
     QueueObservation,
     ReadFailed,
     ReadSkipped,
@@ -59,12 +62,15 @@ WEBREG_BASE = "https://registration.ntuh.gov.tw/WebReg/WebReg"
 SELECTOR_PATH = f"{WEBREG_BASE}/ClinicCurrentLightNo"
 LIGHT_TABLE_URL = f"{WEBREG_BASE}/DeptLightTable"
 SCHEDULE_PATH = f"{WEBREG_BASE}/RegDeptSchedule"
+HOSPITAL_ID = "ntuh-main"
 BRANCH_CODE = "T0"
 SUPPORTED_DEPARTMENT = "OPH"
 # RegDeptSchedule publishes the next two weekdays-filled calendar weeks; dates
 # past this cap are not reachable until they enter the window and are reported
 # as `visit_date_out_of_schedule_window` for the picker to degrade gracefully.
 SCHEDULE_LOOKAHEAD_DAYS = 14
+# One schedule read serves every match asked within this many seconds.
+_SCHEDULE_MEMO_SECONDS = 60
 # The site negotiates its language, and the rendering decides whether rows read
 # "11 診 / 合成醫師丙" or "Room 11 / ...". The owner enters the clinic from a
 # Traditional Chinese registration slip, so the reader pins that rendering.
@@ -197,6 +203,21 @@ class ScheduleRow:
     doctor: str
     clinic_type: str
     status: str
+    # The department or specialty text before the `|` in `.sub-spec`
+    # (`一般眼科 | 角膜`); empty when the card shows none.
+    department: str = ""
+
+
+_SESSION_NAMES = {
+    ClinicSession.MORNING: "早診",
+    ClinicSession.AFTERNOON: "午診",
+    ClinicSession.EVENING: "晚診",
+}
+
+
+def _details(*pairs: tuple[str, str]) -> tuple[tuple[str, str], ...]:
+    """Keep the published fields, in order; an unpublished one is left out."""
+    return tuple((name, value.strip()) for name, value in pairs if value.strip())
 
 
 def parse_clinic_key(clinic_code: str) -> ClinicKey | None:
@@ -455,6 +476,7 @@ class _ScheduleCollector(HTMLParser):
         clinic_type = (
             sub_spec.split("|")[-1].strip() if "|" in sub_spec else sub_spec.strip()
         )
+        department = sub_spec.split("|")[0].strip() if "|" in sub_spec else ""
         self.rows.append(
             ScheduleRow(
                 visit_date=self._current_date,
@@ -463,6 +485,7 @@ class _ScheduleCollector(HTMLParser):
                 doctor=match.group("doctor"),
                 clinic_type=clinic_type,
                 status=self._card.get("status", ""),
+                department=department,
             )
         )
 
@@ -524,12 +547,27 @@ def _matches(row: ListRow, key: ClinicKey) -> bool:
     )
 
 
+def _unpublished_window(today: date, visit_date: date) -> tuple[date, datetime]:
+    """NTUH's stated rule for a day it has not published: (end date, release time).
+
+    The clinic schedule ends 14 days after today, and a day opens at 00:00 Taipei
+    14 days before it. One place, so the setup form and Start refusal agree.
+    """
+    lookahead = timedelta(days=SCHEDULE_LOOKAHEAD_DAYS)
+    return today + lookahead, datetime.combine(
+        visit_date - lookahead, time(0, 0), tzinfo=TAIPEI
+    )
+
+
 class NtuhProgressReader:
     """Reads the official progress list under the owner-approved cadence."""
 
     def __init__(self, state: ReaderState, fetch: Fetcher) -> None:
         self._state = state
         self._fetch = fetch
+        self._schedule_memo: dict[
+            tuple[str, date], tuple[datetime, str, list[ScheduleRow]]
+        ] = {}
 
     async def observe(
         self, scope: ClinicScope, now: datetime
@@ -554,7 +592,7 @@ class NtuhProgressReader:
         rather than offering a partial list.
         """
         if (
-            query.hospital != Hospital.NTUH_MAIN
+            query.hospital != HOSPITAL_ID
             or query.department_code != SUPPORTED_DEPARTMENT
         ):
             return ClinicRoster(False, (), "scope_mismatch")
@@ -565,8 +603,125 @@ class NtuhProgressReader:
         if days_ahead == 0:
             return await self._list_today_roster(query.department_code)
         if days_ahead > SCHEDULE_LOOKAHEAD_DAYS:
-            return ClinicRoster(False, (), "visit_date_out_of_schedule_window")
+            # NTUH states its rule: schedule from midnight 14 days before
+            # consultation, so a day opens at 00:00 Taipei 14 days earlier.
+            schedule_end, release_time = _unpublished_window(today, query.visit_date)
+            return ClinicRoster(
+                False,
+                (),
+                "visit_date_out_of_schedule_window",
+                schedule_end=schedule_end,
+                release_time=release_time,
+            )
         return await self._list_future_schedule(query, today)
+
+    async def _future_schedule_rows(
+        self, department_code: str, today: date, memo_at: datetime | None = None
+    ) -> tuple[str, list[ScheduleRow]]:
+        """The department's schedule rows, or the status the read failed with.
+
+        With `memo_at`, a read made within `_SCHEDULE_MEMO_SECONDS` is reused, so a
+        sweep matching many drafts of one department costs the hospital one request.
+        Only a clean read is remembered, so a transient failure is retried by the
+        next draft, and entries of earlier days are dropped.
+        """
+        memo_key = (department_code, today)
+        if memo_at is not None:
+            memo = self._schedule_memo.get(memo_key)
+            if memo is not None and 0 <= (memo_at - memo[0]).total_seconds() < (
+                _SCHEDULE_MEMO_SECONDS
+            ):
+                return memo[1], memo[2]
+        try:
+            status, rows = await asyncio.wait_for(
+                self._fetch_schedule_rows(department_code, today),
+                REQUEST_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            status, rows = "timeout", []
+        except Exception:
+            status, rows = "no_observation", []
+        if memo_at is not None and status == "ok":
+            self._schedule_memo = {
+                key: value
+                for key, value in self._schedule_memo.items()
+                if key[1] == today
+            }
+            self._schedule_memo[memo_key] = (memo_at, status, rows)
+        return status, rows
+
+    async def match_clinic(self, query: MatchQuery, now: datetime) -> ClinicMatch:
+        """Decide whether a stored draft is on NTUH's clinic schedule.
+
+        Matches on (session, room, doctor) and ignores the clinic type, because
+        the schedule's 診別 and the light table's clinic type use different
+        vocabularies. A matched answer carries the canonical clinic code of the
+        row found, so a same-day draft can be rewritten to what monitoring reads.
+        A row marked `停診` or `颱風停診` answers as cancelled by the hospital.
+        """
+        if (
+            query.hospital != HOSPITAL_ID
+            or query.department_code != SUPPORTED_DEPARTMENT
+        ):
+            return ClinicMatch(MatchKind.UNAVAILABLE, reason="scope_mismatch")
+        today = now.astimezone(TAIPEI).date()
+        if query.visit_date < today:
+            return ClinicMatch(MatchKind.UNAVAILABLE, reason="visit_date_past")
+        days_ahead = (query.visit_date - today).days
+        if days_ahead > SCHEDULE_LOOKAHEAD_DAYS:
+            schedule_end, release_time = _unpublished_window(today, query.visit_date)
+            return ClinicMatch(
+                MatchKind.NOT_YET_PUBLISHED,
+                schedule_end=schedule_end,
+                release_time=release_time,
+            )
+        key = parse_clinic_key(query.clinic_code)
+        if key is None:
+            return ClinicMatch(MatchKind.UNAVAILABLE, reason="invalid_data")
+
+        def same_clinic(session: ClinicSession, room: str, doctor: str) -> bool:
+            return (
+                session == query.session
+                and _norm(room) == _norm(key.room)
+                and _norm(doctor) == _norm(key.doctor)
+            )
+
+        if days_ahead == 0:
+            roster = await self._list_today_roster(query.department_code)
+            if not roster.available:
+                return ClinicMatch(MatchKind.UNAVAILABLE, reason=roster.reason)
+            found = next(
+                (o for o in roster.clinics if same_clinic(o.session, o.room, o.doctor)),
+                None,
+            )
+            if found is None:
+                return ClinicMatch(MatchKind.NOT_SCHEDULED)
+            return ClinicMatch(MatchKind.MATCHED, found.clinic_code)
+
+        status, rows = await self._future_schedule_rows(
+            query.department_code, today, memo_at=now
+        )
+        if status != "ok":
+            return ClinicMatch(MatchKind.UNAVAILABLE, reason=status)
+        day_rows = [row for row in rows if row.visit_date == query.visit_date]
+        live = [r for r in day_rows if r.status not in _SCHEDULE_CANCELLED_STATUSES]
+        found_row = next(
+            (r for r in live if same_clinic(r.session, r.room, r.doctor)), None
+        )
+        if found_row is not None:
+            return ClinicMatch(
+                MatchKind.MATCHED,
+                f"{found_row.room}/{found_row.doctor}/{found_row.clinic_type}",
+            )
+        if any(
+            same_clinic(r.session, r.room, r.doctor)
+            for r in day_rows
+            if r.status in _SCHEDULE_CANCELLED_STATUSES
+        ):
+            return ClinicMatch(MatchKind.CANCELLED)
+        if not live:
+            return ClinicMatch(MatchKind.UNAVAILABLE, reason="no_observation")
+        return ClinicMatch(MatchKind.NOT_SCHEDULED)
 
     async def _list_today_roster(self, department_code: str) -> ClinicRoster:
         """Today's roster, merged across all three sessions from the light table."""
@@ -582,6 +737,13 @@ class NtuhProgressReader:
                     doctor=row.doctor,
                     clinic_type=row.clinic_type,
                     clinic_code=f"{row.room}/{row.doctor}/{row.clinic_type}",
+                    label=clinic_label(row.room, row.doctor, _SESSION_NAMES[session]),
+                    details=_details(
+                        ("診間", row.room),
+                        ("醫師", row.doctor),
+                        ("診別", row.clinic_type),
+                        ("時段", _SESSION_NAMES[session]),
+                    ),
                 )
                 for row in rows
             )
@@ -597,15 +759,7 @@ class NtuhProgressReader:
         markers) only limit new registration and leave the clinic running, so
         a holder of an existing number still has a clinic and the row stays.
         """
-        try:
-            status, rows = await asyncio.wait_for(
-                self._fetch_schedule_rows(query.department_code, today),
-                REQUEST_TIMEOUT_SECONDS,
-            )
-        except TimeoutError:
-            return ClinicRoster(False, (), "timeout")
-        except Exception:
-            return ClinicRoster(False, (), "no_observation")
+        status, rows = await self._future_schedule_rows(query.department_code, today)
         if status != "ok":
             return ClinicRoster(False, (), status)
         matching = [
@@ -623,6 +777,15 @@ class NtuhProgressReader:
                 doctor=row.doctor,
                 clinic_type=row.clinic_type,
                 clinic_code=f"{row.room}/{row.doctor}/{row.clinic_type}",
+                label=clinic_label(row.room, row.doctor, _SESSION_NAMES[row.session]),
+                details=_details(
+                    ("診間", row.room),
+                    ("醫師", row.doctor),
+                    ("科別", row.department),
+                    ("診別", row.clinic_type),
+                    ("時段", _SESSION_NAMES[row.session]),
+                    ("狀態", row.status),
+                ),
             )
             for row in matching
         )
@@ -707,7 +870,7 @@ class NtuhProgressReader:
     ) -> QueueObservation | ReadSkipped | ReadFailed:
         key = parse_clinic_key(scope.clinic_code)
         if (
-            scope.hospital != Hospital.NTUH_MAIN
+            scope.hospital != HOSPITAL_ID
             or scope.department_code != SUPPORTED_DEPARTMENT
             or scope.session not in AMPM_CODES
             or key is None

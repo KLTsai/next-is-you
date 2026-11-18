@@ -68,8 +68,25 @@ class Gate:
     ):
         return await self.visits.add_recipient(visit_id, recipient_id, now)
 
-    async def start_visit(self, _visit_id: str, _now: str):
-        return {"error": "observation_unavailable"}
+    async def start_visit(self, visit_id: str, _now: str):
+        scripted = {
+            "unpublished": {
+                "error": "visit_date_out_of_schedule_window",
+                "schedule_end": "2026-12-01",
+                "release_time": "2026-11-21T00:00:00+08:00",
+            },
+            "unpublished-no-release": {
+                "error": "visit_date_out_of_schedule_window",
+                "schedule_end": "2026-12-01",
+            },
+            "day-only": {
+                "error": "start_on_visit_day_only",
+                "visit_date": "2026-11-20",
+            },
+            "not-found": {"error": "hospital_cannot_find_clinic"},
+            "unreachable": {"error": "hospital_page_unreachable"},
+        }
+        return scripted.get(visit_id, {"error": "observation_unavailable"})
 
     async def stop_visit(self, visit_id: str, _now: str):
         return "stopped" if visit_id == "existing" else None
@@ -287,6 +304,73 @@ def test_mutations_recheck_allowlist_and_start_returns_typed_safe_error():
     asyncio.run(scenario())
 
 
+def test_start_on_a_current_number_only_hospital_returns_its_typed_refusals():
+    async def scenario():
+        _, http = make_client()
+        try:
+            headers = authorize(http)
+            day_only = await http.post(
+                "/api/organizer/visits/day-only/start", headers=headers
+            )
+            assert day_only.status_code == 409
+            assert day_only.json() == {
+                "error": {
+                    "code": "start_on_visit_day_only",
+                    "visit_date": "2026-11-20",
+                }
+            }
+            not_found = await http.post(
+                "/api/organizer/visits/not-found/start", headers=headers
+            )
+            assert not_found.status_code == 409
+            assert not_found.json() == {
+                "error": {"code": "hospital_cannot_find_clinic"}
+            }
+            unreachable = await http.post(
+                "/api/organizer/visits/unreachable/start", headers=headers
+            )
+            assert unreachable.status_code == 503
+            assert unreachable.json() == {
+                "error": {"code": "hospital_page_unreachable"}
+            }
+        finally:
+            await http.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_start_refusal_for_unpublished_day_carries_end_date_and_release_time():
+    async def scenario():
+        _, http = make_client()
+        try:
+            headers = authorize(http)
+            refused = await http.post(
+                "/api/organizer/visits/unpublished/start", headers=headers
+            )
+            assert refused.status_code == 409
+            assert refused.json() == {
+                "error": {
+                    "code": "visit_date_out_of_schedule_window",
+                    "schedule_end": "2026-12-01",
+                    "release_time": "2026-11-21T00:00:00+08:00",
+                }
+            }
+            bare = await http.post(
+                "/api/organizer/visits/unpublished-no-release/start",
+                headers=headers,
+            )
+            assert bare.json() == {
+                "error": {
+                    "code": "visit_date_out_of_schedule_window",
+                    "schedule_end": "2026-12-01",
+                }
+            }
+        finally:
+            await http.aclose()
+
+    asyncio.run(scenario())
+
+
 def test_synthetic_session_fixture_is_missing_without_explicit_test_binding():
     async def scenario():
         _, http = make_client()
@@ -330,5 +414,134 @@ def test_synthetic_organizer_session_requires_explicit_niy006_test_binding():
             authorized = await http.get("/api/organizer/visits")
             assert authorized.status_code == 503
             assert authorized.json() == {"error": {"code": "service_unavailable"}}
+
+    asyncio.run(scenario())
+
+
+def test_hospital_catalog_response_is_unchanged_for_ntuh_and_shin_kong():
+    # Snapshot (fixture/mock): the exact bytes the organizer's catalog returned
+    # before the registry derived capability and owned the official link.
+    expected = (
+        '{"hospitals":[{"hospital":"ntuh-main","display_name":"臺大醫院總院",'
+        '"capability":"full_schedule","source_url":"https://registration.ntuh.gov.tw'
+        '/WebReg/WebReg/ClinicCurrentLightNo?vHospCode=T0",'
+        '"clinic_code_labels":["診間","醫師","門診別"],'
+        '"departments":[{"code":"OPH","display_name":"眼科"}]},'
+        '{"hospital":"shin-kong-taipei","display_name":"新光醫院（台北）",'
+        '"capability":"unsupported","source_url":"https://reg.skh.org.tw/",'
+        '"clinic_code_labels":[],"departments":[]}]}'
+    ).encode()
+
+    async def scenario():
+        _store, http = make_client()
+        try:
+            authorize(http)
+            response = await http.get("/api/organizer/hospitals")
+            assert response.status_code == 200
+            assert response.content == expected
+        finally:
+            await http.aclose()
+
+    asyncio.run(scenario())
+
+
+# --- Registry-owned hospital ids (#105): local integration -------------------
+
+UNKNOWN_HOSPITAL = "not-in-the-registry"
+
+
+def _visit_body(hospital: str) -> dict[str, Any]:
+    return {
+        "hospital": hospital,
+        "date": "2026-09-29",
+        "department_code": "MED",
+        "clinic_code": "MED-A",
+        "session": "morning",
+        "patient_number": 85,
+        "recipient_ids": ["eligible"],
+    }
+
+
+def _visit_rows(store: SQLiteStore) -> list[tuple]:
+    return [
+        tuple(row)
+        for row in store.connection.execute("SELECT * FROM visits ORDER BY id")
+    ]
+
+
+def test_unknown_hospital_id_is_rejected_on_every_accepting_path_with_no_write():
+    async def scenario():
+        store, http = make_client()
+        try:
+            headers = authorize(http)
+            created = await http.post(
+                "/api/organizer/visits",
+                json=_visit_body("ntuh-main"),
+                headers=headers,
+            )
+            assert created.status_code == 201
+            visit_id = created.json()["id"]
+            before = _visit_rows(store)
+            bad = _visit_body(UNKNOWN_HOSPITAL)
+
+            create = await http.post("/api/organizer/visits", json=bad, headers=headers)
+            update = await http.patch(
+                f"/api/organizer/visits/{visit_id}", json=bad, headers=headers
+            )
+            correct = await http.post(
+                f"/api/organizer/visits/{visit_id}/correct", json=bad, headers=headers
+            )
+            clinics = await http.get(
+                f"/api/organizer/hospitals/{UNKNOWN_HOSPITAL}/clinics",
+                params={"department": "OPH", "date": "2026-09-29"},
+            )
+
+            for response in (create, update, correct, clinics):
+                assert response.status_code == 400
+                assert response.json() == {"error": {"code": "invalid_request"}}
+            assert _visit_rows(store) == before
+        finally:
+            await http.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_a_hospital_registered_only_in_the_registry_passes_id_validation(
+    monkeypatch,
+):
+    from next_is_you import hospital_registry
+
+    monkeypatch.setattr(
+        hospital_registry,
+        "HOSPITAL_REGISTRY",
+        {
+            **hospital_registry.HOSPITAL_REGISTRY,
+            "registry-only-test": hospital_registry.HospitalEntry(
+                display_name="Registry only",
+                reader_type=None,
+                official_link="https://registry-only.example/",
+            ),
+        },
+    )
+    seen: list[str] = []
+
+    async def list_clinics(self, hospital, department, day, now):
+        seen.append(hospital)
+        return {"available": False, "reason": "unsupported", "clinics": []}
+
+    monkeypatch.setattr(Gate, "list_clinics", list_clinics, raising=False)
+
+    async def scenario():
+        _, http = make_client()
+        try:
+            authorize(http)
+            response = await http.get(
+                "/api/organizer/hospitals/registry-only-test/clinics",
+                params={"department": "OPH", "date": "2026-09-29"},
+            )
+            assert response.status_code == 200
+            assert seen == ["registry-only-test"]
+        finally:
+            await http.aclose()
 
     asyncio.run(scenario())

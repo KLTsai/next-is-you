@@ -8,9 +8,12 @@ from typing import Mapping
 import pytest
 
 from next_is_you.domain import (
+    ClinicMatch,
     ClinicOption,
     ClinicRoster,
     ClinicSession,
+    MatchKind,
+    MatchQuery,
     RosterQuery,
 )
 from next_is_you.scheduler import OutboxScheduler
@@ -32,26 +35,49 @@ def taipei(year: int, month: int, day: int, hour: int = 14) -> datetime:
 class FakeRosterReader:
     """Hospital-reader fake that implements the roster-listing contract.
 
-    Only `list_clinics` is implemented; the sweep needs nothing else. The
-    scripted roster is keyed by `(hospital, department, visit_date)` so
-    each (hospital, dept, date) group hits one entry. `calls` counts
-    invocations so the test can prove the sweep caches per group.
+    Only `match_clinic` is implemented; the sweep needs nothing else. The
+    scripted roster is keyed by `(hospital, department, visit_date)` and stands
+    for what the hospital's source shows. Like the NTUH reader, the fake reads
+    its source once per (hospital, dept, date) group and day however many drafts ask,
+    and `calls` counts those source reads.
     """
 
     def __init__(self, rosters: Mapping[tuple[str, str, str], ClinicRoster]):
         self._rosters = rosters
         self.calls: list[RosterQuery] = []
+        self._read_groups: set[tuple[str, ...]] = set()
 
-    async def list_clinics(self, query: RosterQuery, now: datetime) -> ClinicRoster:
-        self.calls.append(query)
+    async def match_clinic(self, query: MatchQuery, now: datetime) -> ClinicMatch:
         key = (
-            query.hospital.value,
+            query.hospital,
             query.department_code,
             query.visit_date.isoformat(),
         )
-        if key not in self._rosters:
-            return ClinicRoster(False, (), "no_observation")
-        return self._rosters[key]
+        read_key = (*key, now.date().isoformat())
+        if read_key not in self._read_groups:
+            self._read_groups.add(read_key)
+            self.calls.append(
+                RosterQuery(query.hospital, query.department_code, query.visit_date)
+            )
+        roster = self._rosters.get(key, ClinicRoster(False, (), "no_observation"))
+        if not roster.available:
+            if roster.reason == "visit_date_out_of_schedule_window":
+                return ClinicMatch(MatchKind.NOT_YET_PUBLISHED)
+            return ClinicMatch(MatchKind.UNAVAILABLE, reason=roster.reason)
+        room, doctor = query.clinic_code.split("/")[:2]
+        found = next(
+            (
+                option
+                for option in roster.clinics
+                if option.session == query.session
+                and option.room == room
+                and option.doctor == doctor
+            ),
+            None,
+        )
+        if found is None:
+            return ClinicMatch(MatchKind.NOT_SCHEDULED)
+        return ClinicMatch(MatchKind.MATCHED, found.clinic_code)
 
 
 def _draft_match(session: ClinicSession, room: str, doctor: str) -> ClinicRoster:
@@ -321,18 +347,72 @@ async def test_sweep_validates_a_draft_exactly_at_the_window_edge() -> None:
     assert plan.drafts_rechecked == 1
 
 
+class PublishingReader(FakeRosterReader):
+    """Fake whose source publishes clinic schedule days up to `published_through`."""
+
+    def __init__(self, rosters, published_through: date) -> None:
+        super().__init__(rosters)
+        self.published_through = published_through
+
+    async def match_clinic(self, query: MatchQuery, now: datetime) -> ClinicMatch:
+        if query.visit_date > self.published_through:
+            return ClinicMatch(MatchKind.NOT_YET_PUBLISHED)
+        return await super().match_clinic(query, now)
+
+
 @pytest.mark.asyncio
-async def test_sweep_ignores_a_draft_beyond_the_window() -> None:
+async def test_sweep_skips_an_unpublished_far_draft_then_checks_it_once_published() -> (
+    None
+):
+    """Fixture/mock, through the scheduler tick: today + 20 days."""
     database = LocalD1()
     repository = await _repo(database)
-    now = taipei(2026, 11, 9, 14)
-    beyond = date(2026, 11, 24)  # today + 15 days
-    await _seed_draft(repository, visit_id="v-far", visit_day=beyond, now=now)
-    reader = FakeRosterReader({})
+    today = taipei(2026, 11, 9, 14)
+    far = date(2026, 11, 29)  # today + 20 days
+    await _seed_draft(repository, visit_id="v-far", visit_day=far, now=today)
+    reader = PublishingReader(
+        {("ntuh-main", "OPH", far.isoformat()): _empty_available()},
+        published_through=date(2026, 11, 23),
+    )
     scheduler = _scheduler(repository, reader)
-    plan = await scheduler.prepare_tick(now)
-    assert plan.drafts_rechecked == 0
-    assert reader.calls == []
+
+    first = await scheduler.prepare_tick(today)
+    # Not flagged, source-read status untouched, but checked for today.
+    assert first.drafts_scope_mismatch == 0
+    assert await _source_read(database, "v-far") == ("unavailable", "no_observation")
+    assert await _preflight_date(database, "v-far") == "2026-11-09"
+
+    # Same Taipei day: not asked again.
+    again = await scheduler.prepare_tick(today + timedelta(minutes=5))
+    assert again.drafts_rechecked == 0
+
+    # The hospital publishes the day; the next sweep flags the missing doctor.
+    reader.published_through = far
+    second = await scheduler.prepare_tick(taipei(2026, 11, 10, 14))
+    assert second.drafts_scope_mismatch == 1
+    assert await _source_read(database, "v-far") == ("scope_mismatch", "scope_mismatch")
+    assert await _preflight_date(database, "v-far") == "2026-11-10"
+
+
+@pytest.mark.asyncio
+async def test_sweep_matches_a_far_draft_once_its_day_is_published() -> None:
+    database = LocalD1()
+    repository = await _repo(database)
+    today = taipei(2026, 11, 9, 14)
+    far = date(2026, 12, 20)  # today + 41 days
+    await _seed_draft(repository, visit_id="v-far", visit_day=far, now=today)
+    reader = PublishingReader(
+        {
+            ("ntuh-main", "OPH", far.isoformat()): _draft_match(
+                ClinicSession.MORNING, "03", "合成醫師甲"
+            ),
+        },
+        published_through=far,
+    )
+    plan = await _scheduler(repository, reader).prepare_tick(today)
+    assert plan.drafts_rechecked == 1
+    assert plan.drafts_scope_mismatch == 0
+    assert await _source_read(database, "v-far") == ("unavailable", "no_observation")
 
 
 @pytest.mark.asyncio

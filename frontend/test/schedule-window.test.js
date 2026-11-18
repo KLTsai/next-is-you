@@ -1,71 +1,197 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import * as setupNotices from "../src/schedule-window.js";
 import {
-  SCHEDULE_LOOKAHEAD_DAYS,
-  addDaysISO,
-  beyondScheduleWindow,
+  currentNumberOnlyNotice,
   degradeNotice,
+  rosterClinicError,
+  startRefusalMessage,
+  unpublishedDayNotice,
   visitErrorMessage,
-  withinScheduleWindow,
 } from "../src/schedule-window.js";
 
-const TODAY = "2026-11-10";
-
-test("the schedule window is 14 days ahead of today, matching NTUH's lookahead", () => {
-  assert.equal(SCHEDULE_LOOKAHEAD_DAYS, 14);
-  assert.equal(addDaysISO(TODAY, 0), TODAY);
-  assert.equal(addDaysISO(TODAY, 1), "2026-11-11");
-  assert.equal(addDaysISO(TODAY, SCHEDULE_LOOKAHEAD_DAYS), "2026-11-24");
-  assert.equal(addDaysISO(TODAY, 21), "2026-12-01"); // crosses a month boundary
-  assert.equal(addDaysISO("2026-12-25", 10), "2027-01-04"); // crosses a year boundary
-  assert.equal(addDaysISO("not-a-date", 1), "");
+test("the not-yet-published notice composes catalog name, end date and release time", () => {
+  const notice = unpublishedDayNotice({
+    hospitalName: "臺大醫院總院",
+    scheduleEnd: "2026-11-05",
+    releaseTime: "2026-10-23T00:00:00+08:00",
+    visitDate: "2026-11-06",
+  });
+  assert.equal(
+    notice,
+    "臺大醫院總院 目前只公布到 11/5 的門診表。11/6 的門診表預計 10/23 00:00 公布，公布後系統會自動核對你存的草稿。",
+  );
 });
 
-test("the roster-fetch gate accepts today through today+14 and refuses everything else", () => {
-  assert.equal(withinScheduleWindow(TODAY, TODAY), true);
-  assert.equal(withinScheduleWindow("2026-11-11", TODAY), true);
-  assert.equal(withinScheduleWindow("2026-11-24", TODAY), true); // today + 14
-  assert.equal(withinScheduleWindow("2026-11-25", TODAY), false); // today + 15
-  assert.equal(withinScheduleWindow("2026-11-09", TODAY), false); // yesterday
-  assert.equal(withinScheduleWindow("", TODAY), false);
-  assert.equal(withinScheduleWindow(TODAY, ""), false);
+test("the notice asks the user to confirm with the hospital when no release time is returned", () => {
+  const notice = unpublishedDayNotice({
+    hospitalName: "合成醫院",
+    scheduleEnd: "2026-11-03",
+    releaseTime: null,
+    visitDate: "2026-11-20",
+  });
+  assert.equal(
+    notice,
+    "合成醫院 目前只公布到 11/3 的門診表。院方未公布這一天門診表的確切時間，請向院方確認。",
+  );
 });
 
-test("beyondScheduleWindow only fires for dates strictly past today+14, not for past dates", () => {
-  assert.equal(beyondScheduleWindow("2026-11-25", TODAY), true);
-  assert.equal(beyondScheduleWindow("2026-12-15", TODAY), true);
-  assert.equal(beyondScheduleWindow("2026-11-24", TODAY), false);
-  assert.equal(beyondScheduleWindow(TODAY, TODAY), false);
-  // A past date is handled by the visit_date_past branch, not by this gate.
-  assert.equal(beyondScheduleWindow("2026-11-09", TODAY), false);
+test("the release time is shown in Taipei time whatever offset the backend writes", () => {
+  const notice = unpublishedDayNotice({
+    hospitalName: "臺大醫院總院",
+    scheduleEnd: "2026-11-05",
+    releaseTime: "2026-10-22T16:00:00+00:00",
+    visitDate: "2026-11-06",
+  });
+  assert.ok(notice.includes("預計 10/23 00:00 公布"));
 });
 
-test("degradeNotice names each reason the roster API can return, including the new window and past-date entries", () => {
-  assert.ok(degradeNotice("visit_date_out_of_schedule_window").includes("兩週掛號視窗"));
+test("the frontend carries no clinic schedule date arithmetic or lookahead constant", () => {
+  for (const name of [
+    "SCHEDULE_LOOKAHEAD_DAYS",
+    "addDaysISO",
+    "withinScheduleWindow",
+    "beyondScheduleWindow",
+  ]) {
+    assert.equal(name in setupNotices, false, `${name} must not be exported`);
+  }
+});
+
+const ROSTER = {
+  available: true,
+  reason: "ok",
+  clinics: [
+    { clinic_code: "11/Wang/Dr. Appt.", doctor: "Wang", room: "11", session: "morning", clinic_type: "Dr. Appt." },
+  ],
+};
+
+test("a clinic outside the returned clinic schedule is rejected, whatever the date", () => {
+  assert.equal(rosterClinicError(ROSTER, "99/Other/Dr. Appt.", false), "所選醫師該日該科沒有排班，請重新選擇。");
+  assert.equal(rosterClinicError(ROSTER, "99/Other/Dr. Appt.", true), "所選醫師當天該科沒有看診，請重新選擇。");
+  assert.equal(rosterClinicError(ROSTER, "", false), "請選擇醫師。");
+  assert.equal(rosterClinicError(ROSTER, "11/Wang/Dr. Appt.", false), "");
+});
+
+test("no clinic check applies when the backend returned no clinic schedule", () => {
+  assert.equal(rosterClinicError(null, "anything", false), "");
+  assert.equal(
+    rosterClinicError({ available: false, reason: "no_observation", clinics: [] }, "anything", false),
+    "",
+  );
+});
+
+test("degradeNotice names each reason the roster API can return", () => {
   assert.ok(degradeNotice("visit_date_past").includes("看診日期已過"));
   assert.ok(degradeNotice("no_observation").includes("切換為手動輸入"));
   assert.ok(degradeNotice("access_denied").includes("院方暫時拒絕"));
   assert.ok(degradeNotice("timeout").includes("逾時"));
   assert.ok(degradeNotice("schema_drift").includes("格式無法辨識"));
   assert.ok(degradeNotice("scope_mismatch").includes("不在支援範圍"));
-  // date_not_today is retired; an unknown reason still falls back to a safe default.
-  assert.equal(typeof degradeNotice("date_not_today"), "string");
-  assert.ok(degradeNotice("date_not_today").length > 0);
+  assert.equal(degradeNotice("date_not_today"), degradeNotice("entirely-unknown-reason"));
+});
+
+test("visitErrorMessage maps the backend's Start-time error codes to user-facing text", () => {
+  assert.ok(visitErrorMessage("doctor_not_scheduled").includes("並沒有看診"));
+  assert.ok(visitErrorMessage("schedule_unavailable").includes("請稍後再試"));
+  assert.equal(visitErrorMessage("visit_date_out_of_schedule_window"), "");
+  assert.ok(visitErrorMessage("visit_date_past").includes("看診日期已過"));
+  assert.ok(visitErrorMessage("clinic_combo_mismatch").includes("組合"));
+  assert.equal(visitErrorMessage("observation_unavailable"), "");
+  assert.equal(visitErrorMessage(""), "");
+});
+
+test("a hospital with no clinic schedule explains each refused Start in plain words", () => {
   assert.equal(
-    degradeNotice("date_not_today"),
-    degradeNotice("entirely-unknown-reason"),
-    "retired reasons fall through to the default string",
+    visitErrorMessage("start_on_visit_day_only", { visitDate: "2026-11-20" }),
+    "這家醫院沒有公布門診表，11/20 看診當天才能開始。",
+  );
+  assert.equal(
+    visitErrorMessage("start_on_visit_day_only", { visitDate: "2026-12-01" }),
+    "這家醫院沒有公布門診表，12/1 看診當天才能開始。",
+  );
+  assert.equal(
+    visitErrorMessage("hospital_cannot_find_clinic"),
+    "院方目前查不到這個診。如果還沒開診，請開診後再試；否則請核對診間代碼。",
+  );
+  assert.equal(
+    visitErrorMessage("hospital_page_unreachable"),
+    "暫時讀不到院方資料，請稍後再試。",
   );
 });
 
-test("visitErrorMessage maps the backend's new Start-time error codes to user-facing text", () => {
-  assert.ok(visitErrorMessage("doctor_not_scheduled").includes("並沒有看診"));
-  assert.ok(visitErrorMessage("schedule_unavailable").includes("請稍後再試"));
-  assert.ok(visitErrorMessage("visit_date_out_of_schedule_window").includes("兩週掛號視窗"));
-  assert.ok(visitErrorMessage("visit_date_past").includes("看診日期已過"));
-  assert.ok(visitErrorMessage("clinic_combo_mismatch").includes("組合"));
-  // Codes outside the pre-flight set return "" so the main errorText fallback
-  // chain can keep handling them.
-  assert.equal(visitErrorMessage("observation_unavailable"), "");
-  assert.equal(visitErrorMessage(""), "");
+test("the visit-day refusal still reads without a date", () => {
+  assert.equal(
+    visitErrorMessage("start_on_visit_day_only"),
+    "這家醫院沒有公布門診表，看診當天才能開始。",
+  );
+});
+
+test("a hospital with no clinic schedule says so instead of blaming a failed read", () => {
+  const notice = currentNumberOnlyNotice();
+  assert.ok(notice.includes("沒有公布門診表"));
+  assert.ok(notice.includes("看診當天才能開始"));
+  assert.ok(!notice.includes("無法取得"));
+});
+
+test("a refused Start for an unpublished day shows the same text as the setup form, with a release time", () => {
+  const input = {
+    hospitalName: "臺大醫院總院",
+    scheduleEnd: "2026-12-01",
+    releaseTime: "2026-11-21T00:00:00+08:00",
+    visitDate: "2026-12-05",
+  };
+  const message = startRefusalMessage({ code: "visit_date_out_of_schedule_window", ...input });
+  assert.equal(
+    message,
+    "臺大醫院總院 目前只公布到 12/1 的門診表。12/5 的門診表預計 11/21 00:00 公布，公布後系統會自動核對你存的草稿。",
+  );
+  assert.equal(message, unpublishedDayNotice(input));
+});
+
+test("a refused Start without a release time tells the organizer to ask the hospital", () => {
+  const message = startRefusalMessage({
+    code: "visit_date_out_of_schedule_window",
+    hospitalName: "合成醫院",
+    scheduleEnd: "2026-12-01",
+    releaseTime: null,
+    visitDate: "2026-12-05",
+  });
+  assert.equal(
+    message,
+    "合成醫院 目前只公布到 12/1 的門診表。院方未公布這一天門診表的確切時間，請向院方確認。",
+  );
+});
+
+test("startRefusalMessage falls back to a plain notice, never the reload hint, when the facts are missing", () => {
+  assert.ok(startRefusalMessage({ code: "doctor_not_scheduled" }).includes("並沒有看診"));
+  assert.equal(startRefusalMessage({ code: "observation_unavailable" }), "");
+  assert.equal(
+    startRefusalMessage({ code: "visit_date_out_of_schedule_window", hospitalName: "合成醫院", visitDate: "2026-12-05" }),
+    "院方還沒公布這一天的門診表，公布後再開始提醒。",
+  );
+  assert.equal(
+    startRefusalMessage({ code: "visit_date_out_of_schedule_window", scheduleEnd: "2026-12-01", visitDate: "2026-12-05" }),
+    "院方還沒公布這一天的門診表，公布後再開始提醒。",
+  );
+});
+
+test("a refused Start for a hospital with no clinic schedule names the visit day the backend gave", () => {
+  assert.equal(
+    startRefusalMessage({ code: "start_on_visit_day_only", visitDate: "2026-11-20" }),
+    "這家醫院沒有公布門診表，11/20 看診當天才能開始。",
+  );
+  assert.equal(
+    startRefusalMessage({ code: "hospital_page_unreachable" }),
+    "暫時讀不到院方資料，請稍後再試。",
+  );
+});
+
+test("no frontend text names NTUH or a two-week window", async () => {
+  const { readdir, readFile } = await import("node:fs/promises");
+  const dir = new URL("../src/", import.meta.url);
+  for (const name of await readdir(dir)) {
+    if (!/\.(js|ts)$/.test(name)) continue;
+    const text = await readFile(new URL(name, dir), "utf8");
+    assert.doesNotMatch(text, /NTUH|兩週|兩周|[Tt]wo[- ]week/, name);
+  }
 });

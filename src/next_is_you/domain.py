@@ -8,9 +8,9 @@ from enum import StrEnum
 from typing import Protocol
 
 
-class Hospital(StrEnum):
-    NTUH_MAIN = "ntuh-main"
-    SHIN_KONG_TAIPEI = "shin-kong-taipei"
+# A hospital id is a key in the hospital registry; the registry owns which ids
+# exist, so the domain only carries the value.
+HospitalId = str
 
 
 class SourceCapability(StrEnum):
@@ -70,7 +70,7 @@ def normalize_call_type(value: str | None) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class ClinicScope:
-    hospital: Hospital
+    hospital: HospitalId
     visit_date: date
     department_code: str
     clinic_code: str
@@ -134,7 +134,7 @@ class RosterQuery:
     so the owner picks them instead of typing them.
     """
 
-    hospital: Hospital
+    hospital: HospitalId
     department_code: str
     visit_date: date
 
@@ -154,6 +154,25 @@ class ClinicOption:
     doctor: str
     clinic_type: str
     clinic_code: str
+    # Written by the reader, shown by everything else as given: the way the
+    # hospital identifies the clinic, and every labelled field it publishes
+    # that helps a person confirm the clinic (room, location, clinic type,
+    # substitute doctor, status), in display order as (name, value) pairs.
+    label: str = ""
+    details: tuple[tuple[str, str], ...] = ()
+
+
+def clinic_label(room: str, doctor: str, session_name: str) -> str:
+    """Join the segments a hospital publishes into one dropdown label.
+
+    A hospital without room numbers passes an empty room, and the label then
+    has no empty segment and no stray separator.
+    """
+    head = " · ".join(part for part in (room.strip(), doctor.strip()) if part)
+    session = session_name.strip()
+    if head and session:
+        return f"{head}（{session}）"
+    return head or session
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +188,54 @@ class ClinicRoster:
     available: bool
     clinics: tuple[ClinicOption, ...]
     reason: str
+    # Set only when the requested day is not yet published: the last day the
+    # hospital's clinic schedule covers, and the moment the hospital says the
+    # requested day will be added. `release_time` stays None unless the
+    # hospital states one publicly; it is never estimated.
+    schedule_end: date | None = None
+    release_time: datetime | None = None
+
+
+class MatchKind(StrEnum):
+    """How a hospital's clinic schedule answers for a stored draft."""
+
+    MATCHED = "matched"
+    NOT_SCHEDULED = "not_scheduled"
+    CANCELLED = "cancelled"
+    NOT_YET_PUBLISHED = "not_yet_published"
+    UNAVAILABLE = "unavailable"
+    # The hospital publishes no clinic schedule, so there is nothing to match
+    # against. Not a failure and not a mismatch: callers leave the draft alone.
+    NOT_APPLICABLE = "not_applicable"
+
+
+@dataclass(frozen=True, slots=True)
+class MatchQuery:
+    """A stored draft's identity, as the reader needs it to find its clinic."""
+
+    hospital: HospitalId
+    department_code: str
+    visit_date: date
+    session: ClinicSession
+    clinic_code: str
+
+
+@dataclass(frozen=True, slots=True)
+class ClinicMatch:
+    """A reader's answer to "is this draft on the hospital's clinic schedule".
+
+    `clinic_code` is the hospital's canonical code, set only when matched; shared
+    code stores it without parsing it. `reason` names the source problem and is
+    set only when unavailable.
+    """
+
+    kind: MatchKind
+    clinic_code: str = ""
+    reason: str = ""
+    # Set only when not yet published: the same two facts the clinic schedule
+    # answer carries, so a refused Start can state them.
+    schedule_end: date | None = None
+    release_time: datetime | None = None
 
 
 class HospitalReader(Protocol):
@@ -200,3 +267,11 @@ class ScheduleReader(Protocol):
     """
 
     async def list_clinics(self, query: RosterQuery, now: datetime) -> ClinicRoster: ...
+
+    async def match_clinic(self, query: MatchQuery, now: datetime) -> ClinicMatch:
+        """Decide whether a stored draft is on the hospital's clinic schedule.
+
+        The reader owns clinic-code parsing, normalisation and its status
+        vocabulary; callers branch only on the returned `MatchKind`.
+        """
+        ...

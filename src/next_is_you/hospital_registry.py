@@ -15,10 +15,13 @@ from datetime import datetime
 from typing import Any, Callable, Mapping
 
 from next_is_you.domain import (
+    ClinicMatch,
     ClinicRoster,
     ClinicScope,
-    Hospital,
+    HospitalId,
     HospitalReader,
+    MatchKind,
+    MatchQuery,
     QueueObservation,
     ReadFailed,
     ReadSkipped,
@@ -26,7 +29,18 @@ from next_is_you.domain import (
     SourceCapability,
     SupportedDepartment,
 )
-from next_is_you.ntuh_reader import SUPPORTED_DEPARTMENT, Fetcher, NtuhProgressReader
+from next_is_you.ntuh_reader import (
+    HOSPITAL_ID as NTUH_MAIN_ID,
+    SUPPORTED_DEPARTMENT,
+    Fetcher,
+    NtuhProgressReader,
+)
+
+
+# What a reader must offer to be FULL_SCHEDULE: the picker's roster and the
+# draft check Start and the sweep use. Deriving from both means a reader that
+# implements only one is never offered as full schedule.
+_SCHEDULE_METHODS = ("list_clinics", "match_clinic")
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,42 +60,87 @@ class ReaderDeps:
 class HospitalEntry:
     """What the system knows about one hospital, independent of transport.
 
-    `display_name` and `capability` are what the setup UI reads, so the frontend
-    carries no hospital names or source assumptions of its own. `build_reader`
-    is `None` when no reader exists yet (for example a hospital whose source is
-    still being evidenced), in which case reads fail closed.
+    `capability` is derived, never declared: no `reader_type` means
+    unsupported; a reader type that can both list a clinic schedule and check
+    a draft against it (`list_clinics` and `match_clinic`) means full schedule;
+    otherwise current number only. It reads the type, so no reader is built and
+    no transport is touched. Retiring a hospital keeps the entry and
+    sets `reader_type` to `None`; reads then fail closed and the catalog shows
+    it as unsupported.
+
+    `official_link` is the fixed, server-owned, HTTPS-only progress page link
+    (NIY-016); it is never taken from a caller. `build_reader` overrides how a
+    reader is constructed; by default it is `reader_type(storage, fetch)`.
     """
 
     display_name: str
-    capability: SourceCapability
-    build_reader: Callable[[ReaderDeps], HospitalReader] | None
+    reader_type: type | None
+    official_link: str
+    build_reader: Callable[[ReaderDeps], HospitalReader] | None = None
     # Departments the setup picker may offer; empty when none are supported yet.
     departments: tuple[SupportedDepartment, ...] = ()
     # Labels for the manual clinic-code parts, so the setup form can show a parse
     # preview without hard-coding any hospital's format. Empty = freeform.
     clinic_code_labels: tuple[str, ...] = ()
 
+    @property
+    def capability(self) -> SourceCapability:
+        if self.reader_type is None:
+            return SourceCapability.UNSUPPORTED
+        if all(
+            callable(getattr(self.reader_type, name, None))
+            for name in _SCHEDULE_METHODS
+        ):
+            return SourceCapability.FULL_SCHEDULE
+        return SourceCapability.CURRENT_NUMBER_ONLY
 
-HOSPITAL_REGISTRY: Mapping[Hospital, HospitalEntry] = {
-    Hospital.NTUH_MAIN: HospitalEntry(
+    def make_reader(self, deps: ReaderDeps) -> HospitalReader | None:
+        """Build this hospital's reader, or `None` when it has none."""
+        if self.reader_type is None:
+            return None
+        if self.build_reader is not None:
+            return self.build_reader(deps)
+        return self.reader_type(deps.storage, deps.fetch)
+
+
+HOSPITAL_REGISTRY: Mapping[HospitalId, HospitalEntry] = {
+    NTUH_MAIN_ID: HospitalEntry(
         display_name="臺大醫院總院",
-        capability=SourceCapability.FULL_SCHEDULE,
-        build_reader=lambda deps: NtuhProgressReader(deps.storage, deps.fetch),
+        reader_type=NtuhProgressReader,
+        official_link=(
+            "https://registration.ntuh.gov.tw/WebReg/WebReg/"
+            "ClinicCurrentLightNo?vHospCode=T0"
+        ),
         # Only ophthalmology is evidenced today; mirrors ntuh_reader's scope.
         departments=(SupportedDepartment(SUPPORTED_DEPARTMENT, "眼科"),),
         clinic_code_labels=("診間", "醫師", "門診別"),
     ),
     # No reader until Issue #44 evidences a usable Shin Kong source; until then
     # it is offered to no one and reads fail closed.
-    Hospital.SHIN_KONG_TAIPEI: HospitalEntry(
+    "shin-kong-taipei": HospitalEntry(
         display_name="新光醫院（台北）",
-        capability=SourceCapability.UNSUPPORTED,
-        build_reader=None,
+        reader_type=None,
+        official_link="https://reg.skh.org.tw/",
     ),
 }
 
 
-def capability_of(hospital: Hospital) -> SourceCapability:
+class UnknownHospitalError(ValueError):
+    """A hospital id that is not a key of the registry."""
+
+
+def require_registered(hospital: str) -> HospitalId:
+    """Return `hospital` when the registry knows it, else raise.
+
+    Every path that accepts a hospital id from outside validates it here, so the
+    registry stays the only authority on which ids exist.
+    """
+    if not isinstance(hospital, str) or hospital not in HOSPITAL_REGISTRY:
+        raise UnknownHospitalError(hospital)
+    return hospital
+
+
+def capability_of(hospital: HospitalId) -> SourceCapability:
     """What a hospital's source exposes, defaulting to unsupported if unknown."""
     entry = HOSPITAL_REGISTRY.get(hospital)
     return entry.capability if entry is not None else SourceCapability.UNSUPPORTED
@@ -92,7 +151,7 @@ class RegistryHospitalReader:
 
     def __init__(self, deps: ReaderDeps) -> None:
         self._deps = deps
-        self._readers: dict[Hospital, HospitalReader] = {}
+        self._readers: dict[HospitalId, HospitalReader] = {}
 
     async def observe(
         self, scope: ClinicScope, now: datetime
@@ -119,13 +178,24 @@ class RegistryHospitalReader:
             return ClinicRoster(False, (), "no_observation")
         return await lister(query, now)
 
-    def _reader_for(self, hospital: Hospital) -> HospitalReader | None:
+    async def match_clinic(self, query: MatchQuery, now: datetime) -> ClinicMatch:
+        if capability_of(query.hospital) is not SourceCapability.FULL_SCHEDULE:
+            return ClinicMatch(MatchKind.NOT_APPLICABLE)
+        reader = self._reader_for(query.hospital)
+        matcher = getattr(reader, "match_clinic", None)
+        if matcher is None:
+            return ClinicMatch(MatchKind.UNAVAILABLE, reason="no_observation")
+        return await matcher(query, now)
+
+    def _reader_for(self, hospital: HospitalId) -> HospitalReader | None:
         cached = self._readers.get(hospital)
         if cached is not None:
             return cached
         entry = HOSPITAL_REGISTRY.get(hospital)
-        if entry is None or entry.build_reader is None:
+        if entry is None:
             return None
-        reader = entry.build_reader(self._deps)
+        reader = entry.make_reader(self._deps)
+        if reader is None:
+            return None
         self._readers[hospital] = reader
         return reader

@@ -27,11 +27,12 @@ import { canRequestStart, formatSourceStatus, formatVisitState, visitStatusKey }
 import { sourceLinkMarkup } from "./source-link.js";
 import { projectDashboardVisits } from "./dashboard-projection.js";
 import {
-  SCHEDULE_LOOKAHEAD_DAYS,
-  beyondScheduleWindow,
+  currentNumberOnlyNotice,
   degradeNotice as scheduleDegradeNotice,
+  startRefusalMessage as scheduleStartRefusalMessage,
+  rosterClinicError,
+  unpublishedDayNotice,
   visitErrorMessage,
-  withinScheduleWindow,
 } from "./schedule-window.js";
 
 const app = document.querySelector<HTMLElement>("#app");
@@ -159,9 +160,25 @@ function errorText(error: unknown): string {
     visit_not_found: "找不到這筆提醒，請重新載入。",
   };
   if (error.status === 401 || error.status === 403) return "登入已失效或目前帳號沒有管理權限。";
-  const scheduleMessage = visitErrorMessage(error.code);
+  const scheduleMessage = visitErrorMessage(error.code, { visitDate: error.visitDate });
   if (scheduleMessage) return scheduleMessage;
   return labels[error.code] || "操作未完成，請重新載入後再試。";
+}
+
+function startFailureText(error: unknown, item: OrganizerVisit): string {
+  if (error instanceof OrganizerApiError) {
+    const refusal = scheduleStartRefusalMessage({
+      code: error.code,
+      hospitalName: hospitalEntry(item.hospital)?.display_name,
+      scheduleEnd: error.scheduleEnd,
+      releaseTime: error.releaseTime,
+      // The backend names the day Start opens when it refuses a start-day-only
+      // hospital; otherwise the draft's own visit date is the day in question.
+      visitDate: error.visitDate ?? item.date,
+    });
+    if (refusal) return refusal;
+  }
+  return errorText(error);
 }
 
 function renderLogin(): string {
@@ -287,11 +304,10 @@ function clinicSectionMarkup(
   const key = selectionKey(entry.hospital, selectedDept, selectedDate);
   const rosterReady = roster !== null && rosterKey === key;
   const today = todayTaipei();
-  // The schedule source covers the next SCHEDULE_LOOKAHEAD_DAYS from today;
-  // the picker uses the dropdown anywhere inside that window so a future
-  // visit date gets the same type-free picker as today.
-  const useRoster = entry.capability === "full_schedule"
-    && withinScheduleWindow(selectedDate, today);
+  // A full-schedule hospital is asked for the day's clinics whenever
+  // department and date are set and the date is not past; the answer decides
+  // between the picker and the not-yet-published notice.
+  const useRoster = entry.capability === "full_schedule" && selectedDate >= today;
 
   if (useRoster && !rosterReady) {
     const loadingText = selectedDate === today
@@ -301,26 +317,38 @@ function clinicSectionMarkup(
   }
   if (useRoster && rosterReady && roster?.available) {
     const options = roster.clinics
-      .map((clinic) => `<option value="${escapeHtml(clinic.clinic_code)}" ${selectedClinic === clinic.clinic_code ? "selected" : ""}>${escapeHtml(`${clinic.room} · ${clinic.doctor}（${sessionNames[clinic.session]}）`)}</option>`)
+      .map((clinic) => `<option value="${escapeHtml(clinic.clinic_code)}" ${selectedClinic === clinic.clinic_code ? "selected" : ""}>${escapeHtml(clinic.label)}</option>`)
       .join("");
     const chosen = roster.clinics.find((clinic) => clinic.clinic_code === selectedClinic);
     const helper = selectedDate === today
       ? "只列出當天該科實際看診的醫師；診間與診次自動帶入。來源吻合不代表號碼已與現場燈號核實。"
-      : "只列出該日該科排班的醫師；診間與診次自動帶入。排班資料未來兩週內有效。";
-    return `<label class="field"><span>醫師 / 診間</span><select name="clinic_code" required><option value="" ${selectedClinic ? "" : "selected"}>請選擇醫師</option>${options}</select><input type="hidden" name="session" value="${escapeHtml(chosen?.session ?? "")}"><small>${helper}</small>${errorMarkup("clinic_code")}</label>`;
+      : "只列出該日該科排班的醫師；診間與診次自動帶入。院方可能調整排班，系統每天會重新核對，按開始時也會再核對一次。";
+    const detailRows = (chosen?.details ?? [])
+      .map((detail) => `<div><dt>${escapeHtml(detail.label)}</dt><dd>${escapeHtml(detail.value)}</dd></div>`)
+      .join("");
+    const detailList = detailRows ? `<dl class="clinic-details" aria-label="院方公布的這個診的資料">${detailRows}</dl>` : "";
+    return `<label class="field"><span>醫師 / 診間</span><select name="clinic_code" required><option value="" ${selectedClinic ? "" : "selected"}>請選擇醫師</option>${options}</select><input type="hidden" name="session" value="${escapeHtml(chosen?.session ?? "")}">${detailList}<small>${helper}</small>${errorMarkup("clinic_code")}</label>`;
   }
 
-  // Manual entry: date beyond the schedule window, past date (defensive), a
-  // held or unavailable roster, or a current-number-only source. Reuse the
+  // Manual entry: a day the hospital has not published, past date (defensive),
+  // a held or unavailable roster, or a current-number-only source. Reuse the
   // per-hospital source link and show a live parse preview so the user can
   // confirm the three parts.
   const reason = rosterReady && roster
     ? roster.reason
     : selectedDate < today
       ? "visit_date_past"
-      : beyondScheduleWindow(selectedDate, today)
-        ? "visit_date_out_of_schedule_window"
-        : "no_observation";
+      : "no_observation";
+  const notice = rosterReady && roster?.reason === "visit_date_out_of_schedule_window" && roster.schedule_end
+    ? unpublishedDayNotice({
+      hospitalName: entry.display_name,
+      scheduleEnd: roster.schedule_end,
+      releaseTime: roster.release_time,
+      visitDate: selectedDate,
+    })
+    : entry.capability === "current_number_only"
+      ? currentNumberOnlyNotice()
+      : degradeNotice(reason);
   // The part labels come from the catalog, so the preview carries no hard-coded
   // hospital format. A mismatch is only a hint, never a submit gate.
   const labels = entry.clinic_code_labels;
@@ -331,7 +359,7 @@ function clinicSectionMarkup(
   const sessionOptions = (["morning", "afternoon", "evening"] as const)
     .map((value) => `<option value="${value}" ${selectedSession === value ? "selected" : ""}>${sessionNames[value]}</option>`)
     .join("");
-  return `<p class="edit-notice">${escapeHtml(degradeNotice(reason))}</p>
+  return `<p class="edit-notice">${escapeHtml(notice)}</p>
     <p class="source-ref">${sourceLinkMarkup(entry.source_url)}<small>${formatHint}</small></p>
     <label class="field"><span>診間代碼</span><input name="clinic_code" maxlength="64" value="${escapeHtml(selectedClinic)}" autocomplete="off" required>${preview}<small>比對忽略大小寫、空白、標點；上面的即時預覽顯示系統讀到的內容供你核對。</small>${errorMarkup("clinic_code")}</label>
     <label class="field"><span>診次</span><select name="session" required>${sessionOptions}</select>${errorMarkup("session")}</label>`;
@@ -383,8 +411,8 @@ function formMarkup(): string {
     body = `<div class="form-grid">${departmentField}${dateField}</div>${clinicSection}${patientField}`;
   }
 
-  const rosterPending = Boolean(entry) && capability === "full_schedule" && Boolean(selectedDept)
-    && withinScheduleWindow(selectedDate, todayTaipei())
+  const rosterPending = Boolean(entry) && capability === "full_schedule" && Boolean(selectedDept) && Boolean(selectedDate)
+    && selectedDate >= todayTaipei()
     && !(roster !== null && rosterKey === selectionKey(selectedHospital, selectedDept, selectedDate));
   const submitDisabled = formSaving || rosterPending || !entry || capability === "unsupported" || hospitals.length === 0;
 
@@ -506,10 +534,9 @@ async function maybeFetchRoster(): Promise<void> {
   if (!entry || entry.capability !== "full_schedule") return;
   const department = formValue("department_code", item?.department_code ?? entry.departments[0]?.code ?? "");
   const date = formValue("date", item?.date ?? "");
-  // Fetch the roster for today and for future dates inside NTUH's 14-day
-  // schedule window. Dates past the window degrade to manual entry without
-  // fetching.
-  if (!department || !date || !withinScheduleWindow(date, todayTaipei())) return;
+  // Ask for the day's clinics whenever department and date are set and the
+  // date is not past; the backend says which days the hospital has published.
+  if (!department || !date || date < todayTaipei()) return;
   const key = selectionKey(hospital, department, date);
   if (roster !== null && rosterKey === key) return;
   rosterLoading = true;
@@ -617,23 +644,12 @@ function validateForm(form: HTMLFormElement): boolean {
   const rosterReady = roster !== null
     && rosterKey === selectionKey(hospital, department, date)
     && roster.available;
-  // The dropdown-must-match check runs for any date inside the schedule
-  // window, not only for today, because the schedule reader populates the
-  // roster for both today and future dates up to today+14. Manual-entry
-  // formatting (dates beyond the window) is hospital-specific and is
-  // validated authoritatively by the backend Start.
-  if (
-    entry?.capability === "full_schedule"
-    && withinScheduleWindow(date, today, SCHEDULE_LOOKAHEAD_DAYS)
-    && rosterReady
-  ) {
-    if (!clinic) {
-      errors.clinic_code = "請選擇醫師。";
-    } else if (!roster!.clinics.some((option) => option.clinic_code === clinic)) {
-      errors.clinic_code = date === today
-        ? "所選醫師當天該科沒有看診，請重新選擇。"
-        : "所選醫師該日該科沒有排班，請重新選擇。";
-    }
+  // A chosen clinic must be in the clinic schedule the backend returned,
+  // whenever one was returned. Without one (manual entry), the backend Start
+  // validates authoritatively.
+  if (entry?.capability === "full_schedule" && rosterReady) {
+    const clinicError = rosterClinicError(roster, clinic, date === today);
+    if (clinicError) errors.clinic_code = clinicError;
   }
   formErrors = errors;
   return Object.keys(errors).length === 0;
@@ -832,7 +848,7 @@ function bindActions(): void {
       const result = await startVisit(id);
       message = result.state === "active" ? "服務已回覆啟動成功。" : "服務尚未確認啟動，請查看清單狀態。";
     } catch (error) {
-      startFailures.set(id, errorText(error));
+      startFailures.set(id, startFailureText(error, item));
     } finally {
       pendingStarts.delete(id);
       await loadDashboard();

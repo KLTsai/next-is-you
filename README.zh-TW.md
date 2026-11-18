@@ -23,11 +23,11 @@ Next is you 就是替你做這件事的小工具。擁有者在瀏覽器開啟�
 - [x] 私人 HTTPS 服務已部署、提醒保留中，僅為保留態 bootstrap - [#18](https://github.com/KLTsai/next-is-you/issues/18)
 - [x] 看診比對改用科別 + 醫師 + 診間作為身分，並以來源本身的首筆/轉空白讀取結果界定監看範圍，取代原本寫死的時段時鐘窗 - [#34](https://github.com/KLTsai/next-is-you/issues/34)
 - [x] 連動式提醒建立 UI：選好醫院、科別與日期後，依即時門診名單帶出醫師/診間下拉選單（時段自動推算），沒有名單可用時會退回手動輸入並附上送出前驗證 - [#47](https://github.com/KLTsai/next-is-you/issues/47)。已知落差：新表單邏輯目前只有瀏覽器端的 E2E 測試覆蓋，還沒有獨立的單元測試；「來源缺某項能力」的退回路徑沒有 UI 層測試驗證；組合檢查只在有名單可用時才會跑，手動輸入模式下完全依賴後端 Start 驗證（這是刻意的設計，但尚未明確文件化或測試覆蓋）。
-- [x] 送出前擋掉三類設定錯誤，進入監看前就擋下：看診日期已過、所選醫師當日沒看診、科別/醫師/診間組合與院方公告對不上。14 天內的未來日期以 NTUH 的全科排班表預先驗證；超過 14 天的草稿先保留，進入視窗後由每日 sweep 自動補驗 - [#58](https://github.com/KLTsai/next-is-you/issues/58)
+- [x] 送出前擋掉三類設定錯誤，進入監看前就擋下：看診日期已過、所選醫師當日沒看診、科別/醫師/診間組合與院方公告對不上。14 天內的未來日期以 NTUH 的全科排班表預先驗證；超過 14 天的草稿先保留，院方公布該日門診表後由每日 sweep 自動補驗 - [#58](https://github.com/KLTsai/next-is-you/issues/58)
 
 **進行中**
 
-- [ ] 可替換的醫院 adapter 後端邊界（`HospitalReader` 介面、醫院註冊表、能力描述）與新增醫院的文件指南（[docs/ADDING-A-HOSPITAL.md](docs/ADDING-A-HOSPITAL.md)） - [#45](https://github.com/KLTsai/next-is-you/issues/45)。介面、註冊表與指南已經合併進主線。剩下的工作已在 2026-11-17 重新規劃為三個 PR：門診表規則與診間比對只存在各醫院自己的 reader 裡；註冊表自動推導醫院等級，並加上 contract test；前端不再寫出任何醫院或規則。細節見 issue。
+- [ ] 可替換的醫院 adapter 後端邊界（`HospitalReader` 介面、醫院註冊表、能力描述）與新增醫院的文件指南（[docs/ADDING-A-HOSPITAL.md](docs/ADDING-A-HOSPITAL.md)） - [#45](https://github.com/KLTsai/next-is-you/issues/45)。介面、註冊表、指南、各醫院 reader 內的門診表規則與診間比對、只公布目前號碼的醫院的 Start 流程，以及不指名任何醫院的設定頁與資料庫已經完成，並有測試掃描前端原始碼，確認沒有任何已註冊醫院的 id 或顯示名稱。註冊表 contract test 也已就位。剩下的是在 issue 上附證據勾選驗收項目。證據只有 fixture 與本機自動化測試；NTUH 的實機行為仍歸 [#20](https://github.com/KLTsai/next-is-you/issues/20)。
 - [ ] 管理者主導的 LINE 邀請與移除 UI：已合併並在本地驗證過；用真實家庭 LINE 帳號走一次完整流程仍待進行 - [#19](https://github.com/KLTsai/next-is-you/issues/19)
 - [ ] 台大眼科 reader：已具備 fixture 與本地整合證據；來源的請求契約與 markup 已人工實地擷取，但 reader 本身的線上行為尚未驗證 - [#20](https://github.com/KLTsai/next-is-you/issues/20)
 - [ ] 私人儲存復原與營運就緒 - [#21](https://github.com/KLTsai/next-is-you/issues/21)

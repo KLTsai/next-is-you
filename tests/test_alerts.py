@@ -3,13 +3,13 @@ from datetime import date
 import pytest
 
 from next_is_you.alerts import evaluate_alerts
-from next_is_you.domain import ClinicScope, ClinicSession, Hospital, QueueObservation
+from next_is_you.domain import ClinicScope, ClinicSession, QueueObservation
 
 
 @pytest.fixture
 def scope() -> ClinicScope:
     return ClinicScope(
-        hospital=Hospital.NTUH_MAIN,
+        hospital="ntuh-main",
         visit_date=date(2026, 9, 27),
         department_code="MED",
         clinic_code="MED-101",

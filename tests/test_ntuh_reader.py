@@ -12,10 +12,11 @@ from urllib.parse import parse_qsl
 import pytest
 
 from next_is_you.domain import (
+    ClinicMatch,
     ClinicRoster,
     ClinicScope,
     ClinicSession,
-    Hospital,
+    MatchKind,
     QueueObservation,
     ReadFailed,
     ReadSkipped,
@@ -45,6 +46,8 @@ from test_scheduler_outbox import (
 )
 from next_is_you.send_gate import SystemSendGate
 
+from next_is_you.domain import clinic_label  # noqa: E402
+
 FIXTURES = Path(__file__).parent / "fixtures" / "hospitals"
 PAGE = (FIXTURES / "ntuh_oph_light_table.html").read_text(encoding="utf-8")
 SELECTOR = (FIXTURES / "ntuh_webreg_selector.html").read_text(encoding="utf-8")
@@ -72,7 +75,7 @@ def scope(
     *,
     session: ClinicSession = ClinicSession.AFTERNOON,
     department: str = "OPH",
-    hospital: Hospital = Hospital.NTUH_MAIN,
+    hospital: str = "ntuh-main",
 ) -> ClinicScope:
     return ClinicScope(hospital, DAY, department, clinic_code, session)
 
@@ -321,7 +324,7 @@ async def test_duplicate_exact_rows_are_ambiguous() -> None:
     "bad",
     [
         scope(department="MED"),
-        scope(hospital=Hospital.SHIN_KONG_TAIPEI),
+        scope(hospital="shin-kong-taipei"),
         scope("not-a-composite-code"),
     ],
 )
@@ -362,7 +365,7 @@ async def test_no_wall_clock_session_boundary_exists() -> None:
 async def test_reads_happen_only_on_the_day_the_owner_entered() -> None:
     source = FakeSource(PAGE)
     other_day = ClinicScope(
-        Hospital.NTUH_MAIN,
+        "ntuh-main",
         DAY + timedelta(days=1),
         "OPH",
         CLINIC,
@@ -653,7 +656,7 @@ async def test_the_first_number_switches_the_watch_to_the_dense_cadence() -> Non
 async def test_list_clinics_merges_the_three_sessions() -> None:
     source = FakeSource(PAGE)
     roster = await reader(source).list_clinics(
-        RosterQuery(Hospital.NTUH_MAIN, "OPH", DAY), taipei(14, 0)
+        RosterQuery("ntuh-main", "OPH", DAY), taipei(14, 0)
     )
     assert roster.available and roster.reason == "ok"
     bodies = [
@@ -686,12 +689,86 @@ async def test_list_clinics_merges_the_three_sessions() -> None:
 
 
 @pytest.mark.asyncio
+async def test_today_roster_labels_and_details_match_the_light_table_card() -> None:
+    # Fixture/mock: field by field against the card for 合成醫師丙 on the
+    # captured light-table page (room 11 診, clinic type 醫師約診).
+    source = FakeSource(PAGE)
+    roster = await reader(source).list_clinics(
+        RosterQuery("ntuh-main", "OPH", DAY), taipei(14, 0)
+    )
+    option = next(
+        c
+        for c in roster.clinics
+        if c.clinic_code == "11 診/合成醫師丙/醫師約診"
+        and c.session is ClinicSession.AFTERNOON
+    )
+    assert option.label == "11 診 · 合成醫師丙（午診）"
+    assert option.details == (
+        ("診間", "11 診"),
+        ("醫師", "合成醫師丙"),
+        ("診別", "醫師約診"),
+        ("時段", "午診"),
+    )
+    assert all(c.label for c in roster.clinics)
+
+
+@pytest.mark.asyncio
+async def test_future_roster_labels_and_details_match_the_schedule_cards() -> None:
+    # Fixture/mock: 11/10 schedule page. Card 乙 is 05 診, 一般眼科 | 網膜,
+    # tagged 額滿; card 甲 is 03 診, 一般眼科 | 角膜 with no status tag.
+    source = FakeSource(schedule=SCHEDULE_FIXTURE)
+    roster = await reader(source).list_clinics(
+        RosterQuery("ntuh-main", "OPH", SCHEDULE_FIRST_VISIT),
+        _schedule_sim_now(),
+    )
+    by_doctor = {c.doctor: c for c in roster.clinics}
+    assert by_doctor["合成醫師甲"].label == "03 · 合成醫師甲（早診）"
+    assert by_doctor["合成醫師甲"].details == (
+        ("診間", "03"),
+        ("醫師", "合成醫師甲"),
+        ("科別", "一般眼科"),
+        ("診別", "角膜"),
+        ("時段", "早診"),
+    )
+    assert by_doctor["合成醫師乙"].details == (
+        ("診間", "05"),
+        ("醫師", "合成醫師乙"),
+        ("科別", "一般眼科"),
+        ("診別", "網膜"),
+        ("時段", "早診"),
+        ("狀態", "額滿"),
+    )
+    assert by_doctor["合成醫師丁"].label == "11 · 合成醫師丁（午診）"
+    assert all(c.label for c in roster.clinics)
+
+
+@pytest.mark.asyncio
+async def test_gate_roster_wire_carries_label_and_details() -> None:
+    source = FakeSource(PAGE)
+    _, gate = await gate_with_visit(source)
+    result = await gate.list_clinics(
+        "ntuh-main", "OPH", DAY.isoformat(), taipei(14, 0).isoformat()
+    )
+    first = result["clinics"][0]
+    assert first["label"] == "07 診 · 合成醫師甲（早診）"
+    assert first["details"][0] == {"label": "診間", "value": "07 診"}
+
+
+def test_a_label_joins_only_the_segments_a_hospital_publishes() -> None:
+    # A synthetic hospital without room numbers: no empty segment, no stray
+    # separator.
+    assert clinic_label("", "王醫師", "早診") == "王醫師（早診）"
+    assert clinic_label("  ", "王醫師", "") == "王醫師"
+    assert clinic_label("11 診", "王醫師", "午診") == "11 診 · 王醫師（午診）"
+
+
+@pytest.mark.asyncio
 async def test_list_clinics_rejects_past_date_without_fetching() -> None:
     # A past visit date can only produce `visit_date_past`; no source read is
     # worthwhile.
     source = FakeSource(PAGE)
     roster = await reader(source).list_clinics(
-        RosterQuery(Hospital.NTUH_MAIN, "OPH", DAY - timedelta(days=1)), taipei(14, 0)
+        RosterQuery("ntuh-main", "OPH", DAY - timedelta(days=1)), taipei(14, 0)
     )
     assert roster == ClinicRoster(False, (), "visit_date_past")
     assert source.requests == []
@@ -703,10 +780,16 @@ async def test_list_clinics_rejects_date_beyond_schedule_window() -> None:
     # picker degrades to manual entry without a fetch.
     source = FakeSource(PAGE)
     roster = await reader(source).list_clinics(
-        RosterQuery(Hospital.NTUH_MAIN, "OPH", DAY + timedelta(days=15)),
+        RosterQuery("ntuh-main", "OPH", DAY + timedelta(days=15)),
         taipei(14, 0),
     )
-    assert roster == ClinicRoster(False, (), "visit_date_out_of_schedule_window")
+    assert roster == ClinicRoster(
+        False,
+        (),
+        "visit_date_out_of_schedule_window",
+        schedule_end=DAY + timedelta(days=14),
+        release_time=datetime(2026, 10, 23, tzinfo=timezone(timedelta(hours=8))),
+    )
     assert source.requests == []
 
 
@@ -729,7 +812,13 @@ def test_parse_schedule_extracts_date_session_room_doctor_clinic_type_status() -
     # One open morning card, with 診別 pulled from `.sub-spec` after the pipe.
     assert (
         ScheduleRow(
-            SCHEDULE_FIRST_VISIT, ClinicSession.MORNING, "03", "合成醫師甲", "角膜", ""
+            SCHEDULE_FIRST_VISIT,
+            ClinicSession.MORNING,
+            "03",
+            "合成醫師甲",
+            "角膜",
+            "",
+            "一般眼科",
         )
         in rows
     )
@@ -760,7 +849,7 @@ def test_parse_schedule_returns_schema_drift_on_empty_markup() -> None:
 async def test_list_clinics_future_date_filters_schedule_and_drops_cancelled() -> None:
     source = FakeSource(schedule=SCHEDULE_FIXTURE)
     roster = await reader(source).list_clinics(
-        RosterQuery(Hospital.NTUH_MAIN, "OPH", SCHEDULE_FIRST_VISIT),
+        RosterQuery("ntuh-main", "OPH", SCHEDULE_FIRST_VISIT),
         _schedule_sim_now(),
     )
     assert roster.available and roster.reason == "ok"
@@ -801,7 +890,7 @@ async def test_list_clinics_future_date_reports_no_observation_when_cancelled_on
     )
     source = FakeSource(schedule=only_cancelled)
     roster = await reader(source).list_clinics(
-        RosterQuery(Hospital.NTUH_MAIN, "OPH", datetime(2026, 11, 12).date()),
+        RosterQuery("ntuh-main", "OPH", datetime(2026, 11, 12).date()),
         _schedule_sim_now(),
     )
     assert roster == ClinicRoster(False, (), "no_observation")
@@ -817,7 +906,7 @@ async def test_list_clinics_future_date_timeout_degrades_without_crashing() -> N
             raise TimeoutError
 
     roster = await reader(TimeoutFetch()).list_clinics(
-        RosterQuery(Hospital.NTUH_MAIN, "OPH", SCHEDULE_SECOND_VISIT),
+        RosterQuery("ntuh-main", "OPH", SCHEDULE_SECOND_VISIT),
         _schedule_sim_now(),
     )
     assert not roster.available
@@ -835,7 +924,7 @@ def test_schedule_url_carries_showall_in_14_day_window() -> None:
 async def test_list_clinics_is_unavailable_when_a_session_is_denied() -> None:
     source = FakeSource(FetchedPage(403, ""))
     roster = await reader(source).list_clinics(
-        RosterQuery(Hospital.NTUH_MAIN, "OPH", DAY), taipei(14, 0)
+        RosterQuery("ntuh-main", "OPH", DAY), taipei(14, 0)
     )
     assert not roster.available and roster.reason == "access_denied"
     assert roster.clinics == ()
@@ -847,7 +936,7 @@ async def test_list_clinics_is_unavailable_when_a_session_is_denied() -> None:
 async def test_list_clinics_rejects_an_unsupported_scope() -> None:
     source = FakeSource(PAGE)
     roster = await reader(source).list_clinics(
-        RosterQuery(Hospital.NTUH_MAIN, "CARD", DAY), taipei(14, 0)
+        RosterQuery("ntuh-main", "CARD", DAY), taipei(14, 0)
     )
     assert not roster.available and roster.reason == "scope_mismatch"
     assert source.requests == []
@@ -1085,9 +1174,14 @@ async def test_preflight_blocks_start_when_date_is_out_of_schedule_window() -> N
     beyond = _PREFLIGHT_SIM_SOURCE_DATE + timedelta(days=20)
     await seed_ntuh_at(database, gate, "far", beyond)
     result = await gate.start_visit("far", _preflight_now().isoformat())
-    assert result == {"error": "visit_date_out_of_schedule_window"}
+    assert result == {
+        "error": "visit_date_out_of_schedule_window",
+        "schedule_end": "2026-11-23",
+        "release_time": "2026-11-15T00:00:00+08:00",
+    }
     assert source.urls == []
-    assert counts(database, "far")[:2] == ("scope_mismatch", "scope_mismatch")
+    # The draft is kept unchanged (ticket #101).
+    assert counts(database, "far")[:2] == ("unavailable", "no_observation")
 
 
 @pytest.mark.asyncio
@@ -1261,6 +1355,8 @@ async def test_gate_lists_clinics_when_the_reader_is_enabled() -> None:
     assert result["available"] is True and result["reason"] == "ok"
     assert len(result["clinics"]) == 15
     assert result["clinics"][0].keys() == {
+        "label",
+        "details",
         "session",
         "room",
         "doctor",
@@ -1287,3 +1383,74 @@ async def test_gate_roster_rejects_an_unknown_hospital() -> None:
         "not-a-hospital", "OPH", DAY.isoformat(), taipei(14, 0).isoformat()
     )
     assert result == {"available": False, "reason": "invalid_data", "clinics": []}
+
+
+@pytest.mark.asyncio
+async def test_gate_reports_end_date_and_release_time_for_an_unpublished_day() -> None:
+    # Fixture/mock: real registry, fake transport. Today is 10/22, so NTUH's
+    # clinic schedule ends 11/05 and 11/06 opens at 00:00 Taipei on 10/23.
+    source = FakeSource(PAGE)
+    _, gate = await gate_with_visit(source)
+    result = await gate.list_clinics(
+        "ntuh-main",
+        "OPH",
+        (DAY + timedelta(days=15)).isoformat(),
+        taipei(14, 0).isoformat(),
+    )
+    assert result == {
+        "available": False,
+        "reason": "visit_date_out_of_schedule_window",
+        "clinics": [],
+        "schedule_end": "2026-11-05",
+        "release_time": "2026-10-23T00:00:00+08:00",
+    }
+    assert source.requests == []
+
+
+@pytest.mark.asyncio
+async def test_gate_reports_no_release_time_when_the_reader_states_none(
+    monkeypatch,
+) -> None:
+    # Fixture/mock: a synthetic full-schedule hospital that publishes an end
+    # date but no release time for the days it has not published.
+    import dataclasses
+
+    from next_is_you import hospital_registry
+
+    class SyntheticReader:
+        def __init__(self, storage, fetch) -> None:
+            pass
+
+        async def observe(self, scope, now):
+            return None
+
+        async def observe_for_start(self, scope, now):
+            return None
+
+        async def match_clinic(self, query, now):
+            return ClinicMatch(MatchKind.NOT_YET_PUBLISHED)
+
+        async def list_clinics(self, query, now):
+            return ClinicRoster(
+                False,
+                (),
+                "visit_date_out_of_schedule_window",
+                schedule_end=datetime(2026, 11, 3).date(),
+            )
+
+    entry = dataclasses.replace(
+        hospital_registry.HOSPITAL_REGISTRY["shin-kong-taipei"],
+        reader_type=SyntheticReader,
+    )
+    monkeypatch.setattr(
+        hospital_registry,
+        "HOSPITAL_REGISTRY",
+        {**hospital_registry.HOSPITAL_REGISTRY, "shin-kong-taipei": entry},
+    )
+    _, gate = await gate_with_visit(FakeSource(PAGE))
+    result = await gate.list_clinics(
+        "shin-kong-taipei", "ANY", "2026-11-20", taipei(14, 0).isoformat()
+    )
+    assert result["schedule_end"] == "2026-11-03"
+    assert "release_time" not in result
+    assert result["reason"] == "visit_date_out_of_schedule_window"

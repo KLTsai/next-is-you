@@ -20,14 +20,21 @@ from next_is_you.domain import (
     ClinicRoster,
     ClinicScope,
     ClinicSession,
-    Hospital,
     HospitalReader,
+    MatchKind,
+    MatchQuery,
     ReadFailed,
     ReadSkipped,
     RosterQuery,
+    SourceCapability,
 )
-from next_is_you.hospital_registry import ReaderDeps, RegistryHospitalReader
-from next_is_you.ntuh_reader import WorkersFetcher, _norm, parse_clinic_key
+from next_is_you.hospital_registry import (
+    ReaderDeps,
+    RegistryHospitalReader,
+    capability_of,
+    require_registered,
+)
+from next_is_you.ntuh_reader import WorkersFetcher
 from next_is_you.scheduler import OutboxScheduler, TickPlan
 
 try:
@@ -185,14 +192,16 @@ class SystemSendGate(_DurableObjectBase):
     ) -> dict[str, Any]:
         """Start only after the gate obtains a fresh trusted exact-scope sample.
 
-        Pre-flight validation runs first: visit_date must not be in the past,
-        the hospital adapter's roster must list a matching
-        (session, room, doctor), and the schedule source must be reachable.
-        Same-day drafts whose stored clinic_type uses the schedule-side 診別
-        get their clinic_code rewritten to the today-side value so the
-        visit-day reader's (room, doctor, clinic_type) matcher keeps working.
-        Future-dated drafts transition to active without a live observation;
-        the scheduler polls them on visit day.
+        A visit_date in the past is refused first. Then the hospital's source
+        capability decides the path. A full-schedule hospital is asked through
+        `match_clinic` whether the draft is on its clinic schedule; the
+        reader's answer (matched, not scheduled, cancelled, not yet published,
+        unavailable) maps to the Start result, and a matched same-day draft
+        gets the canonical clinic_code the reader returns. A current-number-only
+        hospital has no schedule, so it skips that check and is refused on any
+        day before the visit day, with nothing stored. Future-dated drafts that
+        match transition to active without a live observation; the scheduler
+        polls them on visit day.
         """
         timestamp = _datetime(now)
         async with self._lock:
@@ -220,7 +229,22 @@ class SystemSendGate(_DurableObjectBase):
                 )
                 return {"error": "observation_unavailable"}
 
-            if isinstance(reader, RegistryHospitalReader):
+            current_number_only = (
+                isinstance(reader, RegistryHospitalReader)
+                and capability_of(str(visit["hospital"]))
+                is SourceCapability.CURRENT_NUMBER_ONLY
+            )
+            if current_number_only:
+                # No clinic schedule exists to check against, so the hospital can
+                # confirm the clinic only on the visit day. The backend decides
+                # what today is; a refusal here changes nothing.
+                if visit_date > today:
+                    return {
+                        "error": "start_on_visit_day_only",
+                        "visit_date": visit_date.isoformat(),
+                    }
+                clinic_code = str(visit["clinic_code"])
+            elif isinstance(reader, RegistryHospitalReader):
                 preflight = await self._preflight_validate(
                     repository, visit_id, visit, visit_date, reader, timestamp
                 )
@@ -242,7 +266,7 @@ class SystemSendGate(_DurableObjectBase):
 
             try:
                 scope = ClinicScope(
-                    hospital=Hospital(str(visit["hospital"])),
+                    hospital=str(visit["hospital"]),
                     visit_date=visit_date,
                     department_code=str(visit["department_code"]),
                     clinic_code=clinic_code,
@@ -265,11 +289,15 @@ class SystemSendGate(_DurableObjectBase):
                     else observation.source_read or ("unavailable", "no_observation")
                 )
                 await repository.set_source_read(visit_id, status, reason)
+                if current_number_only:
+                    return {"error": _current_number_only_error(observation)}
                 return {"error": _START_ERRORS[status]}
             if observation is None:
                 await repository.set_source_read(
                     visit_id, "unavailable", "no_observation"
                 )
+                if current_number_only:
+                    return {"error": "hospital_page_unreachable"}
                 return {"error": "observation_unavailable"}
             try:
                 observed_at = _datetime(observation.observed_at)
@@ -331,7 +359,7 @@ class SystemSendGate(_DurableObjectBase):
             return {"error": "visit_date_past"}
 
         try:
-            hospital_enum = Hospital(str(visit["hospital"]))
+            hospital_enum = str(visit["hospital"])
             session_enum = ClinicSession(str(visit["clinic_session"]))
         except (ValueError, TypeError, KeyError):
             await repository.set_source_read(visit_id, "invalid", "invalid_data")
@@ -339,35 +367,49 @@ class SystemSendGate(_DurableObjectBase):
 
         clinic_code = str(visit["clinic_code"])
 
-        roster = await reader.list_clinics(
-            RosterQuery(
+        match = await reader.match_clinic(
+            MatchQuery(
                 hospital=hospital_enum,
                 department_code=str(visit["department_code"]),
                 visit_date=visit_date,
+                session=session_enum,
+                clinic_code=clinic_code,
             ),
             timestamp,
         )
-        if roster.reason == "test_mode_bypass":
-            # Local-test readers synthesize the roster; pre-flight accepts
-            # the draft and defers the authoritative gate to observe_for_start.
-            return {"clinic_code": clinic_code}
-
-        if not roster.available:
-            if roster.reason == "visit_date_past":
+        if match.kind is MatchKind.NOT_YET_PUBLISHED:
+            # Nothing to check against yet: the draft is valid and merely
+            # early, so it is kept unchanged (ticket #101), matching the sweep.
+            refusal: dict[str, Any] = {"error": "visit_date_out_of_schedule_window"}
+            if match.schedule_end is not None:
+                refusal["schedule_end"] = match.schedule_end.isoformat()
+            if match.release_time is not None:
+                refusal["release_time"] = match.release_time.isoformat()
+            return refusal
+        if match.kind in (MatchKind.NOT_SCHEDULED, MatchKind.CANCELLED):
+            await repository.set_source_read(
+                visit_id, "scope_mismatch", "scope_mismatch"
+            )
+            return {"error": "doctor_not_scheduled"}
+        if match.kind is MatchKind.NOT_APPLICABLE:
+            # Start has no schedule to consult for this hospital, so it cannot
+            # admit the draft: fail closed like any unavailable schedule.
+            await repository.set_source_read(visit_id, "unavailable", "no_observation")
+            return {"error": "schedule_unavailable"}
+        if match.kind is MatchKind.UNAVAILABLE:
+            if match.reason == "visit_date_past":
                 await repository.set_source_read(
                     visit_id, "scope_mismatch", "scope_mismatch"
                 )
                 return {"error": "visit_date_past"}
-            if roster.reason == "visit_date_out_of_schedule_window":
-                await repository.set_source_read(
-                    visit_id, "scope_mismatch", "scope_mismatch"
-                )
-                return {"error": "visit_date_out_of_schedule_window"}
-            if roster.reason == "scope_mismatch":
+            if match.reason == "scope_mismatch":
                 await repository.set_source_read(
                     visit_id, "scope_mismatch", "scope_mismatch"
                 )
                 return {"error": "observation_scope_mismatch"}
+            if match.reason == "invalid_data":
+                await repository.set_source_read(visit_id, "invalid", "invalid_data")
+                return {"error": "observation_invalid"}
             source_reason_map = {
                 "no_observation": "no_observation",
                 "schema_drift": "schema_drift",
@@ -377,32 +419,15 @@ class SystemSendGate(_DurableObjectBase):
                 "challenge": "access_denied",
                 "denied": "access_denied",
             }
-            source_reason = source_reason_map.get(roster.reason, "no_observation")
+            source_reason = source_reason_map.get(match.reason, "no_observation")
             await repository.set_source_read(visit_id, "unavailable", source_reason)
             return {"error": "schedule_unavailable"}
 
-        parsed_key = parse_clinic_key(clinic_code)
-        if parsed_key is None:
-            await repository.set_source_read(visit_id, "invalid", "invalid_data")
-            return {"error": "observation_invalid"}
-
-        match = next(
-            (
-                option
-                for option in roster.clinics
-                if option.session == session_enum
-                and _norm(option.room) == _norm(parsed_key.room)
-                and _norm(option.doctor) == _norm(parsed_key.doctor)
-            ),
-            None,
-        )
-        if match is None:
-            await repository.set_source_read(
-                visit_id, "scope_mismatch", "scope_mismatch"
-            )
-            return {"error": "doctor_not_scheduled"}
-
-        if visit_date == today and match.clinic_code != clinic_code:
+        if (
+            visit_date == today
+            and match.clinic_code
+            and match.clinic_code != clinic_code
+        ):
             await repository.update_clinic_code(visit_id, match.clinic_code)
             clinic_code = match.clinic_code
         return {"clinic_code": clinic_code}
@@ -655,7 +680,7 @@ class SystemSendGate(_DurableObjectBase):
             return {"available": False, "reason": "no_observation", "clinics": []}
         try:
             query = RosterQuery(
-                hospital=Hospital(hospital),
+                hospital=require_registered(hospital),
                 department_code=department_code,
                 visit_date=date.fromisoformat(visit_date),
             )
@@ -663,7 +688,7 @@ class SystemSendGate(_DurableObjectBase):
         except (ValueError, TypeError):
             return {"available": False, "reason": "invalid_data", "clinics": []}
         roster: ClinicRoster = await lister(query, when)
-        return {
+        result: dict[str, Any] = {
             "available": roster.available,
             "reason": roster.reason,
             "clinics": [
@@ -673,10 +698,22 @@ class SystemSendGate(_DurableObjectBase):
                     "doctor": option.doctor,
                     "clinic_type": option.clinic_type,
                     "clinic_code": option.clinic_code,
+                    "label": option.label,
+                    "details": [
+                        {"label": name, "value": value}
+                        for name, value in option.details
+                    ],
                 }
                 for option in roster.clinics
             ],
         }
+        # Optional fields, present only when the reader states them for a day
+        # the hospital has not published yet.
+        if roster.schedule_end is not None:
+            result["schedule_end"] = roster.schedule_end.isoformat()
+        if roster.release_time is not None:
+            result["release_time"] = roster.release_time.isoformat()
+        return result
 
     _ntuh_fetcher = WorkersFetcher()
 
@@ -807,6 +844,24 @@ _START_ERRORS = {
     "untrusted": "observation_untrusted",
     "invalid": "observation_invalid",
 }
+
+
+def _current_number_only_error(observation: ReadSkipped | ReadFailed) -> str:
+    """Split a refused Start read into "cannot find the clinic" and "unreachable".
+
+    A skipped read means the hospital answered but the clinic is not open yet or
+    is over; an empty or mismatched answer means the clinic is not shown. Any
+    other unavailable read means the hospital page could not be read.
+    """
+    if isinstance(observation, ReadSkipped):
+        if observation.reason in {"clinic_not_started", "clinic_ended"}:
+            return "hospital_cannot_find_clinic"
+        return "hospital_page_unreachable"
+    if observation.reason in {"empty_result", "scope_mismatch", "ambiguous_match"}:
+        return "hospital_cannot_find_clinic"
+    if observation.status == "unavailable":
+        return "hospital_page_unreachable"
+    return _START_ERRORS.get(observation.status, "observation_unavailable")
 
 
 class _TestHospitalReader:

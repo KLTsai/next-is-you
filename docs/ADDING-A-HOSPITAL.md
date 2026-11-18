@@ -107,9 +107,6 @@ A new hospital touches these places:
 1. The reader module (`src/next_is_you/<hospital>_reader.py`).
 2. `HOSPITAL_REGISTRY` in `hospital_registry.py` (reader type, display name,
    official link, departments, clinic-code labels).
-3. The frontend hospital type and any frontend hospital knowledge, until the
-   frontend change in #97 lands.
-
 There is no database step and no enum step. The database does not enumerate
 hospitals and a hospital id is a plain string the registry owns (ADR 0002,
 `docs/adr/0002-hospital-list-lives-in-code.md`), so adding a hospital needs no

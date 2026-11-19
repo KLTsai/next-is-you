@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.3.0](https://github.com/KLTsai/next-is-you/compare/v0.2.3...v0.3.0) (2026-11-19)
+
+
+### Features
+
+* check saved drafts as soon as the hospital publishes their day ([4061cf5](https://github.com/KLTsai/next-is-you/commit/4061cf5b84b2f41ad1ab97649e19ccdd3892882a))
+* explain a refused Start for a not-yet-published clinic schedule day ([63b19bc](https://github.com/KLTsai/next-is-you/commit/63b19bc5dd6e503c8c705a09f5efe14ee53f2ae2))
+* make reminder setup independent of any one hospital ([42e709f](https://github.com/KLTsai/next-is-you/commit/42e709f0e9cf03424347b0a2b34595e07a572d8a))
+* show a not-yet-published clinic schedule day in the setup form ([a41c269](https://github.com/KLTsai/next-is-you/commit/a41c269462e0d1f98836a216f3246035add7f931))
+* show each clinic with the hospital's own label and published details ([7fcd836](https://github.com/KLTsai/next-is-you/commit/7fcd836fe7181fd89c72593975c98412a7009817))
+* start a hospital that publishes only the current number on the visit day ([3f05848](https://github.com/KLTsai/next-is-you/commit/3f05848e8fb46db86fc1460d4717039307cd81e4))
+* stop enumerating hospitals in the visits table ([7a1b103](https://github.com/KLTsai/next-is-you/commit/7a1b1037b6b5455c43792318cb3aabef77271453))
+* word the current-number-only setup and refused Start for the organizer ([c62358a](https://github.com/KLTsai/next-is-you/commit/c62358ac0d633429a00121da0be5cd56c9232218))
+
+
+### Bug Fixes
+
+* announce the whole joined message to screen readers ([14e6dd6](https://github.com/KLTsai/next-is-you/commit/14e6dd675e31037a69d2d48c222cd33042d5c45e)), closes [#118](https://github.com/KLTsai/next-is-you/issues/118)
+* do not memoise failed NTUH schedule reads and share the unpublished window rule ([81bf901](https://github.com/KLTsai/next-is-you/commit/81bf9019ade070ccc7b8af4bb44b07233c368baa))
+* give a refused Start for an unpublished day a plain fallback text ([7ac7b79](https://github.com/KLTsai/next-is-you/commit/7ac7b79b20782350d8757e63c101b9a94606d681))
+* keep a draft unchanged when Start is refused for an unpublished day ([c9ded31](https://github.com/KLTsai/next-is-you/commit/c9ded31aa9d5eabcee8cfb7e591937ae65ced3ea))
+* keep cleaning up expired data while sends are held ([34b52e0](https://github.com/KLTsai/next-is-you/commit/34b52e0a9aa4ebda20ff673da38df1cd6c7bb346))
+* keep cleaning up expired data while sends are held ([600d595](https://github.com/KLTsai/next-is-you/commit/600d5950074e94f915503b408eac8dc8cd8bffd4)), closes [#117](https://github.com/KLTsai/next-is-you/issues/117)
+* let a reader answer not applicable and derive full schedule from both methods ([fd17e7d](https://github.com/KLTsai/next-is-you/commit/fd17e7d248b59e82cf85bfa9e63555d8e09d5953))
+* match the sign-in failure page to the app and cover the joined state in the rehearsal ([813e089](https://github.com/KLTsai/next-is-you/commit/813e0890902c0f9a348a4ed1b24ef3457d4e76d4)), closes [#118](https://github.com/KLTsai/next-is-you/issues/118)
+* refuse unsupported hospital drafts ([#132](https://github.com/KLTsai/next-is-you/issues/132)) ([6e27787](https://github.com/KLTsai/next-is-you/commit/6e27787ec6c906c4f12772862db2ed6f96052309))
+* show a plain Chinese page when LINE sign-in or an invitation fails ([a3eeadf](https://github.com/KLTsai/next-is-you/commit/a3eeadf9ddd8074ebea476b9296c84944e7cb510))
+* show a plain Chinese page when LINE sign-in or an invitation fails ([0d3590f](https://github.com/KLTsai/next-is-you/commit/0d3590fa5955a33e5c64413b617dc4f5f5589438)), closes [#118](https://github.com/KLTsai/next-is-you/issues/118)
+
 ## [0.2.3](https://github.com/KLTsai/next-is-you/compare/v0.2.2...v0.2.3) (2026-11-16)
 
 

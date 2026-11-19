@@ -75,3 +75,11 @@ _Avoid_: Rollback, revert
 **Rollback**:
 Returning production to an earlier version after a release has caused a problem. It restores code only; stored data and its schema stay as they are.
 _Avoid_: Reject, undo
+
+**Restore**:
+Returning a database, its data and its schema together, to how it was at an earlier moment. Everything written after that moment is lost, so only the captain decides it. It is separate from a rollback, which returns code only.
+_Avoid_: Rollback, undo, revert
+
+**Restore point**:
+The recorded moment a restore can return a database to, written down on the captain's instruction just before a version that changes the database is put into production.
+_Avoid_: Backup, snapshot, checkpoint

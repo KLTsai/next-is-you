@@ -8,13 +8,39 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATIONS = sorted((ROOT / "migrations").glob("*.sql"))
 MIGRATION_NAME = re.compile(r"^(\d{4})_[a-z0-9_]+\.sql$")
 
+# Issue #111: migrations from this number on start with a risk header. Earlier
+# ones were applied before the rule existed and are never edited.
+FIRST_WITH_RISK_HEADER = 8
+HEADER_LABELS = ("Risk", "Data at risk", "Compatibility")
+RISK_CLASSES = ("additive", "data-dependent", "incompatible", "destructive", "rebuild")
+# A statement that can lose, rename or rewrite stored rows needs at least this
+# class. "data-dependent", "destructive" and "rebuild" require a Staging
+# rehearsal before Promote (docs/CI-CD.md).
+_LOSES = ("destructive", "rebuild")
+_RENAMES = ("incompatible", "destructive", "rebuild")
+_REWRITES = ("data-dependent", "destructive", "rebuild")
+RISKY_STATEMENTS = {
+    "drop table": (re.compile(r"\bDROP\s+TABLE\b", re.IGNORECASE), _LOSES),
+    "drop column": (re.compile(r"\bDROP\s+COLUMN\b", re.IGNORECASE), _LOSES),
+    "rename": (
+        re.compile(r"\bALTER\s+TABLE\b[^;]*\bRENAME\b", re.IGNORECASE),
+        _RENAMES,
+    ),
+    "update": (re.compile(r"\bUPDATE\s+\w+\s+SET\b", re.IGNORECASE), _REWRITES),
+    "delete": (re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE), _REWRITES),
+    "insert select": (
+        re.compile(r"\bINSERT\s+INTO\b[^;]*\bSELECT\b", re.IGNORECASE),
+        _REWRITES,
+    ),
+}
 
-def main() -> None:
+
+def main(migrations_dir: Path = ROOT / "migrations") -> None:
+    migrations = sorted(migrations_dir.glob("*.sql"))
     numbers = []
-    for migration in MIGRATIONS:
+    for migration in migrations:
         match = MIGRATION_NAME.fullmatch(migration.name)
         if match is None:
             raise SystemExit(f"invalid migration filename: {migration.name}")
@@ -22,9 +48,13 @@ def main() -> None:
     if numbers != list(range(1, len(numbers) + 1)):
         raise SystemExit(f"migration sequence is not contiguous: {numbers}")
 
+    for number, migration in zip(numbers, migrations):
+        if number >= FIRST_WITH_RISK_HEADER:
+            _check_risk_header(migration.name, migration.read_text(encoding="utf-8"))
+
     connection = sqlite3.connect(":memory:")
     connection.execute("PRAGMA foreign_keys = ON")
-    for migration in MIGRATIONS:
+    for migration in migrations:
         connection.executescript(migration.read_text(encoding="utf-8"))
     violations = connection.execute("PRAGMA foreign_key_check").fetchall()
     if violations:
@@ -59,7 +89,31 @@ def main() -> None:
         raise SystemExit("expected migration columns are missing from visits")
     _check_near_reminder_rules(connection)
     _check_hospital_ids_are_open(connection)
-    print(f"Applied {len(MIGRATIONS)} migrations; SQLite schema checks passed.")
+    print(f"Applied {len(migrations)} migrations; SQLite schema checks passed.")
+
+
+def _check_risk_header(name: str, text: str) -> None:
+    lines = text.splitlines()[: len(HEADER_LABELS)]
+    for label, line in zip(HEADER_LABELS, lines + [""] * len(HEADER_LABELS)):
+        prefix = f"-- {label}:"
+        if not line.startswith(prefix) or not line[len(prefix) :].strip():
+            raise SystemExit(f"{name}: missing risk header line '{prefix} ...'")
+    risk = lines[0].split(":", 1)[1].strip()
+    if risk not in RISK_CLASSES:
+        raise SystemExit(
+            f"{name}: unknown risk class '{risk}'; use one of {', '.join(RISK_CLASSES)}"
+        )
+    statements = _strip_comments(text)
+    for statement, (pattern, allowed) in RISKY_STATEMENTS.items():
+        if pattern.search(statements) and risk not in allowed:
+            raise SystemExit(
+                f"{name}: {statement} needs risk class {' or '.join(allowed)}, not '{risk}'"
+            )
+
+
+def _strip_comments(text: str) -> str:
+    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.DOTALL)
+    return re.sub(r"--[^\n]*", " ", text)
 
 
 def _check_near_reminder_rules(connection: sqlite3.Connection) -> None:

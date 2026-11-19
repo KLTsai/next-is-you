@@ -131,8 +131,11 @@ re-running the run of the head of `main` fixes it.
 Pausing and resuming: open **Settings -> Secrets and variables -> Actions** and
 its **Variables** tab. To pause, set the repository variable
 `STAGING_DEPLOY_PAUSED` to `true` (**New repository variable** if it does not
-exist yet). To resume, delete it or set it to `false`. Hold staging still this way before a long check or a
-storage recovery rehearsal. The variable is read when a run starts, so a pause
+exist yet). To resume, delete it or set it to `false`. Hold staging still this way before a long check, a
+storage recovery rehearsal or a [migration rehearsal](#staging-rehearsal). The
+captain pauses and resumes, or an agent does on the captain's direct
+instruction, with `gh variable set STAGING_DEPLOY_PAUSED --body true` and
+`gh variable delete STAGING_DEPLOY_PAUSED`. The variable is read when a run starts, so a pause
 does not stop a staging job already queued, and a resume takes effect on the
 next push or re-run, not retroactively. `npm run status` says while staging is
 paused. It and the promote guard apply the workflow's rule: only the value
@@ -456,7 +459,181 @@ applied it stays applied, whether the deploy step after it fails or a later
 Rollback returns the code to an earlier version. So for a version that adds a
 migration, the check on staging is the last point where stopping costs nothing.
 `git diff --name-only <version in production> <version to promote> --
-migrations/` lists the migrations a Promote will apply.
+migrations/` lists the migrations a Promote will apply. When it lists any, follow
+[Promoting a version that applies migrations](#promoting-a-version-that-applies-migrations).
+
+## Promoting a version that applies migrations
+
+Decided in issue #111. The rule in one line: fix forward by default, and
+restore the database only when stored data was lost or damaged. Background and
+sources are in
+[research/schema-migration-risk-practices.md](../research/schema-migration-risk-practices.md).
+
+### How D1 applies a migration
+
+- **One file is all or nothing.** `wrangler d1 migrations apply` sends each file,
+  together with its row in `d1_migrations`, as one batch, and D1 runs a batch as
+  one transaction. If any statement fails, the whole file is rolled back and the
+  previous migration stays the last one applied. Sources: wrangler
+  `packages/wrangler/src/d1/migrations/helpers.ts` and `apply.ts`; the
+  [D1 query API](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/query/)
+  ("executed as a batch"); the
+  [D1 Worker API](https://developers.cloudflare.com/d1/worker-api/d1-database/)
+  ("Batched statements are SQL transactions"); the
+  [`d1 migrations apply` reference](https://developers.cloudflare.com/workers/wrangler/commands/d1/#d1-migrations-apply).
+  No single page states that the REST batch is a transaction; it follows from
+  these together. A migration file must not contain its own `BEGIN` or `COMMIT`.
+- **Foreign keys cannot be switched off.** D1 always enforces them, and
+  `PRAGMA foreign_keys = OFF` has no effect inside a migration, so step 1 of
+  SQLite's 12-step table rebuild does nothing on D1. `PRAGMA defer_foreign_keys`
+  does not stop `ON DELETE CASCADE`. Dropping a table that other tables
+  reference therefore deletes their rows, silently. A rebuild must copy the
+  child tables aside and drop them first, as `0007` does. Source:
+  [D1 foreign keys](https://developers.cloudflare.com/d1/sql-api/foreign-keys/).
+  The Staging rehearsal of `0007` (issue #111) is the experiment that showed
+  remote D1 keeping every row.
+- **The restore point is D1 Time Travel.** It is always on and can return a
+  database to any minute in its window: 7 days on the Workers Free plan this
+  account uses, 30 on Paid. A restore overwrites the whole database, data and
+  schema together (including `d1_migrations`), and prints a bookmark that undoes
+  it. It does not touch Durable Object state, so after a D1 restore the send
+  gate's ledger no longer matches and the service enters a recovery hold.
+  Source: [D1 Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/).
+
+### The risk header
+
+Every migration from `0008` on starts with three lines, and `Migration check`
+fails without them:
+
+```sql
+-- Risk: rebuild
+-- Data at risk: visit_recipients, outbound_events (cascade from visits)
+-- Compatibility: previous code runs on the new schema; new code runs on the old schema
+```
+
+| Risk class | Meaning | Staging rehearsal before Promote |
+| --- | --- | --- |
+| `additive` | New table, column or index. No stored row changes. | No |
+| `incompatible` | Renames or other changes earlier code cannot read. No row is lost. | No |
+| `data-dependent` | Changes stored rows (`UPDATE`, `DELETE`, `INSERT ... SELECT`), or can fail only on real rows. | Yes |
+| `destructive` | Drops a table or column. | Yes |
+| `rebuild` | Recreates a table to change what SQLite cannot alter (a CHECK, a column type, a foreign key). | Yes |
+
+`Migration check` also fails when a statement needs a stronger class than the
+header gives: `DROP TABLE` and `DROP COLUMN` need `destructive` or `rebuild`;
+`ALTER TABLE ... RENAME` needs at least `incompatible`; `UPDATE`, `DELETE FROM`
+and `INSERT ... SELECT` need at least `data-dependent`.
+
+The `Compatibility` line answers the two questions a recovery depends on: can
+the version in production keep running once the migration applies, and can the
+new version run on the old schema after a restore. An incompatible change must
+keep the first answer yes, by splitting it across two versions: add the new
+shape first, remove the old one in a later version.
+
+Migrations `0001` to `0007` were applied before this rule and stay as they are.
+Do not edit an applied migration, not even to add comments.
+
+### Staging rehearsal
+
+For a migration whose class needs one. Staging holds only synthetic data, so the
+rehearsal seeds the shapes production could hold, then lets CI apply the
+migration the way Promote will. It must finish within the Time Travel window
+of the moment Staging first applied the migration.
+
+The captain, or an agent on the captain's direct instruction, does these steps.
+An agent asks once per phase. Every command that writes names
+`next-is-you-staging` literally; refuse any command that contains
+`next-is-you-production` or the production database id.
+
+1. **Hold Staging.** Set the repository variable `STAGING_DEPLOY_PAUSED` to
+   `true` (`gh variable set STAGING_DEPLOY_PAUSED --body true`) and wait for any
+   staging job already running. Set Staging's recovery hold through its status
+   API ([HTTPS service guide](HTTPS-SERVICE.md#stop-failure-recovery-and-rollback)).
+2. **Restore Staging to before the migration.** Read when it was applied:
+   `SELECT name, applied_at FROM d1_migrations` on Staging. Restore to a minute
+   before it:
+   `uv run python -m pywrangler d1 time-travel restore next-is-you-staging --timestamp=<time> --config wrangler.staging.jsonc`.
+   Record the undo bookmark it prints. Confirm `d1_migrations` now ends at the
+   migration before.
+3. **Compare the schema with production.** Read `SELECT type, name, sql FROM
+   sqlite_master ORDER BY name` on both, production read-only, and confirm they
+   match. If not, the rehearsal says nothing about production: stop.
+4. **Seed and take the before snapshot.** Write a seed file under
+   `scripts/migration-rehearsal/` (see `0007_seed.sql`): ids start with
+   `rehearsal-`, every date lies in the future so scheduled cleanup cannot
+   delete a row mid-rehearsal, and every state, nullable column and constraint
+   edge the migration touches is covered. Run it with `d1 execute --file`, then
+   run `scripts/migration-rehearsal/snapshot.sql` with `--json` and save the
+   output as `before.json`.
+5. **Let CI apply the migration.** Resume Staging (`gh variable delete
+   STAGING_DEPLOY_PAUSED`) and re-run the newest pipeline run of `main` whose
+   push was not documentation only: re-running a documentation-only run skips
+   `Deploy staging`. On the run page, confirm `Apply D1 migrations (staging)`
+   ran and lists the migration.
+6. **Compare.** Take `after.json` the same way and run
+   `python scripts/migration-rehearsal/compare.py before.json after.json`. It
+   passes only if every row is unchanged and `PRAGMA foreign_key_check` is
+   empty. Delete the `rehearsal-` rows afterwards, or leave them for later
+   checks; they never reach production.
+7. **Record.** Post the comparison output, the undo bookmark and the run link on
+   the migration's issue. Staging stays in its recovery hold until a release
+   path exists (issue #129).
+
+If the comparison fails, the migration does not ship: fix it in a new pull
+request before the release PR merges, after restoring Staging to before it
+again, and rehearse once more.
+
+### Before Promote: the restore point
+
+For every Promote that applies a migration, before pressing **Run workflow**:
+
+1. Record the restore point: the current time in UTC and
+   `uv run python -m pywrangler d1 time-travel info next-is-you-production --config wrangler.production.jsonc`
+   (read-only; it prints the current bookmark).
+2. Count rows per table, read-only:
+
+   ```sh
+   uv run python -m pywrangler d1 execute next-is-you-production --remote --config wrangler.production.jsonc --command "SELECT 'invitations' AS t, COUNT(*) AS n FROM invitations UNION ALL SELECT 'recipients', COUNT(*) FROM recipients UNION ALL SELECT 'visits', COUNT(*) FROM visits UNION ALL SELECT 'visit_recipients', COUNT(*) FROM visit_recipients UNION ALL SELECT 'outbound_events', COUNT(*) FROM outbound_events"
+   ```
+
+   Also keep the row ids of `visits` and `outbound_events` on your own machine
+   (`SELECT id FROM ...`), to tell after Promote which row went missing.
+3. Post one comment on the release PR with the time, the bookmark, the counts
+   and the risk header of every migration the Promote will apply. Post nothing
+   else from production: no row contents, ids or LINE identifiers, because the
+   repository may become public.
+
+If this was forgotten, the Promote run's start time is the restore point: Time
+Travel can return to any minute in its window. The counts cannot be recovered
+afterwards, so they are the step not to skip.
+
+### After Promote: three outcomes
+
+Run the same counts again, the same day. A missing row is data loss only after
+checking that scheduled cleanup did not remove it: cleanup keeps deleting
+expired drafts even under the holds.
+
+| What happened | What to do |
+| --- | --- |
+| The migration failed. `Deploy` is red at the migration step. | D1 rolled the file back; production keeps its code and the previous schema. Fix forward in a new version. |
+| The migration applied, data is intact, behaviour is wrong. | Fix forward in a new version, or Rollback if the `Compatibility` line says the earlier code runs on the new schema. |
+| Rows are missing or damaged. | Restore, as below. This is the only case for a restore. |
+
+Restore after data loss, only on the captain's decision:
+
+1. Confirm production is in a recovery hold (status API), or set it.
+2. Restore production to the restore point:
+   `uv run python -m pywrangler d1 time-travel restore next-is-you-production --bookmark=<bookmark> --config wrangler.production.jsonc`.
+   Everything written after that moment is gone. Record the undo bookmark.
+3. Restore Staging to before the same migration, so both databases agree that
+   it never applied.
+4. Keep the new code if its `Compatibility` line says it runs on the old
+   schema; otherwise Rollback exactly one version.
+5. Fix the migration in a new pull request: delete the faulty file and add the
+   corrected one under a new name, then rehearse it. No database has the faulty
+   file applied any more, so this does not edit an applied migration.
+6. The D1 restore leaves the send gate ledger out of step, so the recovery hold
+   stays until the captain reconciles and releases it (issue #129).
 
 ## Rollback
 

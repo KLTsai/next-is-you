@@ -490,8 +490,8 @@ sources are in
   reference therefore deletes their rows, silently. A rebuild must copy the
   child tables aside and drop them first, as `0007` does. Source:
   [D1 foreign keys](https://developers.cloudflare.com/d1/sql-api/foreign-keys/).
-  The Staging rehearsal of `0007` (issue #111) is the experiment that showed
-  remote D1 keeping every row.
+  The Staging rehearsal of `0007` is the experiment that settles how remote D1
+  behaves; its result is recorded on issue #111.
 - **The restore point is D1 Time Travel.** It is always on and can return a
   database to any minute in its window: 7 days on the Workers Free plan this
   account uses, 30 on Paid. A restore overwrites the whole database, data and
@@ -499,6 +499,19 @@ sources are in
   it. It does not touch Durable Object state, so after a D1 restore the send
   gate's ledger no longer matches and the service enters a recovery hold.
   Source: [D1 Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/).
+- **What production holds.** Read-only counts on 2026-11-18, recorded on issue
+  #111: 5 invitations, 1 recipient, 1 visit (a draft), 1 visit recipient and no
+  outbound events. Real but very few rows, so a migration's failure mode is a
+  real loss, and the restore point below is cheap to take.
+
+Issue #111's six questions map to this section: verification (1) is the
+[Staging rehearsal](#staging-rehearsal); remote foreign keys (2), atomicity (3)
+and production's data (5) are answered above; recovery (4) is
+[the restore point](#before-promote-the-restore-point) and
+[the three outcomes](#after-promote-three-outcomes); where the rule lives (6)
+is this section, the risk header enforced by `Migration check`, and the
+glossary terms Restore and Restore point. There is no ADR: the choice is easy to
+change later.
 
 ### The risk header
 
@@ -560,21 +573,30 @@ An agent asks once per phase. Every command that writes names
    match. If not, the rehearsal says nothing about production: stop.
 4. **Seed and take the before snapshot.** Write a seed file under
    `scripts/migration-rehearsal/` (see `0007_seed.sql`): ids start with
-   `rehearsal-`, every date lies in the future so scheduled cleanup cannot
-   delete a row mid-rehearsal, and every state, nullable column and constraint
-   edge the migration touches is covered. Run it with `d1 execute --file`, then
-   run `scripts/migration-rehearsal/snapshot.sql` with `--json` and save the
-   output as `before.json`.
+   `rehearsal-`, and every state, nullable column and constraint edge the
+   migration touches is covered. The recovery hold from step 1 is what keeps
+   the rows still: under it, scheduled cleanup deletes only expired drafts, so
+   give drafts a future expiry. Seed, then snapshot:
+
+   ```sh
+   npx wrangler d1 execute next-is-you-staging --remote --config wrangler.staging.jsonc --file scripts/migration-rehearsal/<seed>.sql
+   npx wrangler d1 execute next-is-you-staging --remote --config wrangler.staging.jsonc --json --command "$(grep -v '^--' scripts/migration-rehearsal/snapshot.sql | tr '\n' ' ')" > before.json
+   ```
+
+   Use `npx wrangler` here, not `pywrangler`, which prints log lines into the
+   JSON. `--file` cannot take the snapshot: it returns an import summary, not
+   the result sets.
 5. **Let CI apply the migration.** Resume Staging (`gh variable delete
    STAGING_DEPLOY_PAUSED`) and re-run the newest pipeline run of `main` whose
    push was not documentation only: re-running a documentation-only run skips
    `Deploy staging`. On the run page, confirm `Apply D1 migrations (staging)`
    ran and lists the migration.
-6. **Compare.** Take `after.json` the same way and run
-   `python scripts/migration-rehearsal/compare.py before.json after.json`. It
-   passes only if every row is unchanged and `PRAGMA foreign_key_check` is
-   empty. Delete the `rehearsal-` rows afterwards, or leave them for later
-   checks; they never reach production.
+6. **Compare.** Take `after.json` with the same snapshot command and run
+   `uv run python scripts/migration-rehearsal/compare.py before.json after.json <migration file name>`.
+   It passes only if that migration was applied between the snapshots, every
+   row is unchanged and `PRAGMA foreign_key_check` is empty. Delete the
+   `rehearsal-` rows afterwards, or leave them for later checks; they never
+   reach production.
 7. **Record.** Post the comparison output, the undo bookmark and the run link on
    the migration's issue. Staging stays in its recovery hold until a release
    path exists (issue #129).
@@ -596,8 +618,10 @@ For every Promote that applies a migration, before pressing **Run workflow**:
    uv run python -m pywrangler d1 execute next-is-you-production --remote --config wrangler.production.jsonc --command "SELECT 'invitations' AS t, COUNT(*) AS n FROM invitations UNION ALL SELECT 'recipients', COUNT(*) FROM recipients UNION ALL SELECT 'visits', COUNT(*) FROM visits UNION ALL SELECT 'visit_recipients', COUNT(*) FROM visit_recipients UNION ALL SELECT 'outbound_events', COUNT(*) FROM outbound_events"
    ```
 
-   Also keep the row ids of `visits` and `outbound_events` on your own machine
-   (`SELECT id FROM ...`), to tell after Promote which row went missing.
+   Also save, on your own machine only, the ids that tell after Promote which
+   row went missing: `SELECT id FROM recipients`, `SELECT id, state,
+   delete_after FROM visits`, `SELECT visit_id, recipient_id FROM
+   visit_recipients` and `SELECT id FROM outbound_events`.
 3. Post one comment on the release PR with the time, the bookmark, the counts
    and the risk header of every migration the Promote will apply. Post nothing
    else from production: no row contents, ids or LINE identifiers, because the
@@ -609,9 +633,14 @@ afterwards, so they are the step not to skip.
 
 ### After Promote: three outcomes
 
-Run the same counts again, the same day. A missing row is data loss only after
-checking that scheduled cleanup did not remove it: cleanup keeps deleting
-expired drafts even under the holds.
+Run the same counts again, the same day, and compare the saved ids. A missing
+row is data loss only after checking that scheduled cleanup did not remove it:
+
+- Under a recovery hold, cleanup deletes expired drafts, and nothing else.
+- Without one, it also marks interrupted sends `unknown`, expires and
+  finalizes visits, deletes stopped and
+  expired visits once `delete_after` has passed, and erases withdrawn
+  recipients; their visit recipients and outbound events go with them.
 
 | What happened | What to do |
 | --- | --- |

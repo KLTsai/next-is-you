@@ -1,7 +1,12 @@
 -- Synthetic rows for rehearsing migration 0007 on a database at 0006 (issue #111).
 -- Staging or local only. Every id starts with `rehearsal-` so the rows can be
--- found and removed afterwards. Every date lies in 2027 so scheduled cleanup
--- does not delete them between the before and after readings.
+-- found and removed afterwards.
+--
+-- Seed only while the database is in a recovery hold. Under it, scheduled
+-- cleanup deletes nothing but expired drafts, and the draft below expires in
+-- 2027. Without the hold, the scheduler would settle the in-flight event,
+-- finalize the stopping visit and erase the inactive recipient, and the
+-- comparison would report changes that 0007 did not cause.
 --
 -- Shapes covered: every visit state, nullable columns both set and NULL, an
 -- inactive recipient, a visit recipient at the cap of 20 near reminders, an

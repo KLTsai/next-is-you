@@ -28,13 +28,32 @@ RISKY_STATEMENTS = {
         re.compile(r"\bALTER\s+TABLE\b[^;]*\bRENAME\b", re.IGNORECASE),
         _RENAMES,
     ),
-    "update": (re.compile(r"\bUPDATE\s+\w+\s+SET\b", re.IGNORECASE), _REWRITES),
+    "update": (
+        re.compile(r"\bUPDATE\b(?:\s+OR\s+\w+)?[^;]*?\bSET\b", re.IGNORECASE),
+        _REWRITES,
+    ),
     "delete": (re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE), _REWRITES),
     "insert select": (
-        re.compile(r"\bINSERT\s+INTO\b[^;]*\bSELECT\b", re.IGNORECASE),
+        re.compile(
+            r"\b(?:INSERT(?:\s+OR\s+\w+)?|REPLACE)\s+INTO\b[^;]*\bSELECT\b",
+            re.IGNORECASE,
+        ),
         _REWRITES,
     ),
 }
+# String literals, quoted identifiers and comments, in one pass so that `--`
+# inside a string is not read as a comment. Quoted identifiers become a plain
+# name so `UPDATE "visits" SET` still reads as an update.
+_LEXEMES = re.compile(
+    r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|`[^`]*`|\[[^\]]*\]|--[^\n]*|/\*.*?\*/",
+    re.DOTALL,
+)
+# A trigger body runs later, row by row; it does not change stored rows when
+# the migration applies.
+_TRIGGER = re.compile(
+    r"\bCREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b.*?\bBEGIN\b.*?\bEND\b",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def main(migrations_dir: Path = ROOT / "migrations") -> None:
@@ -103,7 +122,7 @@ def _check_risk_header(name: str, text: str) -> None:
         raise SystemExit(
             f"{name}: unknown risk class '{risk}'; use one of {', '.join(RISK_CLASSES)}"
         )
-    statements = _strip_comments(text)
+    statements = _statements_that_run_now(text)
     for statement, (pattern, allowed) in RISKY_STATEMENTS.items():
         if pattern.search(statements) and risk not in allowed:
             raise SystemExit(
@@ -111,9 +130,18 @@ def _check_risk_header(name: str, text: str) -> None:
             )
 
 
-def _strip_comments(text: str) -> str:
-    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.DOTALL)
-    return re.sub(r"--[^\n]*", " ", text)
+def _statements_that_run_now(text: str) -> str:
+    """The SQL that acts when the migration applies: no literals, comments or trigger bodies."""
+
+    def neutral(match: re.Match[str]) -> str:
+        lexeme = match.group(0)
+        if lexeme.startswith(("--", "/*")):
+            return " "
+        if lexeme.startswith("'"):
+            return "''"
+        return "quoted_name"
+
+    return _TRIGGER.sub(" ", _LEXEMES.sub(neutral, text))
 
 
 def _check_near_reminder_rules(connection: sqlite3.Connection) -> None:

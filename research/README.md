@@ -24,6 +24,10 @@ The former local tickets are [inactive historical records](../docs/archive/ticke
 - [Hospital schedule and queue progress survey](hospital-schedule-and-progress-survey.md) (2026-11-17): how 15 Taiwan hospitals publish their clinic schedule and queue progress, and where the capability model in Issue #45 does not fit. Not evidence that any hospital is ready for a reader.
 - [Automated reading of public hospital pages under Taiwan law](automated-access-taiwan-law.md) (2026-11-17): what statutes, court decisions and agency letters say about the reading rules in the README. Source research by a non-lawyer, not legal advice.
 
+## Delivery and operations research
+
+- [Schema migration risk practices](schema-migration-risk-practices.md) (2026-11-19): how teams classify, review, rehearse, back up, and roll forward schema changes, with SQLite rebuild and Cloudflare D1 specifics and what fits a solo operator.
+
 ## Local-only supporting material
 
 The local supporting spec is `research/private/mvp-spec-review-2026-09-27-v2.md`; its supporting and archive index is `research/private/README.md`. Both files exist only in the captain primary checkout. They are ignored and untracked, and are not included in this isolated worktree. Use the index to find the spec and archived supporting material; do not treat either as implementation authority unless an active GitHub issue adopts a requirement.

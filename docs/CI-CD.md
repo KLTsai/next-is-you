@@ -134,8 +134,8 @@ its **Variables** tab. To pause, set the repository variable
 exist yet). To resume, delete it or set it to `false`. Hold staging still this way before a long check, a
 storage recovery rehearsal or a [migration rehearsal](#staging-rehearsal). The
 captain pauses and resumes, or an agent does on the captain's direct
-instruction, with `gh variable set STAGING_DEPLOY_PAUSED --body true` and
-`gh variable delete STAGING_DEPLOY_PAUSED`. The variable is read when a run starts, so a pause
+instruction, with `gh variable set STAGING_DEPLOY_PAUSED --body true` and, to resume,
+`gh variable set STAGING_DEPLOY_PAUSED --body false`. The variable is read when a run starts, so a pause
 does not stop a staging job already queued, and a resume takes effect on the
 next push or re-run, not retroactively. `npm run status` says while staging is
 paused. It and the promote guard apply the workflow's rule: only the value
@@ -586,8 +586,8 @@ An agent asks once per phase. Every command that writes names
    Use `npx wrangler` here, not `pywrangler`, which prints log lines into the
    JSON. `--file` cannot take the snapshot: it returns an import summary, not
    the result sets.
-5. **Let CI apply the migration.** Resume Staging (`gh variable delete
-   STAGING_DEPLOY_PAUSED`) and re-run the newest pipeline run of `main` whose
+5. **Let CI apply the migration.** Resume Staging (`gh variable set
+   STAGING_DEPLOY_PAUSED --body false`) and re-run the newest pipeline run of `main` whose
    push was not documentation only: re-running a documentation-only run skips
    `Deploy staging`. On the run page, confirm `Apply D1 migrations (staging)`
    ran and lists the migration.

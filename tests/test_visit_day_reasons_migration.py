@@ -114,3 +114,36 @@ def test_columns_indexes_and_triggers_survive(populated):
     before = _shape(populated)
     populated.executescript(REBUILD.read_text())
     assert _shape(populated) == before
+
+
+def test_the_staging_rehearsal_seed_survives_the_rebuild():
+    # The seed docs/CI-CD.md has Staging load before 0008: it must load on a
+    # database at 0007, and every row must come through the rebuild unchanged.
+    seed = REBUILD.parents[1] / "scripts" / "migration-rehearsal" / "0008_seed.sql"
+    connection = sqlite3.connect(":memory:")
+    connection.execute("PRAGMA foreign_keys = ON")
+    _apply(connection, BEFORE)
+    connection.executescript(seed.read_text(encoding="utf-8"))
+    before = _rows(connection)
+    reasons = {
+        row[0]
+        for row in connection.execute("SELECT latest_source_read_reason FROM visits")
+    }
+
+    connection.executescript(REBUILD.read_text(encoding="utf-8"))
+
+    assert _rows(connection) == before
+    assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert reasons == {
+        "none",
+        "no_observation",
+        "timeout",
+        "stale_sample",
+        "untrusted_source",
+        "scope_mismatch",
+        "empty_result",
+        "schema_drift",
+        "access_denied",
+        "ambiguous_match",
+        "invalid_data",
+    }

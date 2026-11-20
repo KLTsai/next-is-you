@@ -146,6 +146,55 @@ async def test_a_doctor_absent_on_the_day_needs_attention_with_the_reason() -> N
     assert counts(database, "v")[:2] == ("unavailable", "card_not_found")
 
 
+async def tick_every_minute(gate, start: datetime, end: datetime) -> int:
+    """Run the one-minute cron from start to end inclusive; return events made."""
+    created = 0
+    now = start
+    while now <= end:
+        created += (await gate.scheduled_tick(now.isoformat()))["events_created"]
+        now += timedelta(minutes=1)
+    return created
+
+
+@pytest.mark.asyncio
+async def test_an_unlisted_card_sends_nothing_overnight_before_the_session_start() -> (
+    None
+):
+    # NTUH lists the day's cards from midnight; a card it has not listed yet is
+    # not a failed read. The family must not get a LINE message in the night.
+    source = SwitchableSource(
+        card_page(_card("05 診", "合成醫師己", "普通門診", "")),
+        schedule=SCHEDULE_FIXTURE,
+    )
+    database, gate = await started_three_days_ahead(source)
+
+    created = await tick_every_minute(gate, at(VISIT_DAY, 0, 0), at(VISIT_DAY, 8, 59))
+
+    assert created == 0
+    assert counts(database, "v") == ("unavailable", "card_not_found", 0)
+    snapshot = await gate.test_snapshot()
+    assert snapshot["events"] == []
+
+
+@pytest.mark.asyncio
+async def test_an_unlisted_card_counts_as_unusable_once_the_session_has_started() -> (
+    None
+):
+    # Past the published morning start (09:00), a card that is still missing is
+    # an unusable read, and three of them reach the family's unavailable message.
+    source = SwitchableSource(
+        card_page(_card("05 診", "合成醫師己", "普通門診", "")),
+        schedule=SCHEDULE_FIXTURE,
+    )
+    database, gate = await started_three_days_ahead(source)
+
+    await tick_every_minute(gate, at(VISIT_DAY, 8, 50), at(VISIT_DAY, 9, 20))
+
+    assert counts(database, "v")[:2] == ("unavailable", "card_not_found")
+    snapshot = await gate.test_snapshot()
+    assert [event["event_kind"] for event in snapshot["events"]] == ["unavailable"]
+
+
 @pytest.mark.asyncio
 async def test_a_substitute_card_runs_the_visit_and_marks_it() -> None:
     source = SwitchableSource(

@@ -107,7 +107,9 @@ class ReadSkipped:
 
     `not_due` leaves the stored source status untouched. `clinic_not_started`
     and `clinic_ended` describe where the clinic is in its own day, never a
-    failed read, so they must not feed the unavailable alert.
+    failed read, so they must not feed the unavailable alert. `card_not_listed`
+    is a card the hospital has not listed before the session's published start:
+    the organizer sees it, but it is not yet an unusable read.
     """
 
     reason: str
@@ -115,6 +117,8 @@ class ReadSkipped:
 
     @property
     def source_read(self) -> tuple[str, str] | None:
+        if self.reason == "card_not_listed":
+            return "unavailable", "card_not_found"
         if self.reason == "clinic_not_started":
             if self.substitute_doctor:
                 return "unavailable", "substitute_doctor"

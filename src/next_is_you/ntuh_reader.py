@@ -82,6 +82,14 @@ AMPM_CODES = {
     ClinicSession.AFTERNOON: "2",
     ClinicSession.EVENING: "3",
 }
+# The session's published start, Taipei time (#144). A card missing before it is
+# not yet an unusable read. NTUH publishes no evening start the reader can read,
+# so 18:00 stands in for it until a source gives one.
+PUBLISHED_SESSION_START = {
+    ClinicSession.MORNING: time(9, 0),
+    ClinicSession.AFTERNOON: time(13, 30),
+    ClinicSession.EVENING: time(18, 0),
+}
 # One read per source every 2 to 3 minutes while the clinic is calling. The
 # one-minute cron only offers the reader a chance to read; the reader skips
 # ticks inside the interval.
@@ -995,6 +1003,10 @@ class NtuhProgressReader:
                 return await self._without_a_number(
                     entry, states, scope, fetched=not reuse
                 )
+            # Before the session's published start the finding is recorded but
+            # is not an unusable read, so nobody is messaged in the night.
+            if not for_start and now < _published_start(scope):
+                return ReadSkipped("card_not_listed")
             return ReadFailed("unavailable", "card_not_found")
         if len(rows) > 1:
             return ReadFailed("invalid", "ambiguous_match")
@@ -1231,6 +1243,12 @@ def _failure(result: dict[str, Any] | None) -> ReadFailed | None:
         status, reason = result["failure"]
         return ReadFailed(status, reason)
     return None
+
+
+def _published_start(scope: ClinicScope) -> datetime:
+    return datetime.combine(
+        scope.visit_date, PUBLISHED_SESSION_START[scope.session], tzinfo=TAIPEI
+    )
 
 
 def _parse(value: Any) -> datetime | None:

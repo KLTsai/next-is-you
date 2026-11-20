@@ -87,6 +87,7 @@ class Gate:
                 "error": "start_on_visit_day_only",
                 "visit_date": "2026-11-20",
             },
+            "ambiguous": {"error": "clinic_ambiguous"},
             "not-found": {"error": "hospital_cannot_find_clinic"},
             "unreachable": {"error": "hospital_page_unreachable"},
         }
@@ -619,5 +620,60 @@ def test_visit_listing_reports_a_send_interruption_while_it_holds_and_not_after_
         finally:
             await http.aclose()
             store.connection.close()
+
+    asyncio.run(scenario())
+
+
+def test_start_with_several_matching_cards_returns_the_typed_refusal():
+    async def scenario():
+        _, http = make_client()
+        try:
+            headers = authorize(http)
+            refused = await http.post(
+                "/api/organizer/visits/ambiguous/start", headers=headers
+            )
+            assert refused.status_code == 409
+            assert refused.json() == {"error": {"code": "clinic_ambiguous"}}
+        finally:
+            await http.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_the_visit_list_carries_the_visit_day_card_reasons():
+    async def scenario():
+        store, http = make_client()
+        try:
+            headers = authorize(http)
+            body = {
+                "hospital": "ntuh-main",
+                "date": "2026-09-29",
+                "department_code": "OPH",
+                "clinic_code": "03/合成醫師甲/角膜",
+                "session": "morning",
+                "patient_number": 14,
+                "recipient_ids": ["eligible"],
+            }
+            created = await http.post(
+                "/api/organizer/visits", json=body, headers=headers
+            )
+            assert created.status_code == 201
+            for status, reason in (
+                ("unavailable", "card_not_found"),
+                ("usable", "substitute_doctor"),
+                ("invalid", "ambiguous_match"),
+            ):
+                store.connection.execute(
+                    "UPDATE visits SET latest_source_read_status = ?, "
+                    "latest_source_read_reason = ? WHERE id = ?",
+                    (status, reason, created.json()["id"]),
+                )
+                listing = await http.get("/api/organizer/visits")
+                assert listing.json()["visits"][0]["source_read"] == {
+                    "status": status,
+                    "reason": reason,
+                }
+        finally:
+            await http.aclose()
 
     asyncio.run(scenario())

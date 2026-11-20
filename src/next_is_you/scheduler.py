@@ -482,4 +482,8 @@ def _source_read_status(
         or current_number < 1
     ):
         return "invalid", "invalid_data"
+    if getattr(observation, "substitute_doctor", False):
+        # The visit keeps running; the reason tells the organizer who is seeing
+        # patients so they can decide.
+        return "usable", "substitute_doctor"
     return "usable", "none"

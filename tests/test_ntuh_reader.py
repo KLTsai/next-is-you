@@ -264,14 +264,26 @@ async def test_exact_match_returns_fresh_usable_observation_stamped_with_fetch_t
 @pytest.mark.parametrize(
     "clinic",
     [
-        "11診/合成醫師丁/醫師約診",
+        "11診/合成醫師己/醫師約診",
         "12診/合成醫師丙/醫師約診",
-        "11診/合成醫師丙/普通門診",
     ],
 )
-async def test_any_identity_field_mismatch_never_matches(clinic: str) -> None:
+async def test_a_room_or_doctor_mismatch_is_a_card_not_found(clinic: str) -> None:
+    # Cards are listed from midnight, so a missing card is a finding the
+    # organizer needs, not a clinic that has merely not started.
     result = await reader(FakeSource(PAGE)).observe(scope(clinic), taipei(15, 0))
-    assert result == ReadSkipped("clinic_not_started")
+    assert result == ReadFailed("unavailable", "card_not_found")
+
+
+@pytest.mark.asyncio
+async def test_the_clinic_type_is_not_an_identity_field() -> None:
+    # Room 11 and 合成醫師丙 name the card; the schedule's 診別 and the card's
+    # clinic type are different vocabularies and are never compared.
+    result = await reader(FakeSource(PAGE)).observe(
+        scope("11診/合成醫師丙/普通門診"), taipei(15, 0)
+    )
+    assert isinstance(result, QueueObservation)
+    assert result.current_number == 25
 
 
 @pytest.mark.asyncio
@@ -1031,7 +1043,6 @@ async def test_start_activates_on_fresh_exact_positive_read() -> None:
             "unavailable",
             "schema_drift",
         ),
-        (page_with(""), "observation_unavailable", "unavailable", "no_observation"),
         (page_with("000"), "observation_invalid", "invalid", "invalid_data"),
     ],
 )
@@ -1454,3 +1465,108 @@ async def test_gate_reports_no_release_time_when_the_reader_states_none(
     assert result["schedule_end"] == "2026-11-03"
     assert "release_time" not in result
     assert result["reason"] == "visit_date_out_of_schedule_window"
+
+
+# Issue #135: the clinic code a schedule-picked visit stores (`11/醫師/角膜`, the
+# room without 診 and the schedule's 診別) never equals the visit-day card
+# (`11 診/醫師/醫師約診`). The reader identifies the day's card by session, room
+# and doctor instead.
+SCHEDULE_FORM_CLINIC = "11/合成醫師丙/角膜"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["observe", "observe_for_start"])
+async def test_a_schedule_form_clinic_code_reads_the_visit_day_card(method) -> None:
+    result = await getattr(reader(FakeSource(PAGE)), method)(
+        scope(SCHEDULE_FORM_CLINIC), taipei(15, 0)
+    )
+    assert isinstance(result, QueueObservation)
+    assert result.current_number == 25
+    assert result.scope == scope(SCHEDULE_FORM_CLINIC)
+
+
+def _card(room: str, doctor: str, clinic_type: str, number: str = "") -> str:
+    return (
+        f'<a class="open-link"><div class="room-number">{room}</div>'
+        f'<div class="clinic-doc-name">{doctor}</div>'
+        f'<div class="clinic-type">{clinic_type}</div>'
+        f'<div class="number">{number}</div>'
+        '<div class="according-to-order"></div></a>'
+    )
+
+
+@pytest.mark.asyncio
+async def test_one_doctor_with_two_clinic_types_in_a_room_is_ambiguous() -> None:
+    # A schedule-form code names no clinic type the cards use, so two cards for
+    # the same doctor in one room and session cannot be told apart: no guess.
+    page = PAGE + _card("11 診", "合成醫師丙", "普通門診", "031")
+    result = await reader(FakeSource(page)).observe(
+        scope(SCHEDULE_FORM_CLINIC), taipei(15, 0)
+    )
+    assert result == ReadFailed("invalid", "ambiguous_match")
+
+
+@pytest.mark.asyncio
+async def test_a_stored_clinic_type_tells_two_cards_of_one_doctor_apart() -> None:
+    page = PAGE + _card("11 診", "合成醫師丙", "普通門診", "031")
+    result = await reader(FakeSource(page)).observe(scope(CLINIC), taipei(15, 0))
+    assert isinstance(result, QueueObservation)
+    assert result.current_number == 25
+
+
+@pytest.mark.asyncio
+async def test_a_substitute_card_in_the_room_is_the_visits_card_marked_as_such() -> (
+    None
+):
+    page = PAGE.replace("合成醫師丙", "住院醫師(代)")
+    result = await reader(FakeSource(page)).observe(
+        scope(SCHEDULE_FORM_CLINIC), taipei(15, 0)
+    )
+    assert isinstance(result, QueueObservation)
+    assert result.current_number == 25
+    assert result.substitute_doctor is True
+
+
+@pytest.mark.asyncio
+async def test_a_substitute_card_that_has_not_called_yet_is_still_marked() -> None:
+    page = (PAGE.replace("合成醫師丙", "住院醫師(代)")).replace("025", "")
+    result = await reader(FakeSource(page)).observe(
+        scope(SCHEDULE_FORM_CLINIC), taipei(8, 0)
+    )
+    assert result == ReadSkipped("clinic_not_started", substitute_doctor=True)
+    assert result.source_read == ("unavailable", "substitute_doctor")
+
+
+@pytest.mark.asyncio
+async def test_the_booked_doctor_wins_over_a_substitute_in_the_same_room() -> None:
+    page = PAGE + _card("11 診", "住院醫師(代)", "普通門診", "031")
+    result = await reader(FakeSource(page)).observe(
+        scope(SCHEDULE_FORM_CLINIC), taipei(15, 0)
+    )
+    assert isinstance(result, QueueObservation)
+    assert result.current_number == 25
+    assert result.substitute_doctor is False
+
+
+@pytest.mark.asyncio
+async def test_two_substitute_cards_in_the_room_are_ambiguous() -> None:
+    page = PAGE.replace("合成醫師丙", "住院醫師(代)") + _card(
+        "11 診", "主治醫師(代)", "普通門診", "031"
+    )
+    result = await reader(FakeSource(page)).observe(
+        scope(SCHEDULE_FORM_CLINIC), taipei(15, 0)
+    )
+    assert result == ReadFailed("invalid", "ambiguous_match")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mark", ["住院醫師 (代)", "住院醫師（代）", "住院醫師（ 代 ）"]
+)
+async def test_a_substitute_mark_is_recognised_with_spacing_or_full_width(mark) -> None:
+    page = PAGE.replace("合成醫師丙", mark)
+    result = await reader(FakeSource(page)).observe(
+        scope(SCHEDULE_FORM_CLINIC), taipei(15, 0)
+    )
+    assert isinstance(result, QueueObservation)
+    assert result.substitute_doctor is True

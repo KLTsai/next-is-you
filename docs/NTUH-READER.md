@@ -10,7 +10,7 @@ The reader is off by default. `NTUH_READER_ENABLED=1` enables it only in local-t
 
 ## Entering the clinic
 
-The reminder form has no doctor or room fields, so the NTUH clinic code carries them as `room/doctor/clinic type`, for example `11診/王小明/醫師約診`, with department code `OPH`. Each part must equal the clinic card (compared ignoring case, spaces and punctuation). The reader pins the source's Traditional Chinese rendering, because that is what the owner's registration slip says; the same page in English renders the same clinic as `Room 11 / Hsiao-Ming Wang / Dr. Appt.`, which would not match. Any other shape is rejected as a scope mismatch without a request.
+The reminder form has no doctor or room fields, so the NTUH clinic code carries them as `room/doctor/clinic type`, for example `11診/王小明/醫師約診`, with department code `OPH`. On the visit day the reader identifies the clinic's card by room and doctor (compared ignoring case, spaces and punctuation, and with the room's 診 suffix optional, so `03` and `03 診` are the same room); see Reading rules for the clinic type and substitute doctors. The reader pins the source's Traditional Chinese rendering, because that is what the owner's registration slip says; the same page in English renders the same clinic as `Room 11 / Hsiao-Ming Wang / Dr. Appt.`, which would not match. Any other shape is rejected as a scope mismatch without a request.
 
 ## How a read is made
 
@@ -41,7 +41,7 @@ A card looks like this, and the reader reads `room-number`, `clinic-doc-name`, `
 
 ## Reading rules
 
-- Match: room, doctor and clinic type must all equal one clinic card. Zero cards or several cards never produce a number. The current number is never inferred from neighbors, "Expected Call Number" is never read, and the fragment's "Last updated" is ignored (it is render time).
+- Match (Issue #135): the visit's card is identified in the session's list by room and doctor, with the room's 診 suffix optional. The clinic type is not compared across the schedule and the card, because the schedule's 診別 and the card's clinic type are different vocabularies; a card that also agrees on the clinic type wins, which tells apart two cards of one doctor when the visit stores the card's own type. With the booked doctor absent, one `(代)` card in the same room is the visit's card and the visit is marked `substitute_doctor` (it keeps running, and the organizer decides). Before the clinic has called, a missing card is `card_not_found`. Before the session's published start (09:00 morning, 13:30 afternoon, 18:00 evening as a stand-in, Taipei) it is stored for the organizer but is not an unusable read, so it never reaches a family's unavailable message in the night; from the published start on, it counts toward that message. After the clinic has called, a missing card means the clinic ended. Several cards are `ambiguous_match` and never produce a number. Identification runs on every read of the visit day, so it happens as soon as NTUH lists the day's cards (seen at 00:40), before the clinic opens. The current number is never inferred from neighbors, "Expected Call Number" is never read, and the fragment's "Last updated" is ignored (it is render time).
 - Blank current light means no data, never zero. `0` or non-numeric text is invalid data. A card whose `according-to-order` says the clinic calls by check-in order reports no observation, because its number is not a called number.
 - Freshness is the time the reader fetched the page. An observation older than 2 minutes cannot start a reminder or support a scheduled alert. A usable read is not evidence of physical-light accuracy; no accuracy claim is made.
 - Watch window: reads happen on the day the owner entered and nowhere else; the scheduler's 23:59 Taipei cutoff closes the visit from above. Within that day the clinic's own number marks the window. A card that has never shown a number today has not started, which is not a failed read and sends no alert. The first valid number opens the watch. Once open, the number going blank - or the card vanishing - for two reads in a row ends it, and the clinic is not read again that day.
@@ -89,7 +89,7 @@ Per clinic card the reader records `(visit_date, session, room, doctor, 診別, 
 
 ### Match contract
 
-Pre-flight matches on `(visit_date, session, room, doctor)` only. The schedule's `診別` vocabulary (`角膜`, `網膜`, `教學門診`, `葡萄膜炎`, `眼神經`, `眼整型`, …) is different from the visit-day card's `clinic_type` vocabulary (`醫師約診`, `特別門診`, `教學門診`, `日間手術`, `代診`), and the two sets overlap only on `教學門診`. The schedule's 診別 is kept on the draft until the moment its `visit_date` reaches today, at which point the Start-time path rewrites the stored `clinic_code` to the today-side `clinic_type` from `DeptLightTable`. After that rewrite the existing visit-day reader's `(room, doctor, clinic_type)` matcher keeps working unchanged.
+Pre-flight matches on `(visit_date, session, room, doctor)` only. The schedule's `診別` vocabulary (`角膜`, `網膜`, `教學門診`, `葡萄膜炎`, `眼神經`, `眼整型`, …) is different from the visit-day card's `clinic_type` vocabulary (`醫師約診`, `特別門診`, `教學門診`, `日間手術`, `代診`), and the two sets overlap only on `教學門診`. The schedule's 診別 stays on the visit's stored `clinic_code` (for example `03/醫師/角膜`) until a same-day Start resolves it. A visit started or read on its day is matched to the day's card by the identification in Reading rules; a same-day Start that finds the card by room and doctor updates the stored code to that card's code, while one that finds only a substitute card keeps the booked doctor's code.
 
 ### Status markers
 
@@ -112,7 +112,10 @@ A once-per-Taipei-day sweep runs over every draft whose `visit_date` is after to
 ## Recovery
 
 - Unavailable with a timeout, no observation or no result: wait; the reader retries by itself while the clinic is still calling. Start again after the reason clears.
-- "來源沒有可用資料" all day with no reminder: the clinic never showed a number for the department, session and clinic code entered. Open the official page, pick the same department and session, and compare the card's room, doctor and clinic type against the draft; a session or a doctor that does not match is the usual cause, and the reader cannot tell that apart from a clinic that has not started.
+- `card_not_found` on the visit day: NTUH's list of the day's cards has no card for the visit's session, room and doctor. Open the official page, pick the same department and session, and compare the card's room and doctor against the visit; a clinic that was cancelled or moved is the usual cause. The reader keeps looking and the organizer decides.
+- `substitute_doctor`: the card in the visit's room names a substitute doctor (`住院醫師(代)`, `主治醫師(代)`). Reminders continue; the organizer decides whether the family still goes.
+- `ambiguous_match`: several of the day's cards fit (for example one doctor with two clinic types in one room and session). Nothing is sent from a guess; pick the clinic again.
+- A clinic that has not called a number yet is not a failure: Start is accepted once the card is identified, and the visit runs once a number appears.
 - Access refused: do not retry by hand around it. Open the official page in a browser to see what changed. The block lasts for the rest of that day.
 - Scope mismatch or schema drift: correct the department and clinic code, or update the parser after a fresh manual check of the page.
 - `visit_date_out_of_schedule_window` on a draft: the chosen date is after the clinic schedule end date, so the hospital has not published that day yet. The draft is held; the daily sweep will validate it on the first sweep after the hospital publishes that day.

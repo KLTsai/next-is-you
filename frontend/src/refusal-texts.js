@@ -50,6 +50,10 @@ export const REFUSAL_TEXTS = Object.freeze({
     action: "retry_later",
   },
   observation_invalid: { text: "院方資料無效，提醒維持草稿。", action: "retry_later" },
+  clinic_ambiguous: {
+    text: "院方今天有多個門診符合，系統不猜，不會發提醒。請重新選擇門診。",
+    action: "pick_again",
+  },
   visit_date_past: { text: "看診日期已過，請選擇今天或之後的日期。", action: "pick_date" },
   doctor_not_scheduled: {
     text: "所選醫師在那天並沒有看診，請重新選擇醫師或日期。",

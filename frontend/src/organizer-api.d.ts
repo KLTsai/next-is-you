@@ -44,7 +44,7 @@ export interface ClinicRoster {
   release_time?: string | null;
 }
 export type SourceReadStatus = "usable" | "unavailable" | "stale" | "untrusted" | "scope_mismatch" | "invalid";
-export type SourceReadReason = "none" | "no_observation" | "timeout" | "stale_sample" | "untrusted_source" | "scope_mismatch" | "empty_result" | "schema_drift" | "access_denied" | "ambiguous_match" | "invalid_data";
+export type SourceReadReason = "none" | "no_observation" | "timeout" | "stale_sample" | "untrusted_source" | "scope_mismatch" | "empty_result" | "schema_drift" | "access_denied" | "ambiguous_match" | "invalid_data" | "card_not_found" | "substitute_doctor";
 
 export interface Recipient {
   id: string;

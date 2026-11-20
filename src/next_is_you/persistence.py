@@ -166,6 +166,8 @@ class VisitRepository:
             "access_denied",
             "ambiguous_match",
             "invalid_data",
+            "card_not_found",
+            "substitute_doctor",
         }
         if status not in statuses or reason not in reasons:
             raise ValueError("invalid source-read metadata")
@@ -774,9 +776,9 @@ class VisitRepository:
         """Rewrite a draft's clinic_code when pre-flight resolves to a new value.
 
         Used by the Start-time resolve step when a schedule-sourced draft's
-        visit_date reaches today: the stored clinic_type (schedule's 診別)
-        must become the today-side clinic_type so the visit-day reader's
-        (room, doctor, clinic_type) matcher continues to work.
+        visit_date reaches today: store the matched card's canonical clinic
+        code for the visit projection. Visit-day matching itself uses room and
+        doctor, so scheduled reads do not depend on this update.
         """
         changes = await self._store.execute(
             Statement(

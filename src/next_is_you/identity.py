@@ -63,7 +63,13 @@ class IdentityRepository:
         now: datetime,
         friendship_checked_at: datetime,
     ) -> bool:
-        """Consume an invitation once and create a pending, non-opted-in identity."""
+        """Consume an invitation once and create a pending, non-opted-in identity.
+
+        Someone still pending from an earlier invitation takes the new one: their
+        row gets the new label and a fresh start, so an organizer is never
+        blocked from inviting them again (#134). A recipient who has opted in,
+        or a withdrawal not yet erased, still refuses the invitation.
+        """
         iso_utc(now)  # Reject naive timestamps before issuing a one-time transition.
         consumed_at = (
             (
@@ -80,7 +86,10 @@ class IdentityRepository:
                 Statement(
                     """UPDATE invitations SET used_at = ? WHERE token_hash = ?
                     AND used_at IS NULL AND expires_at > ?
-                    AND NOT EXISTS (SELECT 1 FROM recipients WHERE line_subject = ?)""",
+                    AND NOT EXISTS (
+                        SELECT 1 FROM recipients WHERE line_subject = ?
+                        AND NOT (active = 0 AND consented_at IS NULL)
+                    )""",
                     (consumed_at, token_digest, iso_utc(now), line_subject),
                 ),
                 Statement(
@@ -89,7 +98,11 @@ class IdentityRepository:
                         friendship_checked_at, active, created_at
                     ) SELECT ?, ?, member_label, NULL, ?, 0, ? FROM invitations
                     WHERE token_hash = ? AND used_at = ?
-                    AND NOT EXISTS (SELECT 1 FROM recipients WHERE line_subject = ?)""",
+                    ON CONFLICT (line_subject) DO UPDATE SET
+                        display_name = excluded.display_name,
+                        friendship_checked_at = excluded.friendship_checked_at,
+                        created_at = excluded.created_at
+                    WHERE recipients.active = 0 AND recipients.consented_at IS NULL""",
                     (
                         recipient_id,
                         line_subject,
@@ -97,7 +110,6 @@ class IdentityRepository:
                         iso_utc(now),
                         token_digest,
                         consumed_at,
-                        line_subject,
                     ),
                 ),
             )

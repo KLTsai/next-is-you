@@ -114,8 +114,8 @@ def make_app(store: SQLiteStore, friendship: FakeFriendship):
     )
 
 
-def set_session(client: AsyncClient, subject: str, role: str) -> None:
-    session = issue_session(subject, role, SECRET, now=1_000)
+def set_session(client: AsyncClient, subject: str, role: str, now: int = 1_000) -> None:
+    session = issue_session(subject, role, SECRET, now=now)
     client.cookies.set(
         SESSION_COOKIE_NAME, session.value, domain="family.example", path="/"
     )

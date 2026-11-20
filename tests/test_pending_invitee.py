@@ -12,12 +12,11 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from next_is_you.auth import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME, issue_session
 from next_is_you.identity import IdentityRepository
 from next_is_you.line_login import VerifiedLineIdentity
 from next_is_you.persistence import VisitRepository, iso_utc
 from next_is_you.send_gate import SystemSendGate
-from test_line_identity_routes import SECRET, FakeFriendship, csrf
+from test_line_identity_routes import SECRET, FakeFriendship, csrf, set_session
 from test_local_acceptance import LocalContext, SQLiteStore
 from worker import create_app
 
@@ -80,12 +79,7 @@ class Family:
         )
 
     def sign_in_organizer(self, browser: AsyncClient) -> None:
-        session = issue_session(ORGANIZER, "organizer", SECRET, now=int(self.clock()))
-        for name, value in (
-            (SESSION_COOKIE_NAME, session.value),
-            (CSRF_COOKIE_NAME, session.csrf_token),
-        ):
-            browser.cookies.set(name, value, domain="family.example", path="/")
+        set_session(browser, ORGANIZER, "organizer", now=int(self.clock()))
 
     async def invite(self, label: str) -> str:
         async with self.browser() as organizer:
@@ -183,19 +177,44 @@ async def test_withdrawing_someone_else_leaves_an_invitee_on_the_consent_page():
 
 
 @pytest.mark.asyncio
-async def test_an_invitee_who_never_confirms_is_removed_after_24_hours():
-    # While someone is still a pending invitee, a new invitation for the same
-    # LINE account is refused. Removal after 24 hours is what lets it work.
+async def test_a_new_invitation_lets_a_pending_invitee_join_at_once():
+    # 小妹 signed in at 20:00 and never pressed 確認加入; her sign-in has lapsed
+    # by the next morning. The organizer's new link works straight away.
     family = Family("staging")
-    first = await family.invite("小妹")
+    first = await family.invite("妹妹")
     async with family.browser() as invitee:
         await family.accept(invitee, first, "line-invitee")
 
-    family.clock.now += timedelta(hours=23, minutes=59)
-    await family.tick()
-    assert not await family.can_accept(await family.invite("小妹"), "line-invitee")
+    family.clock.now += timedelta(hours=12)
+    await family.joined("小妹", "line-invitee")
+
+    assert await family.roster() == ["小妹"]
+
+
+@pytest.mark.asyncio
+async def test_a_new_invitation_does_not_take_over_someone_who_joined():
+    family = Family("staging")
+    await family.joined("媽媽", "line-mother")
+
+    taken = await family.can_accept(await family.invite("別人"), "line-mother")
+
+    assert not taken
+    assert await family.roster() == ["媽媽"]
+
+
+@pytest.mark.asyncio
+async def test_an_invitee_who_never_confirms_is_erased_once_their_sign_in_lapses():
+    # The sign-in from the invitation lasts four hours; after that the invitee
+    # can no longer press 確認加入, so the row is erased. Joined family stays.
+    family = Family("staging")
+    await family.joined("媽媽", "line-mother")
+    token = await family.invite("小妹")
+    async with family.browser() as invitee:
+        await family.accept(invitee, token, "line-invitee")
+
+    family.clock.now += timedelta(hours=3, minutes=59)
+    assert (await family.tick())["pending_invitees_erased"] == 0
 
     family.clock.now += timedelta(minutes=2)
-    await family.tick()
-    await family.joined("小妹", "line-invitee")
-    assert await family.roster() == ["小妹"]
+    assert (await family.tick())["pending_invitees_erased"] == 1
+    assert await family.roster() == ["媽媽"]

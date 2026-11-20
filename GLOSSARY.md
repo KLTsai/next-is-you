@@ -14,6 +14,10 @@ _Avoid_: Owner, user, manager, 管理者
 A family member who accepted an invitation and agreed to receive reminders on LINE. An organizer may also be a recipient with the same LINE account.
 _Avoid_: Member, subscriber, audience
 
+**Pending invitee**:
+Someone who signed in with LINE from an invitation but has not pressed 確認加入 yet. Not a recipient: nothing is sent to them and the organizer's list does not show them. A new invitation always works for them. They can confirm only while that sign-in lasts (four hours); after that they are erased.
+_Avoid_: Pending recipient, inactive recipient
+
 **Live pilot**:
 The first time a deployed copy of the product really reads the hospital and sends a reminder to a handset: Staging, once made live, with the captain as its only organizer and recipient.
 _Avoid_: Launch, go-live, beta

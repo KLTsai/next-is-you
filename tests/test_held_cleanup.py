@@ -152,7 +152,7 @@ async def test_send_hold_tick_reports_and_logs_what_it_cleaned_up(capsys):
         "stops_finalized": 0,
         "visits_expired": 1,
         "withdrawals_erased": 0,
-        "pending_invitees_removed": 0,
+        "pending_invitees_erased": 0,
         "drafts_deleted": 1,
         "visits_deleted": 2,
     }

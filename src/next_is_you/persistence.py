@@ -9,6 +9,8 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Mapping, Protocol, Sequence
 from zoneinfo import ZoneInfo
 
+from next_is_you.auth import SESSION_TTL_SECONDS
+
 TAIPEI = ZoneInfo("Asia/Taipei")
 UTC = timezone.utc
 
@@ -66,9 +68,10 @@ def _property(value: Any, key: str, default: Any = None) -> Any:
     return getattr(value, key, default)
 
 
-# How long an invitee who accepted an invitation may take to press 確認加入
-# before the row is removed: the invitation link's own 24 hours (#134).
-PENDING_INVITEE_LIMIT = timedelta(hours=24)
+# A pending invitee (signed in from an invitation, 確認加入 not yet pressed) can
+# only press it while the sign-in from that invitation lasts, so the row is
+# erased once that sign-in has lapsed (#134).
+PENDING_INVITEE_LIMIT = timedelta(seconds=SESSION_TTL_SECONDS)
 
 
 def iso_utc(value: datetime) -> str:
@@ -1016,8 +1019,8 @@ class VisitRepository:
             )
         )
 
-    async def remove_expired_pending_invitees(self, now: datetime) -> int:
-        """Invitees who accepted but never opted in within PENDING_INVITEE_LIMIT.
+    async def erase_lapsed_pending_invitees(self, now: datetime) -> int:
+        """Pending invitees whose sign-in lapsed before they pressed 確認加入.
 
         A pending invitee has never been selected for a visit or sent anything,
         so nothing else waits on the row.

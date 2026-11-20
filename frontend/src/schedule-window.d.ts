@@ -16,13 +16,3 @@ export function rosterClinicError(
 export function currentNumberOnlyNotice(): string;
 
 export function degradeNotice(reason: string): string;
-
-export function visitErrorMessage(code: string, details?: { visitDate?: string | null }): string;
-
-export function startRefusalMessage(input: {
-  code: string;
-  hospitalName?: string;
-  scheduleEnd?: string | null;
-  releaseTime?: string | null;
-  visitDate?: string;
-}): string;

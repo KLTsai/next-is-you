@@ -30,10 +30,9 @@ import { projectDashboardVisits } from "./dashboard-projection.js";
 import {
   currentNumberOnlyNotice,
   degradeNotice as scheduleDegradeNotice,
-  startRefusalMessage as scheduleStartRefusalMessage,
   unpublishedDayNotice,
-  visitErrorMessage,
 } from "./schedule-window.js";
+import { startRefusalMessage as scheduleStartRefusalMessage, visitErrorMessage } from "./refusal-texts.js";
 
 const app = document.querySelector<HTMLElement>("#app");
 const serviceStatus = document.querySelector<HTMLSpanElement>("#service-status");
@@ -146,23 +145,15 @@ function formatCheckedAt(value: string | null | undefined): string {
 
 function errorText(error: unknown): string {
   if (!(error instanceof OrganizerApiError)) return "連線失敗，請確認服務後重試。";
+  // Start refusal texts live in the one map in refusal-texts.js; these two codes
+  // come from the setup endpoints, not from Start.
   const labels: Record<string, string> = {
-    service_unavailable: "目前無法使用提醒服務。",
     invalid_request: "資料不完整或格式不正確，請檢查後再試。",
     hospital_unsupported: "這家醫院目前無法設定提醒，請改選其他醫院。",
-    ineligible_recipients: "通知對象已無法接收提醒，請重新選擇。",
-    invalid_lifecycle_state: "提醒狀態已變更，請重新載入。",
-    observation_unavailable: "目前沒有可用的可信院方觀察，提醒維持草稿。",
-    observation_stale: "院方觀察已過期，提醒維持草稿。",
-    observation_scope_mismatch: "院方觀察與所選診次不符，提醒維持草稿。",
-    observation_untrusted: "院方資料尚未通過可信度檢查，提醒維持草稿。",
-    observation_invalid: "院方資料無效，提醒維持草稿。",
-    scheduler_held: "排程暫停中，提醒維持草稿。",
-    visit_not_found: "找不到這筆提醒，請重新載入。",
   };
   if (error.status === 401 || error.status === 403) return "登入已失效或目前帳號沒有管理權限。";
-  const scheduleMessage = visitErrorMessage(error.code, { visitDate: error.visitDate });
-  if (scheduleMessage) return scheduleMessage;
+  const refusalText = visitErrorMessage(error.code, { visitDate: error.visitDate });
+  if (refusalText) return refusalText;
   return labels[error.code] || "操作未完成，請重新載入後再試。";
 }
 

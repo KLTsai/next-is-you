@@ -22,6 +22,7 @@ START_REFUSAL_CODES = MappingProxyType(
         "observation_scope_mismatch": 409,
         "observation_untrusted": 409,
         "observation_invalid": 409,
+        "clinic_ambiguous": 409,
         "ineligible_recipients": 409,
         "scheduler_held": 503,
         "visit_date_past": 409,

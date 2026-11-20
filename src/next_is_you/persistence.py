@@ -166,6 +166,8 @@ class VisitRepository:
             "access_denied",
             "ambiguous_match",
             "invalid_data",
+            "card_not_found",
+            "substitute_doctor",
         }
         if status not in statuses or reason not in reasons:
             raise ValueError("invalid source-read metadata")

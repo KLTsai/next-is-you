@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 MIGRATIONS = sorted((Path(__file__).resolve().parents[1] / "migrations").glob("*.sql"))
-BEFORE = [m for m in MIGRATIONS if not m.name.startswith("0007_")]
+BEFORE = [m for m in MIGRATIONS if m.name < "0007_"]
 REBUILD = next(m for m in MIGRATIONS if m.name.startswith("0007_"))
 STATES = ["draft", "active", "stopping", "stopped", "expired"]
 INSERT_THIRD = (

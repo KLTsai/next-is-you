@@ -90,6 +90,9 @@ class QueueObservation:
     next_call_type: str | None = None
     source_updated_at: str | None = None
     trustworthy_current: bool = False
+    # The hospital's card for this clinic names a substitute doctor, not the
+    # booked one. The visit keeps running and the organizer decides.
+    substitute_doctor: bool = False
 
     def is_comparable_to(self, expected: ClinicScope) -> bool:
         """Require exact clinic identity and an adapter-validated current value."""
@@ -108,10 +111,13 @@ class ReadSkipped:
     """
 
     reason: str
+    substitute_doctor: bool = False
 
     @property
     def source_read(self) -> tuple[str, str] | None:
         if self.reason == "clinic_not_started":
+            if self.substitute_doctor:
+                return "unavailable", "substitute_doctor"
             return "unavailable", "no_observation"
         if self.reason == "clinic_ended":
             return "unavailable", "empty_result"
@@ -236,6 +242,8 @@ class ClinicMatch:
     # answer carries, so a refused Start can state them.
     schedule_end: date | None = None
     release_time: datetime | None = None
+    # Set only when matched on the visit day: the card is a substitute doctor's.
+    substitute_doctor: bool = False
 
 
 class HospitalReader(Protocol):

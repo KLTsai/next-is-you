@@ -30,7 +30,7 @@ import asyncio
 import json
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
@@ -192,9 +192,9 @@ class ScheduleRow:
     `clinic_type` is the schedule-side 診別 (`角膜`, `網膜`, `教學門診` ...)
     which uses a different vocabulary from the today-side light-table
     `clinic_type` (`醫師約診`, `特別門診` ...). Pre-flight validation matches on
-    `(visit_date, session, room, doctor)` only; the daily sweep's resolve step
-    rewrites a draft's stored clinic_type to the today-side value the moment
-    its visit_date reaches today.
+    `(visit_date, session, room, doctor)` only, and the visit-day read finds
+    the card by room and doctor too (`_identify`), so the stored clinic_type
+    never has to be rewritten.
     """
 
     visit_date: date
@@ -539,12 +539,48 @@ def _norm(text: str) -> str:
     return "".join(character for character in text.casefold() if character.isalnum())
 
 
+def _room_norm(text: str) -> str:
+    """A room without its 診 suffix: the schedule writes `03`, the card `03 診`."""
+    return _norm(text).removesuffix("診")
+
+
 def _matches(row: ListRow, key: ClinicKey) -> bool:
     return (
-        _norm(row.room) == _norm(key.room)
+        _room_norm(row.room) == _room_norm(key.room)
         and _norm(row.doctor) == _norm(key.doctor)
         and _norm(row.clinic_type) == _norm(key.clinic_type)
     )
+
+
+_SUBSTITUTE_MARKS = ("(代)", "（代）")
+
+
+def _is_substitute(row: ListRow) -> bool:
+    doctor = "".join(row.doctor.split())
+    return any(mark in doctor for mark in _SUBSTITUTE_MARKS)
+
+
+def _identify(rows: list[ListRow], key: ClinicKey) -> tuple[list[ListRow], bool]:
+    """The visit-day cards that are the visit's clinic, in one session's list.
+
+    A visit picked from the clinic schedule stores the schedule's 診別, which
+    shares almost no vocabulary with the card's clinic type, so identity is the
+    room and the doctor. A card that also agrees on the clinic type wins, so a
+    doctor with two cards in one room is told apart when the visit names one.
+    With the booked doctor absent, a substitute card (`(代)`) in the same room
+    stands in for the visit and is reported as such.
+
+    Returns the matching cards and whether they are substitute cards. More than
+    one card means the answer is ambiguous; none means the card was not found.
+    """
+    exact = [row for row in rows if _matches(row, key)]
+    if exact:
+        return exact, False
+    in_room = [row for row in rows if _room_norm(row.room) == _room_norm(key.room)]
+    booked = [row for row in in_room if _norm(row.doctor) == _norm(key.doctor)]
+    if booked:
+        return booked, False
+    return [row for row in in_room if _is_substitute(row)], True
 
 
 def _unpublished_window(today: date, visit_date: date) -> tuple[date, datetime]:
@@ -682,7 +718,7 @@ class NtuhProgressReader:
         def same_clinic(session: ClinicSession, room: str, doctor: str) -> bool:
             return (
                 session == query.session
-                and _norm(room) == _norm(key.room)
+                and _room_norm(room) == _room_norm(key.room)
                 and _norm(doctor) == _norm(key.doctor)
             )
 
@@ -690,13 +726,29 @@ class NtuhProgressReader:
             roster = await self._list_today_roster(query.department_code)
             if not roster.available:
                 return ClinicMatch(MatchKind.UNAVAILABLE, reason=roster.reason)
-            found = next(
-                (o for o in roster.clinics if same_clinic(o.session, o.room, o.doctor)),
-                None,
+            # The same identification the visit-day read uses, so Start and the
+            # scheduled read can never disagree about which card is the visit's.
+            cards, substitute = _identify(
+                [
+                    ListRow(o.room, o.doctor, o.clinic_type, "")
+                    for o in roster.clinics
+                    if o.session == query.session
+                ],
+                key,
             )
-            if found is None:
+            if not cards:
                 return ClinicMatch(MatchKind.NOT_SCHEDULED)
-            return ClinicMatch(MatchKind.MATCHED, found.clinic_code)
+            if len(cards) > 1:
+                return ClinicMatch(MatchKind.UNAVAILABLE, reason="ambiguous_match")
+            if substitute:
+                # The booked doctor stays on the visit; only the card differs.
+                return ClinicMatch(
+                    MatchKind.MATCHED, query.clinic_code, substitute_doctor=True
+                )
+            card = cards[0]
+            return ClinicMatch(
+                MatchKind.MATCHED, f"{card.room}/{card.doctor}/{card.clinic_type}"
+            )
 
         status, rows = await self._future_schedule_rows(
             query.department_code, today, memo_at=now
@@ -934,18 +986,27 @@ class NtuhProgressReader:
         if failure is not None:
             return failure
         rows = [ListRow(*row) for row in result["rows"]]
-        matched = [row for row in rows if _matches(row, key)]
-        if len(matched) > 1:
+        substitute = bool(result.get("substitute"))
+        if not rows:
+            # Once the clinic has called, its card going away is how this source
+            # ends a clinic. Before that, a card that is not listed is a finding.
+            if entry.get("called"):
+                return await self._without_a_number(
+                    entry, states, scope, fetched=not reuse
+                )
+            return ReadFailed("unavailable", "card_not_found")
+        if len(rows) > 1:
             return ReadFailed("invalid", "ambiguous_match")
         # A card that calls by check-in order shows no called number at all, so
         # it is read as having none rather than as a number.
-        text = (
-            ""
-            if not matched or matched[0].check_in_order
-            else matched[0].current.strip()
-        )
+        text = "" if rows[0].check_in_order else rows[0].current.strip()
         if not text:
-            return await self._without_a_number(entry, states, scope, fetched=not reuse)
+            skipped = await self._without_a_number(
+                entry, states, scope, fetched=not reuse
+            )
+            if substitute and isinstance(skipped, ReadSkipped):
+                return replace(skipped, substitute_doctor=True)
+            return skipped
         if not text.isascii() or not text.isdigit():
             return ReadFailed("invalid", "invalid_data")
         try:
@@ -963,6 +1024,7 @@ class NtuhProgressReader:
             # This validates the read and requested scope, not the physical
             # room light. Department/session are not labeled in source rows.
             trustworthy_current=True,
+            substitute_doctor=substitute,
         )
 
     async def _calling(
@@ -1068,12 +1130,13 @@ class NtuhProgressReader:
             return _failed("unavailable", "access_denied", blocked=True)
         if status != "ok":
             return _failed("invalid", "schema_drift")
-        matched = [row for row in rows if _matches(row, key)]
+        matched, substitute = _identify(rows, key)
         return {
             "rows": [
                 [row.room, row.doctor, row.clinic_type, row.current, row.check_in_order]
                 for row in matched
             ],
+            "substitute": substitute,
         }
 
     def _record(self, entry: dict[str, Any], result: dict[str, Any], now: datetime):

@@ -51,8 +51,10 @@ const sourceReasons: Record<string, string> = {
   empty_result: "來源沒有可用資料",
   schema_drift: "來源格式無法辨識",
   access_denied: "來源拒絕讀取",
-  ambiguous_match: "來源資料無法唯一核對",
+  ambiguous_match: "有多個門診符合，系統不猜，不會發提醒。請重新選擇門診",
   invalid_data: "來源資料無效",
+  card_not_found: "今天院方名單上找不到這一診，系統會繼續找。請向診間確認",
+  substitute_doctor: "今天由其他醫師代診，提醒照常。請確認是否仍要前往",
 };
 
 let recipients: Recipient[] = [];

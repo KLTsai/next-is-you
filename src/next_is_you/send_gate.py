@@ -250,6 +250,11 @@ class SystemSendGate(_DurableObjectBase):
                 and capability_of(str(visit["hospital"]))
                 is SourceCapability.CURRENT_NUMBER_ONLY
             )
+            # Set once the hospital's own clinic schedule or roster has named
+            # the visit's clinic, which is what lets Start wait for the first
+            # number instead of refusing.
+            clinic_identified = False
+            substitute_doctor = False
             if current_number_only:
                 # No clinic schedule exists to check against, so the hospital can
                 # confirm the clinic only on the visit day. The backend decides
@@ -267,6 +272,8 @@ class SystemSendGate(_DurableObjectBase):
                 if "error" in preflight:
                     return preflight
                 clinic_code = preflight["clinic_code"]
+                clinic_identified = True
+                substitute_doctor = bool(preflight.get("substitute_doctor"))
                 if visit_date > today:
                     if not await repository.start(visit_id, timestamp):
                         return {"error": "ineligible_recipients"}
@@ -298,6 +305,22 @@ class SystemSendGate(_DurableObjectBase):
                 await repository.set_source_read(visit_id, "invalid", "invalid_data")
                 return {"error": "observation_invalid"}
             observation = await reader.observe_for_start(scope, timestamp)
+            if (
+                clinic_identified
+                and isinstance(observation, ReadSkipped)
+                and observation.reason == "clinic_not_started"
+            ):
+                # The card is identified; waiting for its first number is the
+                # reader's job, so Start is accepted and the visit runs once the
+                # clinic calls.
+                if not await repository.start(visit_id, timestamp):
+                    return {"error": "ineligible_recipients"}
+                await repository.set_source_read(
+                    visit_id,
+                    *(observation.source_read or ("unavailable", "no_observation")),
+                )
+                await self._save_ledger()
+                return {"state": "active"}
             if isinstance(observation, (ReadSkipped, ReadFailed)):
                 status, reason = (
                     (observation.status, observation.reason)
@@ -348,7 +371,13 @@ class SystemSendGate(_DurableObjectBase):
                 observed_at=observed_at,
                 consecutive_unusable_reads=0,
             )
-            await repository.set_source_read(visit_id, "usable", "none")
+            await repository.set_source_read(
+                visit_id,
+                "usable",
+                "substitute_doctor"
+                if observation.substitute_doctor or substitute_doctor
+                else "none",
+            )
             await self._save_ledger()
             return {"state": "active"}
 
@@ -423,6 +452,10 @@ class SystemSendGate(_DurableObjectBase):
             if match.reason == "invalid_data":
                 await repository.set_source_read(visit_id, "invalid", "invalid_data")
                 return {"error": "observation_invalid"}
+            if match.reason == "ambiguous_match":
+                # Several of the day's cards fit, so no card is guessed.
+                await repository.set_source_read(visit_id, "invalid", "ambiguous_match")
+                return {"error": "clinic_ambiguous"}
             source_reason_map = {
                 "no_observation": "no_observation",
                 "schema_drift": "schema_drift",
@@ -443,7 +476,10 @@ class SystemSendGate(_DurableObjectBase):
         ):
             await repository.update_clinic_code(visit_id, match.clinic_code)
             clinic_code = match.clinic_code
-        return {"clinic_code": clinic_code}
+        return {
+            "clinic_code": clinic_code,
+            "substitute_doctor": match.substitute_doctor,
+        }
 
     async def correct_stopped_visit(
         self,

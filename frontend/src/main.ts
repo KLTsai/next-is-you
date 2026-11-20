@@ -23,7 +23,7 @@ import type {
   Recipient,
   VisitInput,
 } from "./organizer-api.js";
-import { canRequestStart, formatSourceStatus, formatVisitState, visitStatusKey } from "./visit-state.js";
+import { canRequestStart, formatSourceStatus, formatVisitState, sendInterruptionNotice, visitStatusKey } from "./visit-state.js";
 import { sourceLinkMarkup } from "./source-link.js";
 import { clinicCodePreview, hasUnsavedChanges, SETUP_FIELDS, setupFormErrors } from "./setup-form.js";
 import { projectDashboardVisits } from "./dashboard-projection.js";
@@ -58,6 +58,7 @@ const sourceReasons: Record<string, string> = {
 
 let recipients: Recipient[] = [];
 let visits: OrganizerVisit[] = [];
+let sendingInterrupted = false;
 let hospitals: HospitalCatalogEntry[] = [];
 let roster: ClinicRoster | null = null;
 let rosterLoading = false;
@@ -418,6 +419,7 @@ function visitCard(item: OrganizerVisit): string {
   const pendingStop = pendingStops.has(item.id);
   const displayStateKey = pendingStop ? "stopping" : stateKey;
   const pendingStart = pendingStarts.has(item.id);
+  const interruptionNotice = sendInterruptionNotice(item, sendingInterrupted);
   const canRemoveRecipients = ["active", "stopped", "expired"].includes(item.state);
   const cannotRemoveLastRecipient = canRemoveRecipients && item.recipients.length === 1;
   const recipientsSummary = item.recipients.length
@@ -447,6 +449,7 @@ function visitCard(item: OrganizerVisit): string {
       <div><dt>訊息傳送結果</dt><dd>共 ${notification.count} 則；已接受 ${notification.accepted} 則；需留意 ${notification.issues} 則</dd></div>
     </dl>
     ${active ? `<div class="stop-row"><div><p>${pendingStop ? "停止請求處理中…" : "監控中。停止確認後，系統會停止後續檢查與通知。"}</p><small>停止完成前，狀態仍以服務回覆為準。</small></div><button class="stop-button" type="button" data-stop="${escapeHtml(item.id)}" ${pendingStop ? "disabled" : ""}>${pendingStop ? "停止中" : "停止提醒"}</button></div>` : ""}
+    ${interruptionNotice ? `<p class="inline-state send-interruption" role="status">${escapeHtml(interruptionNotice)}</p>` : ""}
     ${item.state === "stopping" ? `<p class="inline-state" role="status">停止已送出，正在等候關閉確認。</p>` : ""}
     ${item.state === "stopped" ? `<p class="inline-state" role="status">提醒已停止。</p>` : ""}
     ${item.state === "expired" ? `<p class="inline-state" role="status">此提醒已結束。修正日期或診次並儲存後，可重新檢查並啟動同一筆提醒。</p>` : ""}
@@ -548,6 +551,7 @@ async function loadDashboard(preserveSaveConfirmation = false): Promise<void> {
     ]);
     recipients = recipientRoster.recipients;
     visits = projection.visits;
+    sendingInterrupted = projection.sending_interrupted === true;
     hospitals = catalog.hospitals;
     authorized = true;
     refreshWarning = "";

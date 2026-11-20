@@ -568,6 +568,37 @@ def test_local_browser_acceptance_journey() -> None:
                     == 1
                 )
 
+                # A send interruption pauses running visits without stopping
+                # them: the notice shows on the running visit, not on a draft,
+                # and is gone once sending resumes.
+                interruption_text = "發送中斷中，提醒暫停"
+                running_card = page.locator(
+                    "section.visits:not(.saved-drafts) article.visit-card"
+                )
+                assert page.get_by_text(interruption_text).count() == 0
+                held_status = page.evaluate(
+                    """async (csrf) => (await fetch('/api/organizer/scheduler/recovery-hold', {
+                        method: 'POST', headers: {'x-csrf-token': csrf},
+                    })).status""",
+                    csrf_token,
+                )
+                assert held_status == 204
+                page.get_by_role("button", name="重新整理").click()
+                expect(running_card.get_by_text(interruption_text)).to_have_count(1)
+                assert running_card.locator(".state").inner_text() == "監控中"
+                assert page.get_by_text(interruption_text).count() == 1
+                resumed_status = page.evaluate(
+                    """async (csrf) => (await fetch('/api/organizer/scheduler/resume', {
+                        method: 'POST',
+                        headers: {'content-type': 'application/json', 'x-csrf-token': csrf},
+                        body: JSON.stringify({reconciled: true}),
+                    })).status""",
+                    csrf_token,
+                )
+                assert resumed_status == 204
+                page.get_by_role("button", name="重新整理").click()
+                expect(page.get_by_text(interruption_text)).to_have_count(0)
+
                 for current, tick_at in (
                     (85, NOW_TEXT),
                     (86, "2026-09-27T13:02:00Z"),

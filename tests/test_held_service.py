@@ -155,3 +155,24 @@ async def test_scheduler_status_requires_allowlisted_organizer():
             assert response.status_code == expected
             if expected == 200:
                 assert json.loads(response.content)["configuration_hold"] is True
+
+
+@pytest.mark.asyncio
+async def test_sending_is_interrupted_only_by_a_recovery_hold_not_by_a_not_live_environment():
+    database = LocalD1()
+    storage = LocalDurableStorage()
+    live_not_yet = SystemSendGate(LocalContext(storage), {"DB": database})
+    # Not live is a configuration hold, which is not a send interruption.
+    assert await live_not_yet.sending_interrupted() is False
+    env = {
+        "DB": database,
+        "NIY006_LOCAL_TEST_MODE": "1",
+        "NIY_ENVIRONMENT": "local-test",
+    }
+    gate = SystemSendGate(LocalContext(storage), env)
+    assert await gate.sending_interrupted() is False
+    await gate.hold_for_reconciliation()
+    assert await gate.sending_interrupted() is True
+    assert await live_not_yet.sending_interrupted() is True
+    assert await gate.resume_after_reconciliation(True)
+    assert await gate.sending_interrupted() is False

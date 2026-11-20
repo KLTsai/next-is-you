@@ -1100,3 +1100,21 @@ async def test_organizer_correction_keeps_logical_id_and_alert_cap() -> None:
         ).fetchone()[0]
         == 1
     )
+
+
+@pytest.mark.asyncio
+async def test_a_ledger_mismatch_is_reported_as_a_send_interruption() -> None:
+    database = LocalD1()
+    gate = make_gate(database)
+    await seed(gate)
+    await observe_tick(gate, 83, "2026-09-27T13:00:00Z")
+    assert await gate.sending_interrupted() is False
+
+    # Something outside the system's control changed what it has sent.
+    database.connection.execute(
+        "UPDATE visits SET near_prev_observed_number = 70 WHERE id = 'v1'"
+    )
+    held = await tick(gate, "2026-09-27T13:01:00Z")
+
+    assert held["held"] is True
+    assert await gate.sending_interrupted() is True

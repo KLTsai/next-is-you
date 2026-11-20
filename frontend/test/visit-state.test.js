@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canRequestStart, formatSourceStatus, formatVisitState, visitStatusKey } from "../src/visit-state.js";
+import { canRequestStart, formatSourceStatus, formatVisitState, sendInterruptionNotice, visitStatusKey } from "../src/visit-state.js";
 
 const visit = {
   id: "synthetic-visit",
@@ -30,4 +30,13 @@ test("source availability and lifecycle state remain distinct in the UI", () => 
   assert.equal(visitStatusKey({ ...visit, state: "expired" }), "terminal");
   assert.deepEqual(["draft", "active", "stopping", "stopped", "expired"].map(formatVisitState), ["草稿", "監控中", "停止中", "已停止", "已結束"]);
   assert.deepEqual(["usable", "unavailable", "stale", "untrusted", "scope_mismatch", "invalid"].map(formatSourceStatus), ["資料已核對", "來源暫不可用", "資料已過期", "來源尚未驗證", "診次資料不相符", "資料格式無效"]);
+});
+
+test("a running visit says reminders are paused only while sending is interrupted", () => {
+  const running = { ...visit, state: "active" };
+  assert.equal(sendInterruptionNotice(running, true), "發送中斷中，提醒暫停");
+  assert.equal(sendInterruptionNotice(running, false), null);
+  for (const state of ["draft", "stopping", "stopped", "expired"]) {
+    assert.equal(sendInterruptionNotice({ ...visit, state }, true), null, state);
+  }
 });

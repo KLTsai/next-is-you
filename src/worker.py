@@ -402,6 +402,8 @@ def create_app(
         repository = _visit_repository(request)
         if repository is None:
             return _api_error("service_unavailable", 503)
+        gate = _send_gate(request)
+        sending_interrupted = gate is not None and await gate.sending_interrupted()
         rows = await repository.organizer_visits()
         grouped: dict[str, dict[str, Any]] = {}
         for row in rows:
@@ -444,7 +446,12 @@ def create_app(
                         "display_name": str(row["display_name"]),
                     }
                 )
-        return JSONResponse({"visits": list(grouped.values())})
+        return JSONResponse(
+            {
+                "visits": list(grouped.values()),
+                "sending_interrupted": sending_interrupted,
+            }
+        )
 
     @app.get("/api/organizer/hospitals")
     async def organizer_hospitals(request: Request) -> Response:

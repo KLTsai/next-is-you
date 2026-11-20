@@ -208,6 +208,18 @@ async def test_a_same_day_start_with_two_matching_cards_is_refused_without_a_gue
 
 
 @pytest.mark.asyncio
+async def test_same_day_start_maps_roster_change_ambiguity_to_typed_refusal() -> None:
+    source = FakeSource(PAGE, PAGE + _card("11 診", "合成醫師丙", "普通門診", "031"))
+    database, gate = await gate_with_visit(source)
+    await seed_ntuh_at(database, gate, "v", DAY, clinic_code=SCHEDULE_FORM)
+
+    result = await gate.start_visit("v", taipei(14, 0).isoformat())
+
+    assert result == {"error": "clinic_ambiguous"}
+    assert counts(database, "v")[:2] == ("invalid", "ambiguous_match")
+
+
+@pytest.mark.asyncio
 async def test_a_same_day_start_on_a_substitute_card_is_accepted_and_marked() -> None:
     source = FakeSource(PAGE.replace("合成醫師丙", "住院醫師(代)"))
     database, gate = await gate_with_visit(source)

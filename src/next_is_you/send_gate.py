@@ -328,6 +328,8 @@ class SystemSendGate(_DurableObjectBase):
                     else observation.source_read or ("unavailable", "no_observation")
                 )
                 await repository.set_source_read(visit_id, status, reason)
+                if reason == "ambiguous_match":
+                    return {"error": "clinic_ambiguous"}
                 if current_number_only:
                     return {"error": _current_number_only_error(observation)}
                 return {"error": _START_ERRORS[status]}

@@ -7,15 +7,15 @@ The language used to build and deliver Next is you, a reminder service for hospi
 ### People
 
 **Organizer**:
-The person who sets up reminders: signs in with LINE, invites recipients, drafts a visit, and presses Start and Stop. Only LINE accounts the captain has allowed can be organizers.
-_Avoid_: Owner, user, manager
+The person who sets up reminders: signs in with LINE, invites recipients, drafts a visit, and presses Start and Stop. Only LINE accounts the captain has allowed can be organizers. Shown to users as 設定者.
+_Avoid_: Owner, user, manager, 管理者
 
 **Recipient**:
 A family member who accepted an invitation and agreed to receive reminders on LINE. An organizer may also be a recipient with the same LINE account.
 _Avoid_: Member, subscriber, audience
 
 **Live pilot**:
-The first time a deployed copy of the product really reads the hospital and sends a reminder to a handset, with the captain as organizer and recipient, before any family member is invited.
+The first time a deployed copy of the product really reads the hospital and sends a reminder to a handset: Staging, once made live, with the captain as its only organizer and recipient.
 _Avoid_: Launch, go-live, beta
 
 ### Hospitals
@@ -32,21 +32,35 @@ _Avoid_: Schedule window, lookahead, schedule horizon, last schedulable date
 The moment a hospital says it will add a given day to its clinic schedule. Known only when the hospital states it publicly; otherwise it is unknown, never estimated. Shown to users as 門診表公布時間.
 _Avoid_: Booking open time, registration open time
 
+### Visits
+
+**Visit**:
+A job an organizer sets up and sends off: watch one clinic's called number on one day, and tell the chosen recipients on LINE when it comes close to, or reaches, the patient's number. It starts as a draft, runs once the organizer presses Start, and ends when it is stopped, the clinic ends, or its day is over. Shown to users as 叫號追蹤, counted as 一個.
+_Avoid_: Watch, reminder setting, appointment, 看診提醒, 監聽工作
+
+**Needs attention**:
+A mark on a visit telling its organizer that the visit has a problem only they can resolve, with the reason and what to do next. Shown to users as 需要處理.
+_Avoid_: Organizer attention, warning, alert
+
 ### Sending
 
-**Send hold**:
-The temporary rule, in force until the live pilot, that a deployed copy of the product sends no reminder, reads no hospital and calls no LINE. Once the pre-live gates pass it is removed from production for good, not toggled. Expired data is still cleaned up under it.
-_Avoid_: Configuration hold, production hold, send-gate hold
+**Live**:
+A deployed environment that reads real hospitals and sends real LINE reminders. Each environment starts not live and is made live once, after its own pre-live gates pass, and is never made not live again; to stop sending, use a send interruption. Expired data is cleaned up either way. Shown to users as 已開通 and 未開通.
+_Avoid_: Send hold, configuration hold, production hold, go-live
 
-**Recovery hold**:
-A stop on all sending that the system enters when it cannot prove what it has sent, or that the captain sets by hand before a restore or rollback. It lasts until the captain releases it after reconciling, and while it holds only expired drafts are deleted.
-_Avoid_: Reconciliation hold, operator hold
+**Send interruption**:
+A stop on all sending in one environment. The system enters it when its record of what it has sent was changed by something outside its own control, such as a restore or a migration, or when it could not write down the result of a send; the captain can also set it by hand before a restore or rollback. Only the captain ends it, by resuming sending after checking. Visits keep their state through it: it pauses them, it does not stop them. A LINE request whose outcome is merely unknown is retried, not interrupted. Shown to users as 發送中斷.
+_Avoid_: Recovery hold, reconciliation hold, safety stop, brake
+
+**Resume sending**:
+The captain ending a send interruption once they have checked what happened. Running visits that are still valid carry on; it never brings back a stopped visit. Shown to users as 恢復發送.
+_Avoid_: Release, unhold, end interruption
 
 ### Delivery
 
 **Captain**:
-The one person who decides what is accepted into the product and which version reaches production. Everyone else, human or agent, proposes. Also the one who operates production, including setting and releasing holds.
-_Avoid_: Admin, release manager, owner, operator
+The one person who decides what is accepted into the product and which version reaches production. Everyone else, human or agent, proposes. Also the one who operates every deployed environment, including interrupting and resuming sending. Writing code does not make someone the captain. Shown to users as 服務負責人, or 負責人 for short.
+_Avoid_: Admin, release manager, owner, operator, developer, 開發者
 
 **Pipeline run**:
 The single pass through the checks that one change starts, with whatever it goes on to deliver. Re-running it delivers that same change again.

@@ -36,6 +36,7 @@ from next_is_you.hospital_registry import (
     require_registered,
 )
 from next_is_you.progress_links import progress_link
+from next_is_you.refusal_catalog import START_REFUSAL_CODES, START_REFUSAL_FALLBACK
 from next_is_you.login_error_page import (
     FRIENDSHIP_MISSING,
     FRIENDSHIP_UNVERIFIABLE,
@@ -568,28 +569,11 @@ def create_app(
             return _api_error("service_unavailable", 503)
         result = await gate.start_visit(visit_id, iso_utc(_now(request)))
         if "error" in result:
-            errors = {
-                "visit_not_found": ("visit_not_found", 404),
-                "invalid_lifecycle_state": ("invalid_lifecycle_state", 409),
-                "observation_unavailable": ("observation_unavailable", 503),
-                "observation_stale": ("observation_stale", 409),
-                "observation_scope_mismatch": ("observation_scope_mismatch", 409),
-                "observation_untrusted": ("observation_untrusted", 409),
-                "observation_invalid": ("observation_invalid", 409),
-                "ineligible_recipients": ("ineligible_recipients", 409),
-                "scheduler_held": ("scheduler_held", 503),
-                "visit_date_past": ("visit_date_past", 409),
-                "doctor_not_scheduled": ("doctor_not_scheduled", 409),
-                "schedule_unavailable": ("schedule_unavailable", 503),
-                "visit_date_out_of_schedule_window": (
-                    "visit_date_out_of_schedule_window",
-                    409,
-                ),
-                "start_on_visit_day_only": ("start_on_visit_day_only", 409),
-                "hospital_cannot_find_clinic": ("hospital_cannot_find_clinic", 409),
-                "hospital_page_unreachable": ("hospital_page_unreachable", 503),
-            }
-            code, status = errors.get(result["error"], ("service_unavailable", 503))
+            code = result["error"]
+            status = START_REFUSAL_CODES.get(code)
+            if status is None:
+                code = START_REFUSAL_FALLBACK
+                status = START_REFUSAL_CODES[code]
             if code == "visit_date_out_of_schedule_window":
                 detail = {
                     key: result[key]

@@ -35,7 +35,7 @@ _Avoid_: Booking open time, registration open time
 ### Visits
 
 **Visit**:
-A job an organizer sets up and sends off: follow one clinic's progress on one day for one patient number, and tell the chosen recipients on LINE when the patient's turn comes close, arrives, or has been passed. It starts as a draft, runs once the organizer presses Start, and ends when it is stopped, the clinic ends, or its day is over. A visit the hospital confirms cannot happen as set up is stopped by the system and comes back as a draft for the organizer to correct. Shown to users as 叫號追蹤, counted as 一個.
+A job an organizer sets up and sends off: follow one clinic's progress on one day for one patient number, and tell the chosen recipients on LINE when to check in, when the number has been passed, and when the patient's turn comes close. It starts as a draft, runs once the organizer presses Start, and ends when it is stopped, the patient number leaves the hospital's list, the clinic ends, or its day is over. A visit the hospital confirms cannot happen as set up is stopped by the system and comes back as a draft for the organizer to correct. Shown to users as 叫號追蹤, counted as 一個.
 _Avoid_: Watch, reminder setting, appointment, 看診提醒, 監聽工作
 
 **Patient**:
@@ -61,6 +61,14 @@ _Avoid_: Arrive, register, 掛號
 **Passed**:
 A patient number whose call came while the patient had not checked in. The patient must check in at once to be seen. Shown to users as 過號.
 _Avoid_: Skipped, missed, expired
+
+**Called next**:
+The few numbers a hospital says it will call after the current one, when it says so. A number listed there is about to be called, whatever its place by number. Shown to users as 預計叫號.
+_Avoid_: Next number, queue
+
+**People ahead**:
+The product's estimate of how many checked-in patients will be seen before the patient, made from what the hospital shows. Always an estimate, written as 約 N 人, never as minutes: patients who were passed or sent for tests can come back in front.
+_Avoid_: Position, wait time, queue length
 
 **Needs attention**:
 A mark on a visit telling its organizer that the visit has a problem only they can resolve, with the reason and what to do next. A visit can carry several reasons at once. Shown to users as 需要處理.

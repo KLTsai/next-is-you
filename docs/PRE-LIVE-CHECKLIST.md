@@ -68,7 +68,7 @@ Staging is used by the captain alone. No family member is invited to it.
     number chosen ahead of the highest called. One run watches 3 visits at once
     and records CPU and request headroom.
   - At least one visit uses a real appointment (the captain's, or a consenting
-    relative's), so the "about 8" and "about 3 people ahead" reminders are seen.
+    relative's), so the "about 8" and "about 5 people ahead" reminders are seen.
   - Edge cases (passed, check-in order, unavailable source, number gone from the
     list) are covered by fixtures.
 - [ ] #131: the security baseline before the first family member is invited.

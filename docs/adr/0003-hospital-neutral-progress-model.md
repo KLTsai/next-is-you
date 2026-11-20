@@ -8,10 +8,11 @@ The first reminder rule read one number per clinic, NTUH's list-card current lig
 
 We decided on 2026-11-20, in the #136 grilling, that:
 
-- Each hospital reader reports a progress observation in which every field is optional and present only when the source states it outright: current light, highest called, the patient number's own status (not checked in, checked in, check-in position, being seen, absent from the list), the clinic's check-in-order position, people waiting, and source flags. A reader never estimates a field the page does not show.
+- Each hospital reader reports a progress observation in which every field is optional and present only when the source states it outright: current light, highest called, the patient number's own status (not checked in, checked in, check-in position, being seen, absent from the list), the clinic's check-in-order position, the numbers the source says it will call next (NTUH 預計叫號, 長庚's next and next-but-one), people waiting, and source flags. A reader never estimates a field the page does not show.
 - The reminder rule is one hospital-neutral rule that chooses which reminders it can send from the fields present. A reminder whose facts a hospital cannot supply is never sent for that hospital. There is no per-hospital reminder rule.
 - Estimates, such as "about N people ahead", are made by the rule from reported facts, are worded as estimates, and never as minutes.
 - A situation no one has observed on a hospital's pages sends nothing and is recorded, until observation supports a rule for it.
+- The rule is the same for every department, room and doctor. A clinic that calls out of order is handled by wording every reminder as one that may come early, not by a rule for that department: on 2026-11-20 眼科 called so far out of number order that no people-ahead threshold warned in time, while 內科 followed it (`research/private/source-evidence/ntuh-progress-validation-2026-11-20.md`).
 
 ## Considered options
 
@@ -22,4 +23,4 @@ We decided on 2026-11-20, in the #136 grilling, that:
 
 - Adding a hospital is a reader that fills the fields it can and a record of what it cannot. The reminder set it gets follows automatically.
 - The rule must be tested per combination of present fields, not per hospital.
-- Reading NTUH's per-clinic detail page becomes part of the hospital-access conditions recorded for #129.
+- Reading NTUH's per-clinic detail page falls under the source access rules in `docs/ADDING-A-HOSPITAL.md`: the list once to find the card's link, then the detail page at the reader's stated cadence, counted across every live environment.

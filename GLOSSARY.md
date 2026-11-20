@@ -35,7 +35,7 @@ _Avoid_: Booking open time, registration open time
 ### Visits
 
 **Visit**:
-A job an organizer sets up and sends off: follow one clinic's progress on one day for one patient number, and tell the chosen recipients on LINE when the patient's turn comes close, arrives, or has been passed. It starts as a draft, runs once the organizer presses Start, and ends when it is stopped, the clinic ends, or its day is over. Shown to users as 叫號追蹤, counted as 一個.
+A job an organizer sets up and sends off: follow one clinic's progress on one day for one patient number, and tell the chosen recipients on LINE when the patient's turn comes close, arrives, or has been passed. It starts as a draft, runs once the organizer presses Start, and ends when it is stopped, the clinic ends, or its day is over. A visit the hospital confirms cannot happen as set up is stopped by the system and comes back as a draft for the organizer to correct. Shown to users as 叫號追蹤, counted as 一個.
 _Avoid_: Watch, reminder setting, appointment, 看診提醒, 監聽工作
 
 **Patient**:
@@ -63,8 +63,28 @@ A patient number whose call came while the patient had not checked in. The patie
 _Avoid_: Skipped, missed, expired
 
 **Needs attention**:
-A mark on a visit telling its organizer that the visit has a problem only they can resolve, with the reason and what to do next. Shown to users as 需要處理.
+A mark on a visit telling its organizer that the visit has a problem only they can resolve, with the reason and what to do next. A visit can carry several reasons at once. Shown to users as 需要處理.
 _Avoid_: Organizer attention, warning, alert
+
+**Confirmed mismatch**:
+A problem the hospital's own pages state outright: the clinic is not scheduled or is cancelled that day, or the doctor is unambiguously in another room or session. The system stops the visit and returns it to draft. Anything less than certain is an unconfirmed problem instead. Shown to users as 院方確認不符.
+_Avoid_: Setup problem, hard failure, invalid visit
+
+**Unconfirmed problem**:
+A problem the system cannot be sure of, such as the hospital's site being unreadable, the clinic missing from the day's list, or a substitute doctor. The visit keeps running and needs attention. Shown to users as 無法確認的問題.
+_Avoid_: Source problem, soft failure, transient error
+
+**Clinic to be chosen**:
+A draft whose clinic has not been picked yet because the hospital's list could not be read or the day is not yet on the clinic schedule. It cannot be started until the organizer picks the clinic. Shown to users as 待選門診.
+_Avoid_: Manual entry, incomplete draft, pending clinic
+
+**Unavailable message**:
+The one message a recipient gets on the visit day when the system cannot follow the clinic, naming the visit, the reason and what to do instead. Shown to users as 讀不到進度通知.
+_Avoid_: Failure notice, error message
+
+**Daily recheck**:
+The system checking, once a day, that each visit that has not happened yet still matches what the hospital publishes, and on the visit day itself, before the clinic opens, that the visit's clinic is there. Covers drafts and running visits. Shown to users as 每日複查.
+_Avoid_: Pre-flight sweep, preflight, sweep
 
 ### Sending
 

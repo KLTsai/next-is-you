@@ -6,3 +6,4 @@ export function formatVisitState(state: string): string;
 export function formatSourceStatus(status: string): string;
 export function visitStatusKey(visit: OrganizerVisit): string;
 export function canRequestStart(visit: OrganizerVisit | null): boolean;
+export function sendInterruptionNotice(visit: OrganizerVisit | null, sendingInterrupted: boolean): string | null;

@@ -87,7 +87,7 @@ export class OrganizerApiError extends Error {
 }
 
 export function listRecipients(options?: object): Promise<{ recipients: Recipient[] }>;
-export function listVisits(options?: object): Promise<{ visits: OrganizerVisit[] }>;
+export function listVisits(options?: object): Promise<{ visits: OrganizerVisit[]; sending_interrupted: boolean }>;
 export function listHospitals(options?: object): Promise<{ hospitals: HospitalCatalogEntry[] }>;
 export function listClinics(hospital: string, department: string, date: string, options?: object): Promise<ClinicRoster>;
 export function getVisitCorrection(id: string, options?: object): Promise<{ patient_number: number }>;

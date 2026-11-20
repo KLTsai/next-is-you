@@ -599,6 +599,11 @@ class SystemSendGate(_DurableObjectBase):
     async def recovery_held(self) -> bool:
         return await self._held()
 
+    async def sending_interrupted(self) -> bool:
+        # A send interruption is the recovery hold only. An environment that is
+        # not live yet is held by configuration and is not an interruption.
+        return await self._recovery_held()
+
     async def scheduler_status(self) -> dict[str, bool]:
         recovery_hold = (await self.ctx.storage.get("recovery_hold")) is True
         configuration_hold = not local_test_mode(self.env)

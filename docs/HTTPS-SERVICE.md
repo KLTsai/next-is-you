@@ -306,8 +306,11 @@ console.log(await (await fetch('/api/organizer/scheduler/status')).json());
 The configuration hold is enforced by this version's code, and recovery hold is
 stored separately in the named DO, so it survives Worker restarts. Set recovery
 hold before any restore, code rollback or later live experiment and verify the
-status API. If auth is broken, keep the held version deployed and fix only its
-private settings.
+status API. While recovery hold is active, the organizer visits response reports
+`sending_interrupted: true`; the organizer page shows **發送中斷中，提醒暫停** on
+active visits only. Drafts do not show this notice, and it disappears after
+authorized resume. If auth is broken, keep the held version deployed and fix only
+its private settings.
 
 To take the HTTP service offline, set `workers_dev: false`, keep
 `preview_urls: false`, then deploy the same held code and config after owner

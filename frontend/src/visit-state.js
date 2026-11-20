@@ -38,3 +38,11 @@ export function canRequestStart(visit) {
   // unavailable or stale; only the server can authorize the state transition.
   return true;
 }
+
+// Not an attention reason: it is the environment's state, so it never clears a
+// visit's own reasons and disappears the moment sending resumes.
+const SEND_INTERRUPTION_NOTICE = "發送中斷中，提醒暫停";
+
+export function sendInterruptionNotice(visit, sendingInterrupted) {
+  return sendingInterrupted === true && visit?.state === "active" ? SEND_INTERRUPTION_NOTICE : null;
+}

@@ -45,6 +45,10 @@ class SQLiteStore:
 class Gate:
     def __init__(self, visits: VisitRepository) -> None:
         self.visits = visits
+        self.interrupted = False
+
+    async def sending_interrupted(self) -> bool:
+        return self.interrupted
 
     async def update_draft(self, visit_id: str, **values: Any):
         return await self.visits.update_draft(visit_id=visit_id, **values)
@@ -105,6 +109,7 @@ def make_client():
             ('inactive', 'inactive-subject', 'Inactive', NULL, NULL, 0, '2026-09-27T00:00:00Z')"""
     )
     visits = VisitRepository(store)
+    gate = Gate(visits)
     app = create_app(
         settings={
             "session_secret": SECRET,
@@ -115,12 +120,13 @@ def make_client():
         },
         identity_repository=IdentityRepository(store),
         visit_repository=visits,
-        send_gate=Gate(visits),
+        send_gate=gate,
         clock=lambda: datetime(2026, 9, 28, 10, 0, tzinfo=timezone.utc).timestamp(),
     )
     http = AsyncClient(
         transport=ASGITransport(app=app), base_url="https://family.example"
     )
+    http.gate = gate  # type: ignore[attr-defined]
     return store, http
 
 
@@ -590,5 +596,28 @@ def test_a_hospital_registered_only_in_the_registry_passes_id_validation(
             assert seen == ["registry-only-test"]
         finally:
             await http.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_visit_listing_reports_a_send_interruption_while_it_holds_and_not_after_resume():
+    async def scenario():
+        store, http = make_client()
+        try:
+            authorize(http)
+            assert (await http.get("/api/organizer/visits")).json() == {
+                "visits": [],
+                "sending_interrupted": False,
+            }
+            http.gate.interrupted = True
+            held = await http.get("/api/organizer/visits")
+            assert held.status_code == 200
+            assert held.json()["sending_interrupted"] is True
+            http.gate.interrupted = False
+            resumed = await http.get("/api/organizer/visits")
+            assert resumed.json()["sending_interrupted"] is False
+        finally:
+            await http.aclose()
+            store.connection.close()
 
     asyncio.run(scenario())

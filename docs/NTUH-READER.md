@@ -62,6 +62,19 @@ The same evidence rules out two things the reader must not start doing:
 
 The start and end signals come from two clinics watched through their transition on 2026-10-29: both kept their card and blanked their number when they finished, while a clinic that had not started showed a blank number and a blank highest-called number on its detail page. That is one department on one morning. What it does not cover: whether a clinic can blank its number temporarily and resume, what a cancelled clinic looks like, and what happens in a room when its next session begins. The two-blank-reads rule is the margin left for the first of those.
 
+### The per-clinic detail page (observed 2026-11-20, not yet read by the product)
+
+The list card links to `ClinicCurrentLightNoDetail?ServiceIDSE=<id>`, a public page per clinic. Reads of seven clinics in 眼科 and 內科 on 2026-11-20 (`research/private/source-evidence/ntuh-per-doctor-2026-11-20.md`, raw pages under `raw/ntuh-2026-11-20*/`) showed:
+
+- It shows the current light with a flag (過號, 檢查號, 報到順序NN), 已叫最大號, 預計叫號 with a type ((順號), (過號), (報到NN), (無)), and the status of every number not yet finished: 未報到, 已報到 (報到N in check-in-order clinics), 初診 or 看診中. Its legend says a number below the highest called that has not checked in has been passed.
+- The card's current light was not the queue front in any clinic read: 09診 showed 022 with 已叫最大號 080, and a 內科 clinic's card went 022, 042, 008 within an hour while its highest called stayed at 025.
+- Finished numbers appear to drop off the list. No page says 已看診, 完診, 停診 or 休診, and none shows a start time or session.
+- The page shows department, room and doctor, but not the date, session or clinic type, so identity comes only from the list card that links to it.
+- `ServiceIDSE` is one per card per day: the same ID all day from 00:40, two IDs for one doctor with two cards, and absent from the clinic schedule pages. It is never stored beyond its day.
+- The department list has no sub-specialty: a 胃腸肝膽 clinic is just a 內科 card.
+
+ADR 0003 and the #136 grilling decide how reminders will use this page. Until #136 is implemented the rules above still describe the reader.
+
 ## Future-date schedule reader (Issue #58)
 
 The today-only `DeptLightTable` path above covers the live queue number. A separate reader, enabled by the same `NTUH_READER_ENABLED` flag, serves `list_clinics` for dates in the next 14 days against the dept-wide `RegDeptSchedule` page.

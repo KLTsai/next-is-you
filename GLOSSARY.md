@@ -35,8 +35,32 @@ _Avoid_: Booking open time, registration open time
 ### Visits
 
 **Visit**:
-A job an organizer sets up and sends off: watch one clinic's called number on one day, and tell the chosen recipients on LINE when it comes close to, or reaches, the patient's number. It starts as a draft, runs once the organizer presses Start, and ends when it is stopped, the clinic ends, or its day is over. Shown to users as 叫號追蹤, counted as 一個.
+A job an organizer sets up and sends off: follow one clinic's progress on one day for one patient number, and tell the chosen recipients on LINE when the patient's turn comes close, arrives, or has been passed. It starts as a draft, runs once the organizer presses Start, and ends when it is stopped, the clinic ends, or its day is over. Shown to users as 叫號追蹤, counted as 一個.
 _Avoid_: Watch, reminder setting, appointment, 看診提醒, 監聽工作
+
+**Patient**:
+The person who is seen at the clinic. A patient need not be an organizer or a recipient, and the product never stores who they are, only their patient number.
+_Avoid_: User, member, 病患資料
+
+**Patient number**:
+The number a patient was given for one clinic on one day, which the clinic calls. Shown to users as 看診號碼.
+_Avoid_: Ticket, queue number, 燈號 (alone)
+
+**Current light**:
+The number a clinic is showing as now being called. It is not the front of the queue: patients sent away for tests and patients who missed their call come back in between. Shown to users as 目前燈號.
+_Avoid_: Called number, current number, progress
+
+**Highest called**:
+The largest number a clinic has called so far today. A patient number below it has had its call, whether or not the patient has been seen. Shown to users as 已叫最大號.
+_Avoid_: Max number, current light
+
+**Check in**:
+A patient telling the clinic they have arrived, by card or at the desk. Some clinics see patients in the order they checked in instead of by patient number. Shown to users as 報到.
+_Avoid_: Arrive, register, 掛號
+
+**Passed**:
+A patient number whose call came while the patient had not checked in. The patient must check in at once to be seen. Shown to users as 過號.
+_Avoid_: Skipped, missed, expired
 
 **Needs attention**:
 A mark on a visit telling its organizer that the visit has a problem only they can resolve, with the reason and what to do next. Shown to users as 需要處理.

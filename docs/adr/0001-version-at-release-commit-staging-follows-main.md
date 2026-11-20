@@ -18,5 +18,5 @@ We decided on 2026-11-15 that merging the release PR creates the `vX.Y.Z` tag, s
 
 - A version rejected on staging keeps its tag and its `CHANGELOG.md` section and never gets a Release. Its fix ships as the next version, so version numbers can skip in production.
 - What the captain checked and what Promote deploys can differ if anything product-changing merges after the release PR. Promote therefore refuses unless the latest successful staging deployment is the version's commit.
-- A commit on `main` reaches staging, and its migrations reach the staging database, without a captain decision. Staging shares the production LINE Login channel, so changes to code, migrations, workflows, or deployment configuration must arrive through a pull request the captain merges.
+- A commit on `main` reaches staging, and its migrations reach the staging database, without a captain decision. Staging shares the production LINE Login channel (superseded by ADR 0004: Staging gets its own LINE provider), so changes to code, migrations, workflows, or deployment configuration must arrive through a pull request the captain merges.
 - Nothing on the hosting plan enforces who may merge the release PR or run Promote. That they are the captain's alone is a written rule in `AGENTS.md`, not a control.

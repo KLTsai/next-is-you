@@ -155,6 +155,18 @@ block, with an honest client identity; no raw storage or republication, and a
 link to the hospital's official page; stop reading a hospital that refuses
 access; prefer official open data where the hospital publishes it.
 
+Also (decided in #129, 2026-11-20):
+
+- Read a hospital only while a visit on one of its clinics is running, at the
+  cadence its reader states (NTUH: every 2 minutes, `docs/NTUH-READER.md`).
+  Count the rate across every live environment together, not per environment.
+- On a challenge, block or error page, stop reading that hospital and do not
+  retry around it. A clear refusal from the hospital ends reading it until the
+  captain decides otherwise.
+- Hospitals are not contacted before reading their public pages.
+- A patient number chosen for a Staging test may belong to a real patient. Only
+  the public queue is read, and nothing about that number is kept past its day.
+
 ### Record the hospital's terms before work starts
 
 Before any reader work, record the hospital's terms of use and `robots.txt`

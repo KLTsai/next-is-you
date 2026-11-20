@@ -30,6 +30,14 @@ Local development reads from the untracked `.env` file described in
 
 ### What differs between the two environments
 
+> **Planned change.** [ADR 0004](adr/0004-staging-has-its-own-line-provider.md)
+> gives Staging its own LINE provider, Login channel and Messaging API channel
+> before Staging goes live (`docs/PRE-LIVE-CHECKLIST.md`). From then on
+> `LINE_LOGIN_CHANNEL_SECRET`, `ORGANIZER_LINE_SUBJECTS` and
+> `LINE_CHANNEL_ACCESS_TOKEN` differ per environment, and whether an
+> environment sends is decided by its committed live value (#142), not by a
+> missing token. The description below is the state until then.
+
 Staging and production share one LINE Login channel (`2011753957`), which is
 what ADR 0001 records: each environment registers its own callback URL on that
 channel rather than owning a separate channel.

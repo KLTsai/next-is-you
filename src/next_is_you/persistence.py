@@ -66,6 +66,11 @@ def _property(value: Any, key: str, default: Any = None) -> Any:
     return getattr(value, key, default)
 
 
+# How long an invitee who accepted an invitation may take to press 確認加入
+# before the row is removed: the invitation link's own 24 hours (#134).
+PENDING_INVITEE_LIMIT = timedelta(hours=24)
+
+
 def iso_utc(value: datetime) -> str:
     if value.tzinfo is None:
         raise ValueError("timestamps must be timezone-aware")
@@ -996,13 +1001,32 @@ class VisitRepository:
         return changes == 1
 
     async def erase_settled_withdrawals(self) -> int:
+        """Withdrawn recipients, once no send to them is in flight.
+
+        Only a withdrawn row has `consented_at`: an invitee still on the consent
+        page is inactive too, but has not opted in, and is kept (#134).
+        """
         return await self._store.execute(
             Statement(
                 """DELETE FROM recipients
-                WHERE active = 0 AND NOT EXISTS (
+                WHERE active = 0 AND consented_at IS NOT NULL AND NOT EXISTS (
                     SELECT 1 FROM outbound_events
                     WHERE recipient_id = recipients.id AND outcome = 'in_flight'
                 )"""
+            )
+        )
+
+    async def remove_expired_pending_invitees(self, now: datetime) -> int:
+        """Invitees who accepted but never opted in within PENDING_INVITEE_LIMIT.
+
+        A pending invitee has never been selected for a visit or sent anything,
+        so nothing else waits on the row.
+        """
+        return await self._store.execute(
+            Statement(
+                """DELETE FROM recipients
+                WHERE active = 0 AND consented_at IS NULL AND created_at <= ?""",
+                (iso_utc(now - PENDING_INVITEE_LIMIT),),
             )
         )
 

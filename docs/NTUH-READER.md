@@ -89,7 +89,7 @@ Per clinic card the reader records `(visit_date, session, room, doctor, 診別, 
 
 ### Match contract
 
-Pre-flight matches on `(visit_date, session, room, doctor)` only. The schedule's `診別` vocabulary (`角膜`, `網膜`, `教學門診`, `葡萄膜炎`, `眼神經`, `眼整型`, …) is different from the visit-day card's `clinic_type` vocabulary (`醫師約診`, `特別門診`, `教學門診`, `日間手術`, `代診`), and the two sets overlap only on `教學門診`. The schedule's 診別 stays on the visit's stored `clinic_code` (for example `03/醫師/角膜`). A visit started or read on its day is matched to the day's card by the identification in Reading rules, so a visit started days ahead is read without any rewrite. A same-day Start that finds the card by room and doctor stores the card's own code; one that finds only a substitute card keeps the booked doctor's code.
+Pre-flight matches on `(visit_date, session, room, doctor)` only. The schedule's `診別` vocabulary (`角膜`, `網膜`, `教學門診`, `葡萄膜炎`, `眼神經`, `眼整型`, …) is different from the visit-day card's `clinic_type` vocabulary (`醫師約診`, `特別門診`, `教學門診`, `日間手術`, `代診`), and the two sets overlap only on `教學門診`. The schedule's 診別 stays on the visit's stored `clinic_code` (for example `03/醫師/角膜`) until a same-day Start resolves it. A visit started or read on its day is matched to the day's card by the identification in Reading rules; a same-day Start that finds the card by room and doctor updates the stored code to that card's code, while one that finds only a substitute card keeps the booked doctor's code.
 
 ### Status markers
 

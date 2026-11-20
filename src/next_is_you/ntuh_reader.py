@@ -193,8 +193,9 @@ class ScheduleRow:
     which uses a different vocabulary from the today-side light-table
     `clinic_type` (`醫師約診`, `特別門診` ...). Pre-flight validation matches on
     `(visit_date, session, room, doctor)` only, and the visit-day read finds
-    the card by room and doctor too (`_identify`), so the stored clinic_type
-    never has to be rewritten.
+    the card by room and doctor too (`_identify`). A same-day Start may update
+    the stored clinic code to the matched card's code; scheduled reads do not
+    depend on that update.
     """
 
     visit_date: date
@@ -692,7 +693,7 @@ class NtuhProgressReader:
         Matches on (session, room, doctor) and ignores the clinic type, because
         the schedule's 診別 and the light table's clinic type use different
         vocabularies. A matched answer carries the canonical clinic code of the
-        row found, so a same-day draft can be rewritten to what monitoring reads.
+        row found, so a same-day draft can be updated to what monitoring reads.
         A row marked `停診` or `颱風停診` answers as cancelled by the hospital.
         """
         if (

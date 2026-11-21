@@ -200,6 +200,27 @@ parse and its D1 work. With the request overhead taken out, one visit with a
 large page is about 5 to 14 ms, which is at the limit. Three visits are about 21
 to 26 ms, which is over it on every tick.
 
+**Deployed (Staging, not live).** Version `ac118822-e99e-4c3d-84c4-df6fe57416d5`
+(`main` at `15e5ad4`) was deployed by hand from the captain's Mac on
+2026-11-21, with the commands CI uses, after migration 0008 was applied and
+rehearsed. Staging was in a send interruption and held the 0008 rehearsal rows,
+including an active visit and a stopping visit, so the alarm stayed at 1 minute.
+`wrangler tail` ran from 16:45 to 17:02 UTC and caught 27 invocations. All of
+them ended `ok`:
+
+| Invocation | Samples | CPU ms |
+| --- | --- | --- |
+| Durable Object alarm (the tick) | 17 | 5 to 9, median 6 |
+| Durable Object `ensure_alarm` | 5 | 1 to 2 |
+| Worker `scheduled` (the watchdog Cron) | 5 | 4, 6, 8, 10, 12 |
+
+Every Durable Object invocation stayed at or below 10 ms. The alarm fired every
+minute, about a second after the previous one. The watchdog ran over once (12
+ms). That is harmless because it only calls `ensure_alarm()`, and it now runs
+every 5 minutes instead of every minute. One extra Cron fired at 16:47, right
+after the deploy, before the new `*/5` schedule took effect. A tick that is not
+live reads no hospital, so these figures still say nothing about a read.
+
 **Verdict for #163: go, with conditions.**
 
 - Captain decision (2026-11-21): for now, only one visit may be active or

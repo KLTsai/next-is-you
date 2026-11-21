@@ -74,15 +74,13 @@ class SystemSendGate(_DurableObjectBase):
         """Run one tick from the Durable Object alarm (ADR 0005).
 
         The next alarm is set before the tick runs, so a tick that is cut
-        short still leaves the chain in place.
+        short still leaves the chain in place. The slow alarm goes first, so
+        even a failed running-visit check leaves one.
         """
         tick_time = _datetime(now)
-        delay = (
-            ACTIVE_ALARM_DELAY
-            if await self._repository().has_running_visit()
-            else IDLE_ALARM_DELAY
-        )
-        await self.ctx.storage.setAlarm(_epoch_ms(tick_time + delay))
+        await self._set_alarm(tick_time + IDLE_ALARM_DELAY)
+        if await self._repository().has_running_visit():
+            await self._set_alarm(tick_time + ACTIVE_ALARM_DELAY)
         return await self.scheduled_tick(now)
 
     async def ensure_alarm(self, now: str | None = None) -> None:
@@ -92,7 +90,13 @@ class SystemSendGate(_DurableObjectBase):
         while calling it cannot leave D1 or a tick half done.
         """
         if await self.ctx.storage.getAlarm() is None:
-            await self.ctx.storage.setAlarm(_epoch_ms(_datetime(now)))
+            await self._set_alarm(_datetime(now))
+
+    async def _set_alarm(self, at: datetime, *, only_if_earlier: bool = False) -> None:
+        due = _epoch_ms(at)
+        current = await self.ctx.storage.getAlarm() if only_if_earlier else None
+        if current is None or current > due:
+            await self.ctx.storage.setAlarm(due)
 
     async def scheduled_tick(self, now: str | None = None) -> dict[str, Any]:
         result = await self._scheduled_tick(_datetime(now), now is not None)
@@ -240,17 +244,6 @@ class SystemSendGate(_DurableObjectBase):
     async def start_visit(
         self, visit_id: str, now: str | None = None
     ) -> dict[str, Any]:
-        timestamp = _datetime(now)
-        result = await self._start_visit(visit_id, timestamp)
-        if result == {"state": "active"}:
-            # The reader's cadence starts now, not at the next idle alarm.
-            due = _epoch_ms(timestamp + ACTIVE_ALARM_DELAY)
-            current = await self.ctx.storage.getAlarm()
-            if current is None or current > due:
-                await self.ctx.storage.setAlarm(due)
-        return result
-
-    async def _start_visit(self, visit_id: str, timestamp: datetime) -> dict[str, Any]:
         """Start only after the gate obtains a fresh trusted exact-scope sample.
 
         A visit_date in the past is refused first. Then the hospital's source
@@ -262,8 +255,16 @@ class SystemSendGate(_DurableObjectBase):
         hospital has no schedule, so it skips that check and is refused on any
         day before the visit day, with nothing stored. Future-dated drafts that
         match transition to active without a live observation; the scheduler
-        polls them on visit day.
+        polls them on visit day. A started visit brings the next alarm within a
+        minute, so the reader's cadence starts now (ADR 0005).
         """
+        timestamp = _datetime(now)
+        result = await self._start_visit(visit_id, timestamp)
+        if result.get("state") == "active":
+            await self._set_alarm(timestamp + ACTIVE_ALARM_DELAY, only_if_earlier=True)
+        return result
+
+    async def _start_visit(self, visit_id: str, timestamp: datetime) -> dict[str, Any]:
         async with self._lock:
             repository = self._repository()
             visit = await repository.get_visit(visit_id)

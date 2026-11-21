@@ -1301,18 +1301,17 @@ async def finished_visit_with_history(database: LocalD1) -> SystemSendGate:
 
 
 @pytest.mark.asyncio
-async def test_a_change_to_a_finished_visits_history_does_not_hold_sending() -> None:
+async def test_a_change_to_a_finished_visits_history_still_holds_sending() -> None:
     database = LocalD1()
     gate = await finished_visit_with_history(database)
 
-    # A finished visit can never send again, so its history is outside the check.
-    database.connection.execute(
-        "UPDATE outbound_events SET error_code = 'edited' WHERE visit_id = 'done'"
-    )
+    # A correction reopens a finished visit with this history as its dedupe, so
+    # a restore that rewinds it must still be caught.
+    database.connection.execute("DELETE FROM outbound_events WHERE visit_id = 'done'")
     result = await tick(gate, "2026-09-27T13:02:00Z")
 
-    assert result["held"] is False
-    assert await gate.sending_interrupted() is False
+    assert result["held"] is True
+    assert await gate.sending_interrupted() is True
 
 
 @pytest.mark.asyncio
@@ -1326,3 +1325,22 @@ async def test_a_finished_visit_restored_to_active_still_holds_sending() -> None
 
     assert result["held"] is True
     assert await gate.sending_interrupted() is True
+
+
+class FailingRunningVisitCheckD1(LocalD1):
+    def prepare(self, sql: str) -> Prepared:
+        if "state IN ('active', 'stopping') LIMIT 1" in sql:
+            raise RuntimeError("check failed")
+        return super().prepare(sql)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_running_visit_check_still_leaves_the_slow_alarm() -> None:
+    database = FailingRunningVisitCheckD1()
+    storage = LocalDurableStorage()
+    gate = make_gate(database, storage)
+
+    with pytest.raises(RuntimeError, match="check failed"):
+        await gate.alarm_tick("2026-09-27T13:00:00Z")
+
+    assert storage.alarm == epoch_ms("2026-09-27T13:05:00Z")

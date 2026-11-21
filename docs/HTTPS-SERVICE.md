@@ -85,6 +85,68 @@ The 2026-10-03 native dry run with pywrangler 1.17.4 / Wrangler 4.147.0 reported
 No deployed CPU, startup latency, memory, quota usage or provider measurements
 are available. Local wall-clock test timing is not a Free-plan CPU measurement.
 
+### Detail-page reader CPU check (Issue #162, 2026-11-21)
+
+Question: does reading NTUH's per-clinic detail page every 2 minutes
+([#136](https://github.com/KLTsai/next-is-you/issues/136)) fit the Free plan's
+10 ms CPU per invocation? Two measurements, each labelled with what it is.
+
+**Deployed (Staging, held tick only).** `wrangler tail` on Staging for 14
+minutes on 2026-11-21 (about 15:14 +08:00) caught 15 minute Cron ticks. Staging
+runs version `1d437b55-249e-4000-b4d0-d296c5ccf6f0`, uploaded 2026-11-20
+09:54 UTC. The deployment records no commit; the upload is later than #157
+(`53553b9`) and earlier than #158's merge, so it does not hold #158. A held tick
+returns before any hospital read, so this is the cost of the tick without a
+reader. Every invocation ended `ok`. CPU time per invocation, in whole ms as
+`wrangler tail` reports it:
+
+| Invocation | Samples | Min | Median | Max | Above 10 ms |
+| --- | --- | --- | --- | --- | --- |
+| Worker `scheduled` (Cron handler) | 15 | 5 | 14 | 27 | 11 of 15 |
+| Durable Object `scheduled_tick` | 15 | 3 | 3 | 8 | 0 of 15 |
+
+**Local integration (local workerd, not a Free-plan measurement).** Parse cost
+inside the real Python runtime. `pywrangler dev --local` with
+`wrangler.niy006.test.jsonc`, one seeded active visit, the test hospital reader
+patched for the run to parse an embedded detail page, then 1,000 full ticks
+(lifecycle, a faked hospital read, the parse, evaluation) driven through the
+test endpoints after 10 warm-up ticks. The figure is the CPU of the whole
+`workerd` process divided by the ticks, so it includes the two test HTTP
+requests per tick and is only useful as a difference. Three runs each, ms per
+tick:
+
+| Page parsed | Run 1 | Run 2 | Run 3 | Added by the parse |
+| --- | --- | --- | --- | --- |
+| None | 17.7 | 18.3 | 18.5 | baseline |
+| 11 KB, 3 numbers (median of the 361 pages captured on 2026-11-20) | 20.0 | 20.3 | 22.8 | about 3 ms |
+| 53 KB, 57 numbers (largest of them) | 26.0 | 23.3 | 24.4 | about 6 ms |
+
+The fixture pages were synthetic pages padded to those sizes. The patch and the
+measuring script were thrown away after the run. The parser itself passes
+against synthetic fixtures (`tests/test_ntuh_detail.py`) and, run locally and
+not committed, parsed all 361 captured pages.
+
+**Verdict: stop.** The detail-page reader is not shown to fit the Free plan:
+
+- The held tick alone has a Worker invocation above 10 ms in 11 of 15 samples
+  (median 14 ms, maximum 27 ms), before any hospital read.
+- The parse adds roughly 3 ms for a typical page and 6 ms for the largest, on
+  top of the Durable Object invocation's 3 to 8 ms, the hospital read, its D1
+  work and the evaluation.
+- Staging ended every one of these invocations `ok` even above 10 ms. Whether
+  the Free plan enforces the limit on them is not observed, so the held numbers
+  do not prove a failure either. The choice belongs to the captain
+  ([#136](https://github.com/KLTsai/next-is-you/issues/136): stop and bring the
+  choice; no paid upgrade).
+
+Captain decision (2026-11-21): bring CPU under the limit first, on the Free plan,
+in [#170](https://github.com/KLTsai/next-is-you/issues/170), which now blocks
+#163. Research: [`research/workers-free-cpu-limit-2026-11-21.md`](../research/workers-free-cpu-limit-2026-11-21.md).
+
+The deployed CPU of a reading tick is not measured here. It is left to #22 ("One
+run watches 3 visits at once and records CPU" in
+[`PRE-LIVE-CHECKLIST.md`](PRE-LIVE-CHECKLIST.md)).
+
 Proposed origin: `https://<approved-worker-name>.<owner-subdomain>.workers.dev`.
 [Cloudflare documents](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/)
 that this origin is public, suitable for personal/hobby use, and recommends custom

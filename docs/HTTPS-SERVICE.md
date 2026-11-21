@@ -139,6 +139,10 @@ not committed, parsed all 361 captured pages.
   ([#136](https://github.com/KLTsai/next-is-you/issues/136): stop and bring the
   choice; no paid upgrade).
 
+Captain decision (2026-11-21): bring CPU under the limit first, on the Free plan,
+in [#170](https://github.com/KLTsai/next-is-you/issues/170), which now blocks
+#163. Research: [`research/workers-free-cpu-limit-2026-11-21.md`](../research/workers-free-cpu-limit-2026-11-21.md).
+
 The deployed CPU of a reading tick is not measured here. It is left to #22 ("One
 run watches 3 visits at once and records CPU" in
 [`PRE-LIVE-CHECKLIST.md`](PRE-LIVE-CHECKLIST.md)).

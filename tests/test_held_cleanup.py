@@ -104,7 +104,9 @@ async def set_by_hand(gate: SystemSendGate, _database: LocalD1) -> None:
 async def ledger_changed_outside_the_gate(
     gate: SystemSendGate, database: LocalD1
 ) -> None:
-    database.connection.execute("UPDATE visits SET patient_number = 91 WHERE id = 'v1'")
+    # A restore brings the stopped visit back to active: it could send again.
+    # (A change that leaves it stopped is outside the ledger, #170.)
+    database.connection.execute("UPDATE visits SET state = 'active' WHERE id = 'v1'")
 
 
 @pytest.mark.asyncio

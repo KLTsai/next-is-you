@@ -271,7 +271,13 @@ class VisitRepository:
         exclude_event_id: str | None = None,
         allow_stopping_visit_id: str | None = None,
     ) -> str:
-        """Fingerprint D1 state that can affect future sends or sent-event dedupe."""
+        """Fingerprint D1 state that can affect future sends or sent-event dedupe.
+
+        Only active and stopping visits can still send, so finished visits and
+        their history stay outside it and the cost does not grow with retained
+        history. A restore that brings a visit back to active or stopping
+        changes the fingerprint and is still caught.
+        """
         visit_rows = await self._store.fetch_all(
             Statement(
                 """SELECT id, hospital, visit_date, department_code, clinic_code,
@@ -279,7 +285,7 @@ class VisitRepository:
                     roster_frozen, consecutive_unusable_reads, near_last_current_number,
                     near_prev_observed_number, latest_observed_at, started_at,
                     stopped_at, delete_after
-                FROM visits WHERE state != 'draft' ORDER BY id"""
+                FROM visits WHERE state IN ('active', 'stopping') ORDER BY id"""
             )
         )
         recipient_rows = await self._store.fetch_all(
@@ -289,18 +295,21 @@ class VisitRepository:
                 FROM visit_recipients AS vr
                 JOIN visits AS v ON v.id = vr.visit_id
                 JOIN recipients AS r ON r.id = vr.recipient_id
-                WHERE v.state != 'draft'
+                WHERE v.state IN ('active', 'stopping')
                 ORDER BY vr.visit_id, r.id"""
             )
         )
-        event_sql = """SELECT id, visit_id, recipient_id, event_kind, retry_key,
-                    payload_json, outcome, created_at, request_started_at, settled_at,
-                    error_code, first_request_at, attempt_count
-                FROM outbound_events"""
+        event_sql = """SELECT e.id, e.visit_id, e.recipient_id, e.event_kind,
+                    e.retry_key, e.payload_json, e.outcome, e.created_at,
+                    e.request_started_at, e.settled_at, e.error_code,
+                    e.first_request_at, e.attempt_count
+                FROM outbound_events AS e
+                JOIN visits AS v ON v.id = e.visit_id
+                WHERE v.state IN ('active', 'stopping')"""
         event_statement = (
-            Statement(f"{event_sql} WHERE id != ? ORDER BY id", (exclude_event_id,))
+            Statement(f"{event_sql} AND e.id != ? ORDER BY e.id", (exclude_event_id,))
             if exclude_event_id is not None
-            else Statement(f"{event_sql} ORDER BY id")
+            else Statement(f"{event_sql} ORDER BY e.id")
         )
         event_rows = await self._store.fetch_all(event_statement)
         visit_payload = []
@@ -318,6 +327,15 @@ class VisitRepository:
             payload, sort_keys=True, separators=(",", ":"), default=str
         )
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    async def has_running_visit(self) -> bool:
+        """Whether any visit is active or stopping, so ticks must keep coming."""
+        rows = await self._store.fetch_all(
+            Statement(
+                "SELECT 1 FROM visits WHERE state IN ('active', 'stopping') LIMIT 1"
+            )
+        )
+        return bool(rows)
 
     async def active_schedule_rows(self) -> list[Mapping[str, Any]]:
         """Return active visit and eligible recipient pairs for one serialized tick."""

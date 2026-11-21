@@ -176,3 +176,21 @@ def test_page_without_the_progress_list_is_a_schema_failure(html: str) -> None:
 )
 def test_challenge_and_denial_pages_are_named(body: str, status: str) -> None:
     assert parse_detail_page(f"<html><body>{body}</body></html>") == (status, None)
+
+
+def test_markup_outside_the_progress_region_is_not_read() -> None:
+    page = _page("ntuh_detail_number_order.html")
+    stray = (
+        '<div class="progress-number">099<span class="checkIn-tag">已報到</span></div>'
+    )
+    # After the legend, outside the region the parser reads (#170).
+    outside = page.replace("</body>", stray + "</body>")
+
+    assert _observation(outside) == _observation(page)
+
+
+def test_page_without_the_region_wrapper_is_still_read_in_full() -> None:
+    page = _page("ntuh_detail_number_order.html")
+    unwrapped = page.replace('class="clinic-modal-progress"', 'class="other"')
+
+    assert _observation(unwrapped) == _observation(page)

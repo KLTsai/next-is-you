@@ -903,6 +903,9 @@ def create_app(
             return Response(status_code=204)
         if operation == "tick":
             return JSONResponse(await gate.scheduled_tick(str(body["now"])))
+        if operation == "alarm":
+            # Fires the alarm now instead of waiting for it (ADR 0005).
+            return JSONResponse(await gate.alarm_tick())
         if operation == "snapshot":
             return JSONResponse(await gate.test_snapshot())
         if operation == "correct-watch":
@@ -1200,10 +1203,20 @@ def _clear_session_cookies(response: Response) -> None:
 
 app = create_app()
 
+
+async def run_cron(env: Any) -> None:
+    """The Cron is only a watchdog for the send gate's alarm (ADR 0005).
+
+    The alarm runs every tick. A Cron invocation cut short here cannot cancel
+    or split a tick, because it never waits on one.
+    """
+    gate = _binding_value(env, "SEND_GATE").getByName("next-is-you-system")
+    await gate.ensure_alarm()
+
+
 if asgi is not None:
     ASGIEntrypoint = asgi.entrypoint(app)
 
     class Default(ASGIEntrypoint):
         async def scheduled(self, controller, env, ctx):
-            gate = self.env.SEND_GATE.getByName("next-is-you-system")
-            await gate.scheduled_tick()
+            await run_cron(self.env)

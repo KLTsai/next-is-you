@@ -57,8 +57,11 @@ NIY_REHEARSAL_STATE=.wrangler/my-rehearsal NIY_REHEARSAL_PORT=8788 npm run dev:r
 
 Keep the same state location and port when restarting that journey. Adjust the
 URLs below if using another port. Do not point this command at a live dataset.
-Local scheduled events are invoked manually; Wrangler does not run Cron on a
-local timer. No extra scheduler process is needed.
+The send gate's alarm drives each tick ([ADR 0005](adr/0005-scheduler-tick-runs-from-a-durable-object-alarm.md)).
+Locally it fires on its own timer, as it does when deployed: every minute while a
+visit is active or stopping, every 5 minutes otherwise. Wrangler does not run Cron
+on a local timer. To run a tick right away, `POST /__niy006_test/alarm`. No extra
+scheduler process is needed.
 
 ## Prepare the synthetic recipient once
 
@@ -116,13 +119,13 @@ Expected: **監控中** after API confirmation.
 The synthetic reader returns a fresh observation matching the visit scope; it
 does not prove real hospital freshness.
 
-For patient number `85`, set a near observation at `82` and invoke the native hook:
+For patient number `85`, set a near observation at `82` and run the alarm now:
 
 ```sh
 curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/observation \
   -H 'content-type: application/json' \
   --data '{"current_number":82,"trustworthy":true}'
-curl --fail-with-body http://127.0.0.1:8787/cdn-cgi/local/scheduled
+curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/alarm
 curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/snapshot \
   -H 'content-type: application/json' --data '{}'
 ```

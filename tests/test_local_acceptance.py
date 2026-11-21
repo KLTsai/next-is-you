@@ -93,6 +93,14 @@ class LocalStorage:
     async def put(self, key: str, value: Any) -> None:
         self.values[key] = value
 
+    async def getAlarm(self) -> int | None:
+        return self.alarm
+
+    async def setAlarm(self, scheduled_time: int) -> None:
+        self.alarm = scheduled_time
+
+    alarm: int | None = None
+
 
 class LocalContext:
     def __init__(self) -> None:

@@ -68,7 +68,11 @@ The list card links to `ClinicCurrentLightNoDetail?ServiceIDSE=<id>`, a public p
 
 - It shows the current light with a flag (過號, 檢查號, 報到順序NN), 已叫最大號, 預計叫號 with a type ((順號), (過號), (報到NN), (無)), and the status of every number not yet finished: 未報到, 已報到 (報到N in check-in-order clinics), 初診 or 看診中. Its legend says a number below the highest called that has not checked in has been passed.
 - The card's current light was not the queue front in any clinic read: 09診 showed 022 with 已叫最大號 080, and a 內科 clinic's card went 022, 042, 008 within an hour while its highest called stayed at 025.
-- Finished numbers appear to drop off the list. No page says 已看診, 完診, 停診 or 休診, and none shows a start time or session.
+- Finished numbers drop off the list, but checked-in numbers also left before
+  their turn (敬老號, cancellations, transfers: 22 on 2026-11-20) and none came
+  back. A page is not cleared after its session: leftover numbers and a frozen
+  highest called stayed until 17:25. No page says 已看診, 完診, 停診 or 休診,
+  and none shows a start time or session.
 - The page shows department, room and doctor, but not the date, session or clinic type, so identity comes only from the list card that links to it.
 - `ServiceIDSE` is one per card per day: the same ID all day from 00:40, two IDs for one doctor with two cards, and absent from the clinic schedule pages. It is never stored beyond its day.
 - The department list has no sub-specialty: a 胃腸肝膽 clinic is just a 內科 card.

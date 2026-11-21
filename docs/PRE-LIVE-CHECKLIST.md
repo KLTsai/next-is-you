@@ -23,10 +23,10 @@ Staging is used by the captain alone. No family member is invited to it.
 - [ ] #137: at most 5 retries of an unknown LINE outcome, and the monthly-limit
   `429` handled.
 - [ ] #138: a visit ends when its clinic ends.
-- [ ] #130: the real reason a Start or daily recheck fails, and the invalid-visit
-  rule the resume page lists.
-- [ ] #142: the live switch, captain-only interrupt and resume, the resume page,
-  the interruption alert and the last tick time.
+- [ ] #130: the real reason a Start or daily recheck fails (built through #144
+  and its slices).
+- [ ] #142: the live switch, captain-only interrupt and resume (the banner's
+  恢復發送 LINE 通知 button), the interruption alert and the last tick time.
 - [ ] Hospital access rules are written in
   [ADDING-A-HOSPITAL.md](ADDING-A-HOSPITAL.md#source-access-rules). The
   hospital is not contacted.
@@ -68,10 +68,11 @@ Staging is used by the captain alone. No family member is invited to it.
     number chosen ahead of the highest called. One run watches 3 visits at once
     and records CPU and request headroom.
   - At least one visit uses a real appointment (the captain's, or a consenting
-    relative's), so the "about 8" and "about 5 people ahead" reminders are seen.
+    relative's with the captain as the only recipient), so the "about 8" and "about 5 people ahead" reminders are seen.
   - Edge cases (passed, check-in order, unavailable source, number gone from the
     list) are covered by fixtures.
-- [ ] #131: the security baseline before the first family member is invited.
+- [ ] #131: the security baseline, grilled after #22 passes and finished before
+  Production goes live, because release day invites family members.
 - [ ] #139: the agreed words on screen.
 - [ ] Production's LINE setup: its Official Account and Messaging API channel
   under the same provider as its Login channel, the Login channel Published, and
@@ -87,7 +88,8 @@ Staging is used by the captain alone. No family member is invited to it.
 1. Record a restore point if the version applies migrations (#111).
 2. Promote.
 3. The captain checks production's send interruption (in place since
-   2026-10-27) on the resume page and resumes sending.
+   2026-10-27) on the organizer page banner and resumes sending with
+   恢復發送 LINE 通知.
 4. The captain sets up the first visit with themself as a recipient and
    confirms it reaches the handset.
 5. The captain invites family members as recipients. The captain stays the only

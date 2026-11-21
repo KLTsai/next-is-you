@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alarm Tick Prototype</title>
+<style>
+  :root {
+    --bg: #fbfaf7; --panel: #ffffff; --ink: #1f2328; --muted: #6a6f76;
+    --line: #e3e0d8; --accent: #2f6fdf; --accent-soft: #e6eefc;
+    --ok: #1d7a46; --ok-soft: #e3f3e9; --bad: #b4232c; --bad-soft: #fbe6e7;
+    --warn: #8a5a00; --warn-soft: #fbf0d9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181c; --panel: #1e2126; --ink: #e8e6e1; --muted: #9aa0a6;
+      --line: #33373e; --accent: #7aa7ff; --accent-soft: #233150;
+      --ok: #6fd39a; --ok-soft: #1c3528; --bad: #ff8a90; --bad-soft: #3d2226;
+      --warn: #f0c060; --warn-soft: #3a3020;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 -apple-system, "PingFang TC", "Noto Sans TC", system-ui, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 32px 0 12px; }
+  h3 { font-size: 15px; margin: 0 0 8px; }
+  p { margin: 0 0 10px; }
+  .muted { color: var(--muted); }
+  .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px;
+    background: var(--warn-soft); color: var(--warn); margin-bottom: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+  .question { border-left: 3px solid var(--accent); padding-left: 12px; }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { fill: var(--ink); font-size: 13px; font-family: inherit; }
+  svg .sub { fill: var(--muted); font-size: 11px; }
+  svg .box { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+  svg .box.hot { stroke: var(--accent); stroke-width: 2; fill: var(--accent-soft); }
+  svg .box.risk { stroke: var(--bad); stroke-width: 2; fill: var(--bad-soft); }
+  svg .arrow { stroke: var(--muted); stroke-width: 1.5; fill: none; marker-end: url(#ah); }
+  svg .arrow.hot { stroke: var(--accent); stroke-width: 2; marker-end: url(#ahHot); }
+  svg .arrow.risk { stroke: var(--bad); stroke-width: 2; stroke-dasharray: 5 4; marker-end: url(#ahRisk); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .yes { color: var(--ok); font-weight: 600; } .no { color: var(--bad); font-weight: 600; }
+  .seg { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  button { font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+  button:hover { border-color: var(--accent); }
+  button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.fault { border-color: var(--bad); color: var(--bad); }
+  button:disabled { opacity: .4; cursor: default; }
+  .state { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .field { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .field .k { font-size: 12px; color: var(--muted); }
+  .field .v { font-size: 16px; font-weight: 600; }
+  .field.changed { border-color: var(--accent); background: var(--accent-soft); }
+  .field.alert .v { color: var(--bad); }
+  .log { font-size: 13px; max-height: 260px; overflow-y: auto; margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .log div { padding: 2px 0; }
+  .log .new { font-weight: 600; }
+  .log .bad { color: var(--bad); } .log .good { color: var(--ok); }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .steps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .steps button.done { opacity: .45; }
+  .steps button.next { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .watch { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 8px 10px; font-size: 14px; margin-top: 8px; }
+  ol.guide li { margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <span class="tag">PROTOTYPE - 用完即丟，只為回答一個問題</span>
+  <h1>#170 第 1 項：用 DO alarm 驅動 tick</h1>
+  <p class="question">要回答的問題：<b>把「每分鐘 Cron 經 Worker 跑 tick」改成「DO alarm 自己跑 tick，Cron 每 5 分鐘只當看門狗」，在 Worker 被砍、tick 被砍、alarm 跑兩次、alarm 遺失時，提醒會不會斷、會不會重複寄、會不會卡住？</b></p>
+  <p class="muted">這是模擬，不是真的程式：時間以「分鐘」前進，CPU 被砍用按鈕注入。第 4 節最上排可以切換三種設計比較，第 5 節有照步驟按的引導情境。</p>
+
+  <h2>1. 架構圖</h2>
+  <div class="grid2">
+    <div class="card">
+      <h3>現在（舊）：警衛在廚房門口等菜做完</h3>
+      <svg viewBox="0 0 460 300" role="img" aria-label="舊架構">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker>
+          <marker id="ahHot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker>
+          <marker id="ahRisk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--bad)"/></marker>
+        </defs>
+        <rect class="box" x="10" y="20" width="130" height="50" rx="8"/>
+        <text x="75" y="42" text-anchor="middle">Cloudflare Cron</text>
+        <text x="75" y="60" text-anchor="middle" class="sub">每 1 分鐘</text>
+        <rect class="box risk" x="10" y="120" width="130" height="60" rx="8"/>
+        <text x="75" y="142" text-anchor="middle">Python Worker</text>
+        <text x="75" y="158" text-anchor="middle" class="sub">scheduled()</text>
+        <text x="75" y="172" text-anchor="middle" class="sub">5-27 ms，常超標</text>
+        <rect class="box" x="230" y="110" width="210" height="80" rx="8"/>
+        <text x="335" y="134" text-anchor="middle">DO SystemSendGate</text>
+        <text x="335" y="152" text-anchor="middle" class="sub">scheduled_tick()</text>
+        <text x="335" y="168" text-anchor="middle" class="sub">鎖、帳本檢查、讀醫院、寄送</text>
+        <rect class="box" x="230" y="240" width="60" height="40" rx="8"/><text x="260" y="265" text-anchor="middle">D1</text>
+        <rect class="box" x="305" y="240" width="60" height="40" rx="8"/><text x="335" y="265" text-anchor="middle">台大</text>
+        <rect class="box" x="380" y="240" width="60" height="40" rx="8"/><text x="410" y="265" text-anchor="middle">LINE</text>
+        <path class="arrow" d="M75,70 L75,118"/>
+        <path class="arrow risk" d="M140,150 L228,150"/>
+        <text x="184" y="140" text-anchor="middle" class="sub" style="fill:var(--bad)">RPC 等待</text>
+        <path class="arrow" d="M260,190 L260,238"/><path class="arrow" d="M335,190 L335,238"/><path class="arrow" d="M410,190 L410,238"/>
+        <text x="20" y="225" class="sub" style="fill:var(--bad)">Worker 被砍 → 正在等的</text>
+        <text x="20" y="241" class="sub" style="fill:var(--bad)">DO tick 可能被取消，</text>
+        <text x="20" y="257" class="sub" style="fill:var(--bad)">D1 寫到一半</text>
+      </svg>
+    </div>
+    <div class="card">
+      <h3>定案（新）：計時器叫醒廚師，警衛只巡邏</h3>
+      <svg viewBox="0 0 490 300" role="img" aria-label="新架構">
+        <rect class="box" x="10" y="20" width="130" height="50" rx="8"/>
+        <text x="75" y="42" text-anchor="middle">Cloudflare Cron</text>
+        <text x="75" y="60" text-anchor="middle" class="sub">每 5 分鐘（看門狗）</text>
+        <rect class="box" x="10" y="120" width="130" height="60" rx="8"/>
+        <text x="75" y="142" text-anchor="middle">Python Worker</text>
+        <text x="75" y="158" text-anchor="middle" class="sub">只呼叫 ensure_alarm()</text>
+        <text x="75" y="172" text-anchor="middle" class="sub">被砍也無妨</text>
+        <rect class="box hot" x="230" y="20" width="210" height="50" rx="8"/>
+        <text x="335" y="42" text-anchor="middle">DO alarm（計時器）</text>
+        <text x="335" y="60" text-anchor="middle" class="sub">有 visit 每 1 分、沒有每 5 分</text>
+        <rect class="box" x="230" y="110" width="210" height="80" rx="8"/>
+        <text x="335" y="132" text-anchor="middle">DO SystemSendGate</text>
+        <text x="335" y="150" text-anchor="middle" class="sub">alarm(): ① 先排下一次</text>
+        <text x="335" y="166" text-anchor="middle" class="sub">② 再跑同一個 tick</text>
+        <text x="335" y="182" text-anchor="middle" class="sub">start_visit() 也會設 alarm</text>
+        <rect class="box" x="230" y="240" width="60" height="40" rx="8"/><text x="260" y="265" text-anchor="middle">D1</text>
+        <rect class="box" x="305" y="240" width="60" height="40" rx="8"/><text x="335" y="265" text-anchor="middle">台大</text>
+        <rect class="box" x="380" y="240" width="60" height="40" rx="8"/><text x="410" y="265" text-anchor="middle">LINE</text>
+        <path class="arrow" d="M75,70 L75,118"/>
+        <path class="arrow" d="M140,140 C190,140 190,60 228,50"/>
+        <text x="178" y="100" text-anchor="middle" class="sub">沒有才補</text>
+        <path class="arrow hot" d="M335,70 L335,108"/>
+        <path class="arrow hot" d="M440,150 C480,150 480,45 444,45"/>
+        <text x="462" y="94" class="sub" style="fill:var(--accent)" text-anchor="end">排下一次</text>
+        <path class="arrow" d="M260,190 L260,238"/><path class="arrow" d="M335,190 L335,238"/><path class="arrow" d="M410,190 L410,238"/>
+        <text x="20" y="225" class="sub">tick 由平台叫醒，沒有</text>
+        <text x="20" y="241" class="sub">「呼叫端」可以斷線，</text>
+        <text x="20" y="257" class="sub">Worker 被砍牽連不到</text>
+      </svg>
+    </div>
+  </div>
+
+  <h2>2. 為什麼是這個 solution（四步看懂）</h2>
+  <div class="card">
+    <ol class="guide">
+      <li><b>問題在哪：</b>Free 方案每次呼叫只有 10 ms CPU。Staging 量到 Python Worker 光是被 Cron 叫起來就要 5-27 ms（中位數 14），15 次有 11 次超標。偶爾超標會被放過，持續超標會被砍。</li>
+      <li><b>被砍為什麼危險：</b>舊做法的 Worker 會「等」DO 把 tick 做完。Cloudflare 文件說，等待的一方斷線，被呼叫的 DO 工作可能被取消。tick 裡有大約 6 個獨立的 D1 寫入，停在中間，下一次帳本對不上，系統就整個暫停等你處理。</li>
+      <li><b>解法一：讓 tick 不再有「等待的人」。</b>tick 改由 DO 自己的 alarm 叫醒。Worker 只負責「alarm 不在就補一個」，這個動作只碰 DO 自己的計時器，被砍了下次再補就好。</li>
+      <li><b>解法二：alarm 先排好下一次再工作。</b>就算這次 tick 被砍，下一次已經排在 1 分鐘後，提醒最多晚 1 分鐘，不用等 5 分鐘一次的看門狗。</li>
+    </ol>
+    <p class="muted">還剩什麼：如果 DO 的 tick 本身在兩個 D1 寫入之間被砍，三種設計都會暫停。這要靠 #170 第 2 項（縮小帳本檢查）和第 3 項（只解析需要的區塊）把 tick 壓在 10 ms 內，不是第 1 項能解的。下面的模擬可以親手看到。</p>
+  </div>
+
+  <h2>3. 三種設計比較</h2>
+  <div class="card" style="overflow-x:auto">
+    <table style="min-width:640px">
+      <tr><th>情況</th><th>舊：每分鐘 Cron 跑 tick</th><th>天真版：alarm 做完才排下一次</th><th>定案：alarm 先排下一次</th></tr>
+      <tr><td>Worker 被砍</td><td class="no">tick 可能被取消，暫停</td><td class="yes">無影響</td><td class="yes">無影響</td></tr>
+      <tr><td>tick 讀醫院時被砍</td><td>下一分鐘 Cron 再來</td><td class="no">alarm 鏈斷，等看門狗最多 5 分</td><td class="yes">1 分鐘後照常</td></tr>
+      <tr><td>alarm 跑兩次</td><td>不適用</td><td class="yes">鎖與 retry key 擋下</td><td class="yes">鎖與 retry key 擋下</td></tr>
+      <tr><td>alarm 遺失</td><td>不適用</td><td>看門狗最多 5 分補回</td><td>看門狗最多 5 分補回</td></tr>
+      <tr><td>tick 在兩個寫入間被砍</td><td class="no">暫停</td><td class="no">暫停</td><td class="no">暫停（交給第 2、3 項）</td></tr>
+      <tr><td>每天 Python Worker 呼叫</td><td>1440 次</td><td>288 次</td><td>288 次</td></tr>
+    </table>
+  </div>
+
+  <h2>4. 親手模擬</h2>
+  <div class="card">
+    <div class="seg" id="designs"></div>
+    <div class="state" id="state"></div>
+    <h3 style="margin-top:16px">自由操作</h3>
+    <div class="seg" id="free"></div>
+    <div class="seg" id="faults"></div>
+    <div class="log" id="log"></div>
+  </div>
+
+  <h2>5. 引導情境</h2>
+  <div class="card">
+    <div class="tabs" id="tabs"></div>
+    <div id="scenario"></div>
+  </div>
+</main>
+
+<script>
+// ---- Pure model: (state, action) => state. No DOM in here. ----
+const Model = (() => {
+  const DESIGNS = {
+    old: '舊：每分鐘 Cron 跑 tick',
+    naive: '天真版：alarm 做完才排下一次',
+    final: '定案：alarm 先排下一次',
+  };
+  const WATCHDOG_EVERY = 5;
+
+  function initial(design) {
+    return {
+      design, now: 0, active: 0, stopping: 0,
+      alarmAt: design === 'old' ? null : WATCHDOG_EVERY,
+      hold: false, fault: null,
+      workerCalls: 0, doCalls: 0, reads: 0, dupBlocked: 0,
+      lastServedAt: null, maxGap: 0,
+      log: [{ t: 0, text: '開始：' + DESIGNS[design], kind: '' }],
+    };
+  }
+
+  const nextDelay = s => (s.active + s.stopping > 0 ? 1 : WATCHDOG_EVERY);
+
+  function runTick(s, out) {
+    if (s.hold) { out.push(['暫停中（recovery hold）：tick 什麼都不做，等你手動處理', 'bad']); return; }
+    if (s.stopping > 0) { out.push([`把 ${s.stopping} 個停止中的 visit 收尾`, '']); s.stopping = 0; }
+    if (s.active > 0) {
+      s.reads += 1; s.lastServedAt = s.now;
+      out.push([`讀醫院、需要時寄提醒（${s.active} 個進行中）`, 'good']);
+    } else {
+      out.push(['沒有進行中的 visit：只跑雜務（草稿、到期刪除）', '']);
+    }
+  }
+
+  function fireAlarm(s, out) {
+    s.doCalls += 1; s.alarmAt = null;
+    out.push(['DO alarm 響了', '']);
+    if (s.design === 'final') {
+      s.alarmAt = s.now + nextDelay(s);
+      out.push([`① 先排好下一次：第 ${s.alarmAt} 分`, 'good']);
+    }
+    const fault = s.fault; s.fault = null;
+    if (fault === 'killTickEarly' && !s.hold) {
+      out.push(['tick 讀醫院時 CPU 超標被砍（還沒寫入，資料沒事）', 'bad']);
+      if (s.design === 'naive') out.push(['天真版還沒排下一次：alarm 鏈斷了，只能等看門狗', 'bad']);
+      return;
+    }
+    if (fault === 'killTickMidWrites' && !s.hold) {
+      s.hold = true;
+      out.push(['tick 在兩個 D1 寫入之間被砍：下次帳本對不上，進入暫停', 'bad']);
+      if (s.design === 'naive') s.alarmAt = s.now + nextDelay(s);
+      return;
+    }
+    runTick(s, out);
+    if (s.design === 'naive') {
+      s.alarmAt = s.now + nextDelay(s);
+      out.push([`做完才排下一次：第 ${s.alarmAt} 分`, '']);
+    }
+    if (fault === 'doubleAlarm') {
+      s.doCalls += 1; s.dupBlocked += 1;
+      out.push(['同一個 alarm 又跑了一次：鎖與 retry key 擋下，沒有重複寄送', 'good']);
+    } else if (fault) {
+      s.fault = fault; // fault not applicable this minute, keep it armed
+    }
+  }
+
+  function advance(s) {
+    s.now += 1;
+    const out = [];
+    if (s.design === 'old') {
+      s.workerCalls += 1;
+      out.push(['Cron 叫醒 Python Worker，Worker 用 RPC 等 DO 跑 tick', '']);
+      if (s.fault === 'killWorker') {
+        s.fault = null; s.doCalls += 1;
+        if (!s.hold) { s.hold = true; out.push(['Worker CPU 超標被砍，正在等的 DO tick 被取消，D1 寫到一半 → 暫停', 'bad']); }
+      } else if (s.fault === 'killTickEarly') {
+        s.fault = null; s.doCalls += 1;
+        out.push(['tick 讀醫院時被砍（還沒寫入）；下一分鐘 Cron 會再來', 'bad']);
+      } else if (s.fault === 'killTickMidWrites') {
+        s.fault = null; s.doCalls += 1; s.hold = true;
+        out.push(['tick 在兩個 D1 寫入之間被砍 → 暫停', 'bad']);
+      } else {
+        s.doCalls += 1; runTick(s, out);
+      }
+    } else {
+      if (s.now % WATCHDOG_EVERY === 0) {
+        s.workerCalls += 1;
+        if (s.fault === 'killWorker') {
+          s.fault = null;
+          out.push(['看門狗 Worker CPU 超標被砍：它只做 ensure_alarm，沒有 tick 受影響', 'good']);
+        } else if (s.alarmAt === null) {
+          s.alarmAt = s.now;
+          out.push(['看門狗發現 alarm 不見了，補一個「現在」觸發的', 'good']);
+        } else {
+          out.push(['看門狗巡邏：alarm 還在，什麼都不做', '']);
+        }
+      }
+      if (s.alarmAt !== null && s.alarmAt <= s.now) fireAlarm(s, out);
+      else if (!out.length) out.push(['（這一分鐘沒有任何呼叫）', '']);
+    }
+    if (s.active > 0 && s.lastServedAt !== null) s.maxGap = Math.max(s.maxGap, s.now - s.lastServedAt);
+    for (const [text, kind] of out) s.log.push({ t: s.now, text, kind });
+  }
+
+  function reduce(prev, action) {
+    const s = structuredClone(prev);
+    switch (action.type) {
+      case 'reset': return initial(action.design);
+      case 'minute': advance(s); break;
+      case 'minutes': for (let i = 0; i < action.n; i++) advance(s); break;
+      case 'startVisit':
+        s.active += 1; s.lastServedAt = s.now;
+        s.log.push({ t: s.now, text: '你按下「開始」：DO 立刻讀一次醫院確認門診', kind: 'good' });
+        if (s.design !== 'old' && (s.alarmAt === null || s.alarmAt > s.now + 1)) {
+          s.alarmAt = s.now + 1;
+          s.log.push({ t: s.now, text: `start_visit 設 alarm：第 ${s.alarmAt} 分`, kind: 'good' });
+        }
+        break;
+      case 'stopVisit':
+        if (s.active > 0) { s.active -= 1; s.stopping += 1; s.log.push({ t: s.now, text: '你按下「停止」：visit 進入停止中，下次 tick 收尾', kind: '' }); }
+        break;
+      case 'fault':
+        s.fault = action.fault;
+        s.log.push({ t: s.now, text: '注入故障（下一次相關呼叫生效）：' + FAULTS[action.fault], kind: 'bad' });
+        break;
+      case 'loseAlarm':
+        s.alarmAt = null;
+        s.log.push({ t: s.now, text: 'alarm 意外遺失', kind: 'bad' });
+        break;
+      case 'resolveHold':
+        if (s.hold) { s.hold = false; s.log.push({ t: s.now, text: 'captain 手動核對後解除暫停', kind: 'good' }); }
+        break;
+    }
+    return s;
+  }
+
+  const FAULTS = {
+    killWorker: 'Worker CPU 超標被砍',
+    killTickEarly: 'tick 讀醫院時被砍',
+    killTickMidWrites: 'tick 在兩個寫入間被砍',
+    doubleAlarm: 'alarm 跑兩次',
+  };
+
+  return { DESIGNS, FAULTS, initial, reduce };
+})();
+
+// ---- Page shell ----
+let state = Model.initial('final');
+let prevState = state;
+let logMark = 0;
+
+function dispatch(action) {
+  prevState = state;
+  logMark = state.log.length;
+  if (action.type === 'reset') logMark = 0;
+  state = Model.reduce(state, action);
+  if (action.type === 'reset') prevState = state;
+  render();
+}
+
+const clock = m => { const t = 9 * 60 + m; return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; };
+
+function fields(s) {
+  return [
+    ['現在', clock(s.now) + `（第 ${s.now} 分）`],
+    ['進行中 visit', s.active],
+    ['停止中 visit', s.stopping],
+    ['下一次 alarm', s.design === 'old' ? '（舊設計沒有）' : (s.alarmAt === null ? '沒有！' : `${clock(s.alarmAt)}（第 ${s.alarmAt} 分）`), s.design !== 'old' && s.alarmAt === null && s.active > 0],
+    ['暫停（recovery hold）', s.hold ? '是，提醒停擺' : '否', s.hold],
+    ['已注入的故障', s.fault ? Model.FAULTS[s.fault] : '無'],
+    ['Python Worker 呼叫', s.workerCalls],
+    ['DO 呼叫', s.doCalls],
+    ['讀醫院次數', s.reads],
+    ['擋下的重複', s.dupBlocked],
+    ['進行中時最長空窗', s.maxGap + ' 分鐘', s.maxGap > 1],
+  ];
+}
+
+function render() {
+  document.getElementById('designs').innerHTML = Object.entries(Model.DESIGNS)
+    .map(([k, v]) => `<button class="${state.design === k ? 'on' : ''}" onclick="dispatch({type:'reset',design:'${k}'})">${v}</button>`).join('');
+  const now = fields(state), before = fields(prevState);
+  document.getElementById('state').innerHTML = now.map(([k, v, alert], i) =>
+    `<div class="field ${String(before[i][1]) !== String(v) ? 'changed' : ''} ${alert ? 'alert' : ''}"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+  document.getElementById('free').innerHTML = `
+    <button onclick="dispatch({type:'minute'})">過 1 分鐘</button>
+    <button onclick="dispatch({type:'minutes',n:5})">過 5 分鐘</button>
+    <button onclick="dispatch({type:'startVisit'})">開始一個 visit</button>
+    <button onclick="dispatch({type:'stopVisit'})" ${state.active ? '' : 'disabled'}>停止一個 visit</button>
+    <button onclick="dispatch({type:'resolveHold'})" ${state.hold ? '' : 'disabled'}>captain 解除暫停</button>`;
+  document.getElementById('faults').innerHTML =
+    Object.entries(Model.FAULTS).map(([k, v]) => `<button class="fault" onclick="dispatch({type:'fault',fault:'${k}'})">注入：${v}</button>`).join('') +
+    `<button class="fault" onclick="dispatch({type:'loseAlarm'})" ${state.design === 'old' ? 'disabled' : ''}>注入：alarm 遺失</button>`;
+  document.getElementById('log').innerHTML = state.log.map((e, i) =>
+    `<div class="${i >= logMark ? 'new' : ''} ${e.kind}">[${clock(e.t)}] ${e.text}</div>`).reverse().join('');
+  renderScenario();
+}
+
+// ---- Guided walkthroughs ----
+const M = { type: 'minute' };
+const SCENARIOS = [
+  { title: '平常的一天', design: 'final',
+    desc: '媽媽今天看診。你按開始，alarm 改成每分鐘；按停止後收尾，alarm 自動回到每 5 分鐘。',
+    watch: '看「下一次 alarm」從每 5 分變每 1 分，再變回每 5 分；Worker 呼叫只在整 5 分出現。',
+    steps: [['開始 visit', { type: 'startVisit' }], ['過 1 分', M], ['過 1 分', M], ['過 1 分', M], ['停止 visit', { type: 'stopVisit' }], ['過 1 分', M], ['過 1 分', M], ['過 5 分', { type: 'minutes', n: 5 }]] },
+  { title: 'Worker 被砍：舊 vs 定案', design: 'old',
+    desc: '先用舊設計：Worker 超標被砍，它正在等的 tick 被一起取消，系統暫停。接著切到定案再做一次。',
+    watch: '舊設計「暫停」變成「是」；定案只會記一行「沒有 tick 受影響」。',
+    steps: [['開始 visit', { type: 'startVisit' }], ['過 1 分', M], ['注入：Worker 被砍', { type: 'fault', fault: 'killWorker' }], ['過 1 分', M], ['過 1 分（仍暫停）', M],
+      ['切到定案', { type: 'reset', design: 'final' }], ['開始 visit', { type: 'startVisit' }], ['注入：Worker 被砍', { type: 'fault', fault: 'killWorker' }], ['過 5 分', { type: 'minutes', n: 5 }]] },
+  { title: 'tick 被砍：天真版 vs 定案', design: 'naive',
+    desc: '天真版在 tick 做完才排下一次 alarm。tick 讀醫院時被砍，下一次就沒排上，只能等 5 分鐘一次的看門狗。',
+    watch: '天真版「進行中時最長空窗」會變大；切到定案後只晚 1 分鐘。',
+    steps: [['開始 visit', { type: 'startVisit' }], ['過 1 分', M], ['注入：tick 讀醫院時被砍', { type: 'fault', fault: 'killTickEarly' }], ['過 1 分', M], ['過 5 分', { type: 'minutes', n: 5 }],
+      ['切到定案', { type: 'reset', design: 'final' }], ['開始 visit', { type: 'startVisit' }], ['過 1 分', M], ['注入：tick 讀醫院時被砍', { type: 'fault', fault: 'killTickEarly' }], ['過 1 分', M], ['過 5 分', { type: 'minutes', n: 5 }]] },
+  { title: 'alarm 跑兩次', design: 'final',
+    desc: 'Cloudflare 只保證 alarm「至少」執行一次，偶爾會跑兩次。現有的鎖與 retry key 要擋下重複寄送。',
+    watch: '「擋下的重複」加 1，讀醫院只算一次。',
+    steps: [['開始 visit', { type: 'startVisit' }], ['注入：alarm 跑兩次', { type: 'fault', fault: 'doubleAlarm' }], ['過 1 分', M]] },
+  { title: 'alarm 遺失', design: 'final',
+    desc: '萬一 alarm 不見了（例如程式錯誤），每 5 分鐘的看門狗會補回來。',
+    watch: '「下一次 alarm」顯示「沒有！」，到整 5 分時看門狗補上。最長空窗不超過 5 分鐘。',
+    steps: [['開始 visit', { type: 'startVisit' }], ['過 1 分', M], ['注入：alarm 遺失', { type: 'loseAlarm' }], ['過 5 分', { type: 'minutes', n: 5 }]] },
+  { title: '還沒解決的：寫入間被砍', design: 'final',
+    desc: 'DO 的 tick 本身在兩個 D1 寫入之間被砍，三種設計都會暫停。這要靠第 2、3 項把 tick 壓在 10 ms 內。',
+    watch: '「暫停」變成「是」，之後每次 tick 什麼都不做，直到 captain 解除。',
+    steps: [['開始 visit', { type: 'startVisit' }], ['注入：寫入間被砍', { type: 'fault', fault: 'killTickMidWrites' }], ['過 1 分', M], ['過 1 分', M], ['captain 解除暫停', { type: 'resolveHold' }], ['過 1 分', M]] },
+];
+let scenarioIdx = 0, stepIdx = 0;
+
+function startScenario(i) {
+  scenarioIdx = i; stepIdx = 0;
+  dispatch({ type: 'reset', design: SCENARIOS[i].design });
+}
+function runStep(i) {
+  if (i !== stepIdx) return;
+  stepIdx += 1;
+  dispatch(SCENARIOS[scenarioIdx].steps[i][1]);
+}
+function renderScenario() {
+  const sc = SCENARIOS[scenarioIdx];
+  document.getElementById('tabs').innerHTML = SCENARIOS.map((x, i) =>
+    `<button class="${i === scenarioIdx ? 'on' : ''}" onclick="startScenario(${i})">${x.title}</button>`).join('');
+  document.getElementById('scenario').innerHTML = `
+    <p>${sc.desc}</p>
+    <div class="watch">注意看：${sc.watch}</div>
+    <div class="steps">${sc.steps.map(([label], i) =>
+      `<button class="${i < stepIdx ? 'done' : i === stepIdx ? 'next' : ''}" onclick="runStep(${i})" ${i === stepIdx ? '' : 'disabled'}>${i + 1}. ${label}</button>`).join('')}</div>
+    <p class="muted" style="margin-top:8px">${stepIdx >= sc.steps.length ? '情境完成，上方狀態和紀錄就是結果。' : '照順序按，上方「親手模擬」區會同步變化。'}</p>`;
+}
+
+startScenario(0);
+</script>
+</body>
+</html>

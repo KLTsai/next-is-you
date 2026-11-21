@@ -73,6 +73,14 @@ class LocalDurableStorage:
     async def put(self, key: str, value: Any) -> None:
         self.values[key] = value
 
+    async def getAlarm(self) -> int | None:
+        return self.alarm
+
+    async def setAlarm(self, scheduled_time: int) -> None:
+        self.alarm = scheduled_time
+
+    alarm: int | None = None
+
 
 class LocalContext:
     def __init__(self, storage: LocalDurableStorage) -> None:
@@ -1118,3 +1126,221 @@ async def test_a_ledger_mismatch_is_reported_as_a_send_interruption() -> None:
 
     assert held["held"] is True
     assert await gate.sending_interrupted() is True
+
+
+def epoch_ms(when: str) -> int:
+    return int(datetime.fromisoformat(when.replace("Z", "+00:00")).timestamp() * 1000)
+
+
+@pytest.mark.asyncio
+async def test_alarm_with_an_active_visit_schedules_the_next_alarm_a_minute_later() -> (
+    None
+):
+    database = LocalD1()
+    storage = LocalDurableStorage()
+    gate = make_gate(database, storage)
+    await seed(gate)
+    await gate.set_test_observation(82)
+
+    result = await gate.alarm_tick("2026-09-27T13:00:00Z")
+
+    assert storage.alarm == epoch_ms("2026-09-27T13:01:00Z")
+    assert result["events_created"] == 1
+
+
+@pytest.mark.asyncio
+async def test_alarm_without_a_running_visit_schedules_lifecycle_chores_five_minutes_later() -> (
+    None
+):
+    database = LocalD1()
+    storage = LocalDurableStorage()
+    gate = make_gate(database, storage)
+
+    await gate.alarm_tick("2026-09-27T13:00:00Z")
+
+    assert storage.alarm == epoch_ms("2026-09-27T13:05:00Z")
+
+
+@pytest.mark.asyncio
+async def test_alarm_with_a_stopping_visit_keeps_the_one_minute_cadence() -> None:
+    database = LocalD1()
+    storage = LocalDurableStorage()
+    gate = make_gate(database, storage)
+    await seed(gate)
+    database.connection.execute("UPDATE visits SET state = 'stopping' WHERE id = 'v1'")
+    # Reconcile so the direct edit is not read as a ledger mismatch.
+    await gate.hold_for_reconciliation()
+    await gate.resume_after_reconciliation(True)
+
+    await gate.alarm_tick("2026-09-27T13:00:00Z")
+
+    assert storage.alarm == epoch_ms("2026-09-27T13:01:00Z")
+
+
+class FailingLifecycleD1(LocalD1):
+    """Fails the tick partway, after the alarm has been scheduled."""
+
+    def prepare(self, sql: str) -> Prepared:
+        if sql.startswith("DELETE FROM visits"):
+            raise RuntimeError("tick cut short")
+        return super().prepare(sql)
+
+
+@pytest.mark.asyncio
+async def test_a_tick_cut_short_still_leaves_the_next_alarm_in_place() -> None:
+    database = FailingLifecycleD1()
+    storage = LocalDurableStorage()
+    gate = make_gate(database, storage)
+    await seed(gate)
+
+    with pytest.raises(RuntimeError, match="tick cut short"):
+        await gate.alarm_tick("2026-09-27T13:00:00Z")
+
+    assert storage.alarm == epoch_ms("2026-09-27T13:01:00Z")
+
+
+@pytest.mark.asyncio
+async def test_an_alarm_delivered_twice_sends_nothing_twice() -> None:
+    database = LocalD1()
+    gate = make_gate(database)
+    await seed(gate)
+    await gate.set_test_observation(82)
+
+    first = await gate.alarm_tick("2026-09-27T13:00:00Z")
+    second = await gate.alarm_tick("2026-09-27T13:00:00Z")
+
+    assert first["requests_started"] == 1
+    assert second["requests_started"] == 0
+    assert near_count(database) == 1
+    assert len((await gate.test_snapshot())["line_requests"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_watchdog_restores_a_missing_alarm_to_fire_now() -> None:
+    storage = LocalDurableStorage()
+    gate = make_gate(LocalD1(), storage)
+
+    await gate.ensure_alarm("2026-09-27T13:00:00Z")
+
+    assert storage.alarm == epoch_ms("2026-09-27T13:00:00Z")
+
+
+@pytest.mark.asyncio
+async def test_watchdog_leaves_an_existing_alarm_alone() -> None:
+    storage = LocalDurableStorage()
+    storage.alarm = epoch_ms("2026-09-27T13:04:00Z")
+    gate = make_gate(LocalD1(), storage)
+
+    await gate.ensure_alarm("2026-09-27T13:00:00Z")
+
+    assert storage.alarm == epoch_ms("2026-09-27T13:04:00Z")
+
+
+async def start_draft(gate: SystemSendGate, database: LocalD1, visit_day: str) -> dict:
+    timestamp = datetime.fromisoformat("2026-09-27T13:00:00+00:00")
+    store = CloudflareD1Store(database)
+    await store.execute(
+        Statement(
+            """INSERT OR IGNORE INTO recipients (id, line_subject, display_name,
+            consented_at, friendship_checked_at, active, created_at) VALUES
+            ('r1', 'synthetic-r1', 'Synthetic one', ?, ?, 1, ?)""",
+            (timestamp.isoformat(), timestamp.isoformat(), timestamp.isoformat()),
+        )
+    )
+    repository = VisitRepository(store)
+    visit_id = "draft-" + visit_day
+    await repository.create_draft(
+        visit_id=visit_id,
+        hospital="ntuh-main",
+        visit_day=datetime.fromisoformat(visit_day).date(),
+        department_code="MED",
+        clinic_code="MED-A",
+        clinic_session="morning",
+        patient_number=85,
+        now=timestamp,
+    )
+    assert await repository.add_recipient(visit_id, "r1", timestamp)
+    await gate.set_test_observation(70, trustworthy=True)
+    return await gate.start_visit(visit_id, timestamp.isoformat())
+
+
+@pytest.mark.asyncio
+async def test_starting_a_visit_brings_the_next_alarm_within_a_minute() -> None:
+    database = LocalD1()
+    storage = LocalDurableStorage()
+    storage.alarm = epoch_ms("2026-09-27T13:04:00Z")
+    gate = make_gate(database, storage)
+
+    assert await start_draft(gate, database, "2026-09-27") == {"state": "active"}
+
+    assert storage.alarm == epoch_ms("2026-09-27T13:01:00Z")
+
+
+@pytest.mark.asyncio
+async def test_a_refused_start_leaves_the_alarm_alone() -> None:
+    database = LocalD1()
+    storage = LocalDurableStorage()
+    storage.alarm = epoch_ms("2026-09-27T13:04:00Z")
+    gate = make_gate(database, storage)
+
+    assert await start_draft(gate, database, "2026-09-26") == {
+        "error": "visit_date_past"
+    }
+
+    assert storage.alarm == epoch_ms("2026-09-27T13:04:00Z")
+
+
+async def finished_visit_with_history(database: LocalD1) -> SystemSendGate:
+    gate = make_gate(database)
+    await seed(gate, visit_id="done", recipient_id="r1")
+    await gate.set_test_observation(82)
+    await tick(gate, "2026-09-27T13:00:00Z")
+    assert near_count(database, "done") == 1
+    assert await gate.stop_visit("done", "2026-09-27T13:01:00Z") == "stopped"
+    return gate
+
+
+@pytest.mark.asyncio
+async def test_a_change_to_a_finished_visits_history_still_holds_sending() -> None:
+    database = LocalD1()
+    gate = await finished_visit_with_history(database)
+
+    # A correction reopens a finished visit with this history as its dedupe, so
+    # a restore that rewinds it must still be caught.
+    database.connection.execute("DELETE FROM outbound_events WHERE visit_id = 'done'")
+    result = await tick(gate, "2026-09-27T13:02:00Z")
+
+    assert result["held"] is True
+    assert await gate.sending_interrupted() is True
+
+
+@pytest.mark.asyncio
+async def test_a_finished_visit_restored_to_active_still_holds_sending() -> None:
+    database = LocalD1()
+    gate = await finished_visit_with_history(database)
+
+    # A D1 restore brings the visit back: it could send again, so it is caught.
+    database.connection.execute("UPDATE visits SET state = 'active' WHERE id = 'done'")
+    result = await tick(gate, "2026-09-27T13:02:00Z")
+
+    assert result["held"] is True
+    assert await gate.sending_interrupted() is True
+
+
+class FailingRunningVisitCheckD1(LocalD1):
+    def prepare(self, sql: str) -> Prepared:
+        if "state IN ('active', 'stopping') LIMIT 1" in sql:
+            raise RuntimeError("check failed")
+        return super().prepare(sql)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_running_visit_check_still_leaves_the_slow_alarm() -> None:
+    database = FailingRunningVisitCheckD1()
+    storage = LocalDurableStorage()
+    gate = make_gate(database, storage)
+
+    with pytest.raises(RuntimeError, match="check failed"):
+        await gate.alarm_tick("2026-09-27T13:00:00Z")
+
+    assert storage.alarm == epoch_ms("2026-09-27T13:05:00Z")

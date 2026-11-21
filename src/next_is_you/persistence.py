@@ -271,7 +271,13 @@ class VisitRepository:
         exclude_event_id: str | None = None,
         allow_stopping_visit_id: str | None = None,
     ) -> str:
-        """Fingerprint D1 state that can affect future sends or sent-event dedupe."""
+        """Fingerprint D1 state that can affect future sends or sent-event dedupe.
+
+        Stopped and expired visits stay in it: a correction reopens them with
+        their event history, which then decides what is a duplicate. Retention
+        already bounds it, because a finished visit and its events are deleted
+        48 hours after it ends (#170).
+        """
         visit_rows = await self._store.fetch_all(
             Statement(
                 """SELECT id, hospital, visit_date, department_code, clinic_code,
@@ -318,6 +324,15 @@ class VisitRepository:
             payload, sort_keys=True, separators=(",", ":"), default=str
         )
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    async def has_running_visit(self) -> bool:
+        """Whether any visit is active or stopping, so ticks must keep coming."""
+        rows = await self._store.fetch_all(
+            Statement(
+                "SELECT 1 FROM visits WHERE state IN ('active', 'stopping') LIMIT 1"
+            )
+        )
+        return bool(rows)
 
     async def active_schedule_rows(self) -> list[Mapping[str, Any]]:
         """Return active visit and eligible recipient pairs for one serialized tick."""

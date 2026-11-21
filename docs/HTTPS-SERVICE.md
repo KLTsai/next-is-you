@@ -147,6 +147,75 @@ The deployed CPU of a reading tick is not measured here. It is left to #22 ("One
 run watches 3 visits at once and records CPU" in
 [`PRE-LIVE-CHECKLIST.md`](PRE-LIVE-CHECKLIST.md)).
 
+### Scheduler CPU after the alarm change (Issue #170, 2026-11-21)
+
+[#170](https://github.com/KLTsai/next-is-you/issues/170) made two changes. The
+Durable Object alarm now drives the tick, and the Cron only keeps that alarm
+alive ([ADR 0005](adr/0005-scheduler-tick-runs-from-a-durable-object-alarm.md)).
+The detail page is parsed only from its progress panel to the legend.
+
+The ledger check is unchanged. Retention already bounds what it reads: a
+stopped or expired visit is deleted with its events 48 hours after it ends. Until
+then a correction can reopen that visit with its event history as its dedupe, so
+that history still affects sends and has to stay in the check. Narrowing the
+check to active and stopping visits was tried and then reverted.
+
+**Local integration (local workerd, spike).** In local workerd, a Python
+Durable Object received `alarm()` after `ctx.storage.setAlarm(...)`. Alarms 3
+seconds apart fired in a steady chain. An alarm set for the current time from
+inside the alarm handler stalled the chain, so the handler always sets a time in
+the future (1 or 5 minutes). An empty alarm cost about 8 ms of `workerd` process
+CPU, about the same as one `/api/healthz` request (20 alarms 160 ms; 20 requests
+150 to 190 ms). These are whole-process figures, not Free-plan measurements.
+
+**Local integration (local workerd, not a Free-plan measurement).** This uses
+the #162 method. `pywrangler dev --local` ran with `wrangler.niy006.test.jsonc`.
+For the run only, the test hospital reader was patched to parse a synthetic
+detail page on every read. The page copied the real layout: the progress panel
+at about 13.7 KB, the legend about 4.5 KB before the end, and 35 KB (median) or
+52 KB (largest) in total. Each case ran 100 warm-up ticks, then three runs of
+500 ticks through `POST /__niy006_test/tick`. "Before" is the base commit
+`dea8ff2`. "After" is the #170 branch. The figure is `workerd` process CPU
+divided by ticks, so it includes one test HTTP request per tick (about 8 ms on
+its own). The table gives ms per tick for runs 1 to 3:
+
+| Case | Before | After |
+| --- | --- | --- |
+| 1 visit, no page | 16.9, 13.1, 12.5 | 18.1, 13.8, 13.4 |
+| 1 visit, 35 KB page | 19.3, 15.7, 14.9 | 19.0, 15.0, 14.2 |
+| 1 visit, 52 KB page | 20.4, 16.1, 21.5 | 19.9, 16.4, 21.8 |
+| 3 visits, 52 KB page | 34.4, 35.7, 34.5 | 32.7, 34.0, 29.0 |
+| 3 visits, 52 KB page, through `POST /__niy006_test/alarm` | | 34.4, 34.0, 30.8 |
+| 1 visit, 52 KB page parsed 10 times per read | 53.7, 48.7, 54.8 | 46.0, 41.1, 46.7 |
+| 1 visit, no page (same server setup as the row above) | 17.6, 13.4, 12.3 | 17.3, 13.4, 12.4 |
+
+The parse cost comes from the 10-times rows. One 52 KB parse costs about 3.8 ms
+before and 3.0 ms after, roughly 20% less. On that page the progress panel is
+about 65% of the bytes. In CPython, across the 351 detail pages captured on
+2026-11-20 (private, not committed), the old and new parsers gave identical
+results on every page. Parse time fell from 0.85 to 0.44 ms per page.
+
+Each further running visit adds about 7 ms per tick, from its hospital read, its
+parse and its D1 work. With the request overhead taken out, one visit with a
+large page is about 5 to 14 ms, which is at the limit. Three visits are about 21
+to 26 ms, which is over it on every tick.
+
+**Verdict for #163: go, with conditions.**
+
+- Captain decision (2026-11-21): for now, only one visit may be active or
+  stopping at a time, on any date. Splitting the tick into one visit per alarm
+  step is not adopted yet. The limit is
+  [#172](https://github.com/KLTsai/next-is-you/issues/172), which blocks #163.
+- Before #163 turns reading on, Staging measures one synthetic visit reading a
+  real NTUH detail page with `wrangler tail`. Each Durable Object invocation must
+  stay at or below 10 ms. If one does not, stop and bring the choice to the
+  captain.
+- The Staging check in #170 confirms the alarm and watchdog invocations after
+  this merges. Staging is not live yet, so its ticks read no hospital, and that
+  check cannot measure a read.
+
+### Origin
+
 Proposed origin: `https://<approved-worker-name>.<owner-subdomain>.workers.dev`.
 [Cloudflare documents](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/)
 that this origin is public, suitable for personal/hobby use, and recommends custom

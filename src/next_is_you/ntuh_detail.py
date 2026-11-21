@@ -45,6 +45,10 @@ _KINDS: dict[str, CallKind] = {
 }
 
 _DIGITS = re.compile(r"\d+")
+# The region the parser reads, from the progress panel up to the legend after
+# the number list (#170). Everything else on the page is skipped unparsed.
+_REGION_START = re.compile(r'<[^<>]*class="[^"]*\bclinic-modal-progress\b')
+_REGION_END = re.compile(r'<[^<>]*class="[^"]*\bnumber-explain\b')
 _CHECK_IN_POSITION = re.compile(r"^報到(?:順序)?\s*(\d+)$")
 _CHECK_IN_ORDER_NOTE = "依報到順序看診"
 
@@ -174,6 +178,19 @@ def _kind(text: str) -> CallKind | None:
     return _KINDS.get(text.strip().strip("()（）").strip())
 
 
+def _progress_region(html: str) -> str:
+    """The progress panel, or the whole page when it has none.
+
+    Without the panel (a challenge, a denial, a changed layout) the full page is
+    read, so those still fail the way they always did.
+    """
+    start = _REGION_START.search(html)
+    if start is None:
+        return html
+    end = _REGION_END.search(html, start.end())
+    return html[start.start() : end.start() if end else len(html)]
+
+
 def parse_detail_page(html: str) -> tuple[str, ProgressObservation | None]:
     """Return ("ok", observation) or a page-level failure.
 
@@ -184,7 +201,7 @@ def parse_detail_page(html: str) -> tuple[str, ProgressObservation | None]:
     """
     collector = _DetailCollector()
     try:
-        collector.feed(html)
+        collector.feed(_progress_region(html))
         collector.close()
     except (ValueError, AssertionError):
         return "schema", None

@@ -50,6 +50,8 @@ class TickPlan:
     closed: int = 0
     drafts_rechecked: int = 0
     drafts_scope_mismatch: int = 0
+    # (visit id, recipient id) of each reminder the cap of 8 blocked this tick.
+    cap_reached: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +128,7 @@ class OutboxScheduler:
         created = 0
         closed = 0
         event_ids: list[str] = []
+        cap_reached: list[tuple[str, str]] = []
 
         for visit_id, selected_rows in by_visit.items():
             visit = selected_rows[0]
@@ -225,8 +228,7 @@ class OutboxScheduler:
                     consecutive_unusable_reads=evaluation.consecutive_unusable_reads,
                 )
                 for recipient_id in evaluation.unavailable_recipients:
-                    before = await self._visits.event_kinds(visit_id)
-                    await self._visits.create_event_if_absent(
+                    stored = await self._visits.create_reminder(
                         event_id=str(uuid.uuid4()),
                         visit_id=visit_id,
                         recipient_id=recipient_id,
@@ -239,12 +241,10 @@ class OutboxScheduler:
                         ),
                         now=sample_time,
                     )
-                    after = await self._visits.event_kinds(visit_id)
-                    if (recipient_id, "unavailable") not in before and (
-                        recipient_id,
-                        "unavailable",
-                    ) in after:
+                    if stored == "created":
                         created += 1
+                    elif stored == "cap_reached":
+                        cap_reached.append((visit_id, recipient_id))
             evaluated += 1
 
             event_ids.extend(
@@ -259,6 +259,7 @@ class OutboxScheduler:
             closed=closed,
             drafts_rechecked=rechecked,
             drafts_scope_mismatch=mismatched,
+            cap_reached=tuple(cap_reached),
         )
 
     async def _preflight_sweep(self, now: datetime) -> tuple[int, int]:

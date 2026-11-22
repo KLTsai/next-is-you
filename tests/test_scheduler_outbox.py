@@ -847,7 +847,7 @@ async def create_pending_event(
     repository: VisitRepository, now: datetime, *, visit_id: str = "v1"
 ) -> str:
     event_id = str(uuid.uuid4())
-    await repository.create_event_if_absent(
+    assert "created" == await repository.create_reminder(
         event_id=event_id,
         visit_id=visit_id,
         recipient_id="r1",

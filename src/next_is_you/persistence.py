@@ -6,13 +6,20 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Literal, Mapping, Protocol, Sequence
 from zoneinfo import ZoneInfo
 
+from next_is_you.alerts import REMINDER_CAP
 from next_is_you.auth import SESSION_TTL_SECONDS
 
 TAIPEI = ZoneInfo("Asia/Taipei")
 UTC = timezone.utc
+
+ReminderResult = Literal["created", "exists", "cap_reached", "not_eligible"]
+# What counts toward the cap: every reminder but the legacy `near` and the skipped.
+_REMINDER_COUNT = """SELECT COUNT(*) FROM outbound_events
+                    WHERE visit_id = ? AND recipient_id = ?
+                        AND event_kind != 'near' AND outcome != 'skipped'"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,7 +149,7 @@ class VisitRepository:
                 v.clinic_session, v.patient_number, v.state, v.near_last_current_number, v.latest_observed_at,
                 v.latest_source_read_status, v.latest_source_read_reason,
                 vr.recipient_id, r.display_name,
-                SUM(CASE WHEN e.outcome != 'superseded' THEN 1 ELSE 0 END) AS notification_count,
+                SUM(CASE WHEN e.outcome NOT IN ('superseded', 'skipped') THEN 1 ELSE 0 END) AS notification_count,
                 SUM(CASE WHEN e.outcome = 'accepted' THEN 1 ELSE 0 END) AS accepted_count,
                 SUM(CASE WHEN e.outcome IN ('failed', 'unknown') THEN 1 ELSE 0 END) AS issue_count
                 FROM visits AS v
@@ -428,7 +435,7 @@ class VisitRepository:
         )
         return rows[0] if rows else None
 
-    async def create_event_if_absent(
+    async def create_reminder(
         self,
         *,
         event_id: str,
@@ -438,13 +445,21 @@ class VisitRepository:
         retry_key: str,
         payload_json: str,
         now: datetime,
-    ) -> Mapping[str, Any]:
+        skipped: bool = False,
+    ) -> ReminderResult:
+        """Store one reminder for one recipient, and say what came of it.
+
+        A skipped reminder was due together with a more urgent one: it holds its
+        kind, so it is never sent later, and does not count toward the cap. A
+        refusal is an answer, not an error, so one recipient's cap never fails the
+        tick for the others. Legacy `near` reminders have their own cap.
+        """
         await self._store.execute(
             Statement(
-                """INSERT OR IGNORE INTO outbound_events (
+                f"""INSERT INTO outbound_events (
                     id, visit_id, recipient_id, event_kind, retry_key,
                     payload_json, outcome, created_at
-                ) SELECT ?, ?, ?, ?, ?, ?, 'pending', ?
+                ) SELECT ?, ?, ?, ?, ?, ?, ?, ?
                 WHERE EXISTS (
                     SELECT 1 FROM visits AS v
                     JOIN visit_recipients AS vr ON vr.visit_id = v.id
@@ -453,7 +468,8 @@ class VisitRepository:
                         AND r.id = ? AND r.active = 1
                         AND r.consented_at IS NOT NULL
                         AND r.friendship_checked_at IS NOT NULL
-                )""",
+                ) AND (? OR ({_REMINDER_COUNT}) < ?)
+                ON CONFLICT DO NOTHING""",
                 (
                     event_id,
                     visit_id,
@@ -461,22 +477,44 @@ class VisitRepository:
                     event_kind,
                     retry_key,
                     payload_json,
+                    "skipped" if skipped else "pending",
                     iso_utc(now),
                     visit_id,
                     recipient_id,
+                    1 if skipped or event_kind == "near" else 0,
+                    visit_id,
+                    recipient_id,
+                    REMINDER_CAP,
                 ),
             )
         )
         rows = await self._store.fetch_all(
             Statement(
-                """SELECT * FROM outbound_events
-                WHERE visit_id = ? AND recipient_id = ? AND event_kind = ?""",
-                (visit_id, recipient_id, event_kind),
+                f"""SELECT
+                    EXISTS (SELECT 1 FROM outbound_events WHERE id = ?) AS created,
+                    EXISTS (
+                        SELECT 1 FROM outbound_events
+                        WHERE visit_id = ? AND recipient_id = ? AND event_kind = ?
+                    ) AS kind_stored,
+                    ({_REMINDER_COUNT}) AS reminder_count""",
+                (
+                    event_id,
+                    visit_id,
+                    recipient_id,
+                    event_kind,
+                    visit_id,
+                    recipient_id,
+                ),
             )
         )
-        if not rows:
-            raise RuntimeError("outbox event was not persisted for an active recipient")
-        return rows[0]
+        stored = rows[0]
+        if stored["created"]:
+            return "created"
+        if stored["kind_stored"]:
+            return "exists"
+        if not skipped and int(stored["reminder_count"]) >= REMINDER_CAP:
+            return "cap_reached"
+        return "not_eligible"
 
     async def update_observation(
         self,

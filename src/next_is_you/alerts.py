@@ -10,6 +10,22 @@ from next_is_you.domain import ClinicScope, QueueObservation
 
 NEAR_DISTANCE = 3
 NEAR_REMINDER_CAP = 20
+# The reminder kinds of #136, in its letter order (a) to (h). Each is stored at most
+# once per recipient and visit; `passed` also covers "being seen while not checked in".
+REMINDER_KINDS = (
+    "check_in_soon",
+    "passed",
+    "checked_in",
+    "getting_close",
+    "almost_turn",
+    "check_in_order",
+    "left_list",
+    "left_list_not_checked_in",
+)
+# Reminders of these kinds and the unavailable message together, per recipient and
+# visit. It counts reminders, never LINE retries, and not the skipped ones. The
+# database enforces it too.
+REMINDER_CAP = 8
 UNAVAILABLE_FAILURE_THRESHOLD = 3
 
 

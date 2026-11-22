@@ -75,6 +75,9 @@ let editing: { visit: OrganizerVisit; mode: "update" | "correct" } | null = null
 let formValues: Record<string, string | string[]> | null = null;
 let initialPatientNumber: string | null = null;
 let discardFormOnNextRender = false;
+// What the organizer has typed in 成員稱呼. Every re-render rebuilds the field, so
+// the text lives here and is written back into it.
+let memberLabelDraft = "";
 const pendingStops = new Set<string>();
 const pendingStarts = new Set<string>();
 const startFailures = new Map<string, { text: string; code: string }>();
@@ -471,7 +474,7 @@ function visitCard(item: OrganizerVisit): string {
 
 function membersPanel(): string {
   return `<section class="panel members-panel" aria-labelledby="members-heading">
-    <div class="panel-heading"><div><p class="eyebrow">成員管理</p><h2 id="members-heading">家庭成員</h2></div><div class="invite-controls"><label class="invite-label" for="member-label">成員稱呼</label><input id="member-label" type="text" maxlength="40" placeholder="例如：媽媽"><button class="primary-button" id="invite-member" type="button" ${invitationCreating ? "disabled" : ""}>${invitationCreating ? "建立邀請中…" : "邀請新成員"}</button></div></div>
+    <div class="panel-heading"><div><p class="eyebrow">成員管理</p><h2 id="members-heading">家庭成員</h2></div><div class="invite-controls"><label class="invite-label" for="member-label">成員稱呼</label><input id="member-label" type="text" maxlength="40" placeholder="例如：媽媽" value="${escapeHtml(memberLabelDraft)}"><button class="primary-button" id="invite-member" type="button" ${invitationCreating ? "disabled" : ""}>${invitationCreating ? "建立邀請中…" : "邀請新成員"}</button></div></div>
     ${invitationError ? `<p class="message message-warning" role="alert">${escapeHtml(invitationError)}</p>` : ""}
     ${invitationUrl ? `<div class="invitation-link"><label for="invitation-url-input">邀請連結（限一次使用）</label><div class="invitation-link-row"><input id="invitation-url-input" type="text" readonly value="${escapeHtml(invitationUrl)}"><button class="secondary-button" id="copy-invitation" type="button">${copyFeedback || "複製連結"}</button></div><p class="gate-note">請自行透過你的 LINE 將這個連結傳送給家人；連結限一次使用，使用後即失效。</p></div>` : ""}
     ${recipients.length
@@ -494,6 +497,9 @@ function renderDashboard(preserveCurrentForm = true): void {
     return;
   }
   const { drafts, reminders, reminderCount } = projectDashboardVisits(visits);
+  const labelFocus = document.activeElement instanceof HTMLInputElement && document.activeElement.id === "member-label"
+    ? { start: document.activeElement.selectionStart, end: document.activeElement.selectionEnd }
+    : null;
   app.innerHTML = `<div class="dashboard-top"><div><p class="eyebrow">安全的提醒管理</p><h1>看診提醒</h1></div><button class="secondary-button refresh-button" id="refresh" type="button" ${loading ? "disabled" : ""}>重新整理</button></div>
     ${message ? `<p class="message" role="status">${escapeHtml(message)}</p>` : ""}
     ${refreshWarning ? `<p class="message message-warning" role="status">${escapeHtml(refreshWarning)}</p>` : ""}
@@ -502,6 +508,11 @@ function renderDashboard(preserveCurrentForm = true): void {
     <section class="visits saved-drafts" aria-labelledby="drafts-heading"><div class="section-heading"><div><p class="eyebrow">提醒設定</p><h2 id="drafts-heading">已儲存草稿 <span class="draft-count">${drafts.length}</span></h2></div><button class="secondary-button drafts-toggle" type="button" data-drafts-toggle aria-expanded="${!draftsCollapsed}" aria-controls="saved-drafts-list">${draftsCollapsed ? "展開草稿" : "收合草稿"}</button></div><div id="saved-drafts-list" class="draft-list" ${draftsCollapsed ? "hidden" : ""}>${drafts.length ? drafts.map(visitCard).join("") : `<div class="empty-state"><h3>尚無已儲存草稿</h3><p>建立草稿後，會顯示在這裡。</p></div>`}</div></section>
     <section class="visits" aria-labelledby="visits-heading"><div class="section-heading"><div><p class="eyebrow">狀態與控制</p><h2 id="visits-heading">提醒清單 <span class="draft-count">${reminderCount}</span></h2></div></div>${reminders.length ? reminders.map(visitCard).join("") : `<div class="empty-state"><h3>尚無提醒狀態</h3><p>執行中、已停止或已結束的提醒會顯示在這裡。</p></div>`}</section>`;
   bindActions();
+  if (labelFocus) {
+    const field = document.querySelector<HTMLInputElement>("#member-label");
+    field?.focus();
+    field?.setSelectionRange(labelFocus.start, labelFocus.end);
+  }
 }
 
 function scheduleStoppingRefresh(): void {
@@ -638,15 +649,19 @@ function validateForm(form: HTMLFormElement): boolean {
 }
 
 function bindActions(): void {
+  document.querySelector<HTMLInputElement>("#member-label")?.addEventListener("input", (event) => {
+    memberLabelDraft = (event.target as HTMLInputElement).value;
+  });
   document.querySelector<HTMLButtonElement>("#invite-member")?.addEventListener("click", async () => {
     if (invitationCreating) return;
-    const memberLabel = document.querySelector<HTMLInputElement>("#member-label")?.value.trim() ?? "";
+    const memberLabel = memberLabelDraft.trim();
     invitationCreating = true;
     invitationError = "";
     renderDashboard();
     try {
       const result = await createInvitation(memberLabel);
       invitationUrl = result.invitation_url;
+      memberLabelDraft = "";
     } catch (error) {
       invitationError = errorText(error);
     } finally {

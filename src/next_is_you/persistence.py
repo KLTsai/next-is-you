@@ -334,6 +334,17 @@ class VisitRepository:
         )
         return bool(rows)
 
+    async def has_other_running_visit(self, visit_id: str) -> bool:
+        """Whether a visit other than this one is active or stopping, on any date."""
+        rows = await self._store.fetch_all(
+            Statement(
+                """SELECT 1 FROM visits WHERE id != ?
+                AND state IN ('active', 'stopping') LIMIT 1""",
+                (visit_id,),
+            )
+        )
+        return bool(rows)
+
     async def active_schedule_rows(self) -> list[Mapping[str, Any]]:
         """Return active visit and eligible recipient pairs for one serialized tick."""
         return await self._store.fetch_all(

@@ -31,6 +31,10 @@ export const REFUSAL_TEXTS = Object.freeze({
   service_unavailable: { text: "目前無法使用提醒服務。", action: "retry_later" },
   visit_not_found: { text: "找不到這筆提醒，請重新載入。", action: "reload" },
   invalid_lifecycle_state: { text: "提醒狀態已變更，請重新載入。", action: "reload" },
+  another_visit_running: {
+    text: "目前已有一個看診在監控中，請先停止它再開始這一個。",
+    action: "stop_running_visit",
+  },
   ineligible_recipients: {
     text: "通知對象已無法接收提醒，請重新選擇。",
     action: "pick_recipients",

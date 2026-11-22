@@ -71,6 +71,7 @@ These are the rules the design uses once live operation is authorized by the [Is
 
 This is a convenience reminder, not a safety-critical system. The clinic room's physical light indicator remains authoritative. Read these edges before relying on the service.
 
+- **Only one visit can run at a time.** While a visit is monitoring (or stopping), Start on another draft is refused with a link to the running visit. Stop the running visit first, then press Start again. This keeps each scheduler tick inside the Cloudflare Free plan's CPU limit; allowing more needs the tick split per visit (ADR 0005).
 - **The hospital page can change at any time.** NTUH may alter the queue page's layout without notice, and the reader may stop producing usable data until the owner adapts it. The service does not identify layout changes specifically; after three consecutive unusable reads, it sends the existing generic unavailable reminder.
 - **Not for emergency or safety-critical reminders.** LINE outages, home or carrier network loss, Cloudflare incidents, or a halted Worker all fail silently. There is no out-of-band alarm when sends stop.
 - **A late reminder can arrive for a passed number.** If a clinic session ends earlier than usual, the service may send one last reminder for a number that has already been called.

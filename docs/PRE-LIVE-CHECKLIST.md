@@ -65,8 +65,9 @@ Staging is used by the captain alone. No family member is invited to it.
 - [ ] #22, the live pilot on Staging, evidence label live provider:
   - Claude Code on the captain's Mac drives the captain's own account through at
     least 3 visits on real NTUH clinics, morning and afternoon, with a patient
-    number chosen ahead of the highest called. One run watches 3 visits at once
-    and records CPU and request headroom.
+    number chosen ahead of the highest called. Only one visit runs at a time
+    (#172), so the 3 visits go one after another: stop each before starting the
+    next, and record CPU and request headroom for each run.
   - At least one visit uses a real appointment (the captain's, or a consenting
     relative's with the captain as the only recipient), so the "about 8" and "about 5 people ahead" reminders are seen.
   - Edge cases (passed, check-in order, unavailable source, number gone from the

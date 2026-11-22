@@ -872,6 +872,7 @@ def create_app(
             configured = await gate.set_test_observation(
                 int(current) if current is not None else None,
                 body.get("trustworthy") is True,
+                body.get("progress"),
             )
             return JSONResponse({"configured": configured})
         if operation == "stop":

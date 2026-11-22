@@ -187,6 +187,13 @@ class RegistryHospitalReader:
             return ClinicMatch(MatchKind.UNAVAILABLE, reason="no_observation")
         return await matcher(query, now)
 
+    async def forget_past_days(self, now: datetime) -> None:
+        """Let each reader drop the transient state it keeps for earlier days."""
+        for hospital in HOSPITAL_REGISTRY:
+            forget = getattr(self._reader_for(hospital), "forget_past_days", None)
+            if forget is not None:
+                await forget(now)
+
     def _reader_for(self, hospital: HospitalId) -> HospitalReader | None:
         cached = self._readers.get(hospital)
         if cached is not None:

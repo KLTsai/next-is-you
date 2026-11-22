@@ -93,6 +93,11 @@ class OutboxScheduler:
         if now.tzinfo is None:
             raise ValueError("scheduler time must be timezone-aware")
         await self._visits.recover_in_flight_events(now)
+        forget = getattr(self._hospital, "forget_past_days", None)
+        if forget is not None:
+            # Storage only, no outside request: the reader's per-day state, such
+            # as a clinic's detail-page link, does not outlive its day.
+            await forget(now)
         return LifecycleCounts(
             stops_finalized=await self._visits.finalize_stopping(now),
             visits_expired=await self._visits.expire_due_visits(now),

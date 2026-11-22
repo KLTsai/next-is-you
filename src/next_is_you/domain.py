@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Protocol
+from typing import Literal, Protocol
 
 
 # A hospital id is a key in the hospital registry; the registry owns which ids
@@ -79,6 +79,28 @@ class ClinicScope:
     room_code: str | None = None
 
 
+NumberState = Literal["not_checked_in", "first_visit", "checked_in", "in_consultation"]
+CallKind = Literal["sequential", "passed", "exam", "senior", "check_in"]
+
+
+@dataclass(frozen=True, slots=True)
+class NumberStatus:
+    """One number on a source's list. `check_in_position` is 報到N in check-in-order clinics."""
+
+    number: int
+    state: NumberState
+    check_in_position: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExpectedCall:
+    """One number the source says it will call next. `check_in_position` is set for `check_in`."""
+
+    number: int
+    kind: CallKind | None
+    check_in_position: int | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class QueueObservation:
     scope: ClinicScope
@@ -93,6 +115,18 @@ class QueueObservation:
     # The hospital's card for this clinic names a substitute doctor, not the
     # booked one. The visit keeps running and the organizer decides.
     substitute_doctor: bool = False
+    # Progress fields (ADR 0003): each is present only when the source states it
+    # outright, and a hospital that does not show one leaves it empty.
+    current_flag: CallKind | None = None
+    # The clinic calls by check-in order, so it has no highest called.
+    check_in_order: bool = False
+    check_in_position: int | None = None
+    expected: tuple[ExpectedCall, ...] = ()
+    numbers: tuple[NumberStatus, ...] = ()
+    # Whether the clinic has called a number in this session. A page can be
+    # frozen from an earlier session, so a number on it alone does not say so.
+    # None when the source cannot tell.
+    called_in_session: bool | None = None
 
     def is_comparable_to(self, expected: ClinicScope) -> bool:
         """Require exact clinic identity and an adapter-validated current value."""
@@ -114,6 +148,9 @@ class ReadSkipped:
 
     reason: str
     substitute_doctor: bool = False
+    # For `unobserved_situation`: which situation no one has observed on the
+    # hospital's pages the reader flagged. It sends nothing and is recorded.
+    unobserved: str = ""
 
     @property
     def source_read(self) -> tuple[str, str] | None:

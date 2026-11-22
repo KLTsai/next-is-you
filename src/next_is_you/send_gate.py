@@ -360,11 +360,12 @@ class SystemSendGate(_DurableObjectBase):
             if (
                 clinic_identified
                 and isinstance(observation, ReadSkipped)
-                and observation.reason == "clinic_not_started"
+                and observation.reason in {"clinic_not_started", "unobserved_situation"}
             ):
                 # The card is identified; waiting for its first number is the
                 # reader's job, so Start is accepted and the visit runs once the
-                # clinic calls.
+                # clinic calls. A situation no one has observed yet sends nothing
+                # and is recorded by the reader, so it does not refuse Start either.
                 if not await repository.start(visit_id, timestamp):
                     return {"error": "ineligible_recipients"}
                 await repository.set_source_read(
@@ -852,9 +853,20 @@ class SystemSendGate(_DurableObjectBase):
         )
 
     async def set_test_observation(
-        self, current_number: int | None, trustworthy: bool = True
+        self,
+        current_number: int | None,
+        trustworthy: bool = True,
+        progress: dict[str, Any] | None = None,
     ) -> bool:
+        """Script the local synthetic observation, progress fields included.
+
+        `progress` takes the observation's own progress fields by name:
+        highest_called_number, current_flag, check_in_order, check_in_position,
+        called_in_session, expected `[[number, kind, position]]` and numbers
+        `[[number, state, position]]`.
+        """
         self._require_test_mode()
+        await self.ctx.storage.put("test_progress", json.dumps(progress or {}))
         await self.ctx.storage.put(
             "test_current_number", current_number if current_number is not None else -1
         )
@@ -1004,15 +1016,25 @@ class _TestHospitalReader:
     async def observe(self, scope, now):
         from next_is_you.domain import QueueObservation
 
+        from next_is_you.domain import ExpectedCall, NumberStatus
+
         current_number = await self._storage.get("test_current_number")
         trustworthy = await self._storage.get("test_trustworthy")
         if current_number is None or int(current_number) < 1:
             return None
+        progress = json.loads(await self._storage.get("test_progress") or "{}")
         return QueueObservation(
             scope=scope,
             observed_at=now.isoformat(),
             current_number=int(current_number),
             trustworthy_current=trustworthy is True,
+            highest_called_number=progress.get("highest_called_number"),
+            current_flag=progress.get("current_flag"),
+            check_in_order=bool(progress.get("check_in_order", False)),
+            check_in_position=progress.get("check_in_position"),
+            expected=tuple(ExpectedCall(*e) for e in progress.get("expected", [])),
+            numbers=tuple(NumberStatus(*n) for n in progress.get("numbers", [])),
+            called_in_session=progress.get("called_in_session"),
         )
 
     async def observe_for_start(self, scope, now):

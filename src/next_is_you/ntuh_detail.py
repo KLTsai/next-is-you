@@ -17,12 +17,18 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from typing import Literal
 
+from next_is_you.domain import CallKind, ExpectedCall, NumberState, NumberStatus
 from next_is_you.source_samples import _page_status
 
-NumberState = Literal["not_checked_in", "first_visit", "checked_in", "in_consultation"]
-CallKind = Literal["sequential", "passed", "exam", "senior", "check_in"]
+__all__ = [
+    "CallKind",
+    "ExpectedCall",
+    "NumberState",
+    "NumberStatus",
+    "ProgressObservation",
+    "parse_detail_page",
+]
 
 _VOID_ELEMENTS = frozenset(
     "area base br col embed hr img input link meta param source track wbr".split()
@@ -51,24 +57,6 @@ _REGION_START = re.compile(r'<[^<>]*class="[^"]*\bclinic-modal-progress\b')
 _REGION_END = re.compile(r'<[^<>]*class="[^"]*\bnumber-explain\b')
 _CHECK_IN_POSITION = re.compile(r"^報到(?:順序)?\s*(\d+)$")
 _CHECK_IN_ORDER_NOTE = "依報到順序看診"
-
-
-@dataclass(frozen=True, slots=True)
-class NumberStatus:
-    """One number on the list. `check_in_position` is 報到N in check-in-order clinics."""
-
-    number: int
-    state: NumberState
-    check_in_position: int | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ExpectedCall:
-    """One 預計叫號 entry. `check_in_position` is set for the `check_in` kind."""
-
-    number: int
-    kind: CallKind | None
-    check_in_position: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -57,6 +57,7 @@ class LifecycleCounts:
     stops_finalized: int = 0
     visits_expired: int = 0
     withdrawals_erased: int = 0
+    pending_invitees_erased: int = 0
     drafts_deleted: int = 0
     visits_deleted: int = 0
 
@@ -97,6 +98,9 @@ class OutboxScheduler:
             stops_finalized=await self._visits.finalize_stopping(now),
             visits_expired=await self._visits.expire_due_visits(now),
             withdrawals_erased=await self._visits.erase_settled_withdrawals(),
+            pending_invitees_erased=(
+                await self._visits.erase_lapsed_pending_invitees(now)
+            ),
             drafts_deleted=await self._visits.delete_expired_drafts(now),
             visits_deleted=await self._visits.delete_expired_visits(now),
         )

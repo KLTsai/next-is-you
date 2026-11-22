@@ -98,15 +98,15 @@ async def test_the_list_is_read_until_the_card_is_found_then_only_the_detail_pag
     r = reader(source)
     # Before the session's published start a missing card is recorded, not an
     # unusable read.
-    assert await r.observe(scope(), taipei(0, 40)) == ReadSkipped("card_not_listed")
+    assert await r.observe(scope(), taipei(12, 40)) == ReadSkipped("card_not_listed")
     source.listed = page_with("024")
-    assert await r.observe(scope(), taipei(0, 41)) == ReadSkipped("not_due")
-    assert isinstance(await r.observe(scope(), taipei(0, 45)), QueueObservation)
+    assert await r.observe(scope(), taipei(12, 41)) == ReadSkipped("not_due")
+    assert isinstance(await r.observe(scope(), taipei(12, 45)), QueueObservation)
     assert source.list_posts == 2 and not source.detail_urls
     source.detail = detail_page(current=25, highest=30)
     # From here on only the detail page, every 2 minutes and never sooner.
     for minute in range(46, 60):
-        await r.observe(scope(), taipei(0, minute))
+        await r.observe(scope(), taipei(12, minute))
     assert source.list_posts == 2
     assert len(source.detail_urls) == 7
     assert all(f"ServiceIDSE={SERVICE_ID}&" in url for url in source.detail_urls)
@@ -120,7 +120,7 @@ async def test_the_list_is_rechecked_every_thirty_minutes_only_until_the_clinic_
     for minute in range(0, 120):
         before = source.list_posts
         requests = len(source.requests)
-        await r.observe(scope(), taipei(9 + minute // 60, minute % 60))
+        await r.observe(scope(), taipei(13 + minute // 60, minute % 60))
         if source.list_posts > before:
             lists.append(minute)
         # One read is one page: never the list and the detail page together.
@@ -128,11 +128,11 @@ async def test_the_list_is_rechecked_every_thirty_minutes_only_until_the_clinic_
     assert lists == [0, 30, 60, 90]
 
     source.detail = detail_page(current=1, highest=1)
-    await r.observe(scope(), taipei(11, 2))
-    assert isinstance(await r.observe(scope(), taipei(11, 4)), QueueObservation)
+    await r.observe(scope(), taipei(15, 2))
+    assert isinstance(await r.observe(scope(), taipei(15, 4)), QueueObservation)
     posts = source.list_posts
     for minute in range(5, 60):
-        await r.observe(scope(), taipei(11, minute))
+        await r.observe(scope(), taipei(15, minute))
     assert source.list_posts == posts
 
 
@@ -140,13 +140,13 @@ async def test_the_list_is_rechecked_every_thirty_minutes_only_until_the_clinic_
 async def test_a_failed_recheck_reads_the_detail_page_and_backs_off():
     source = TwoPageSource(BLANK_LIST, detail_page())
     r = reader(source)
-    await r.observe(scope(), taipei(9, 0))
+    await r.observe(scope(), taipei(13, 0))
     source.listed = FetchedPage(503, "")
     pending = ReadSkipped("clinic_not_started")
     posts = []
     for minute in range(1, 45):
         before = source.list_posts
-        assert await r.observe(scope(), taipei(9, minute)) in (
+        assert await r.observe(scope(), taipei(13, minute)) in (
             pending,
             ReadSkipped("not_due"),
         )
@@ -160,12 +160,12 @@ async def test_a_failed_recheck_reads_the_detail_page_and_backs_off():
 async def test_a_refused_recheck_stops_the_source_for_the_day():
     source = TwoPageSource(BLANK_LIST, detail_page())
     r = reader(source)
-    await r.observe(scope(), taipei(9, 0))
+    await r.observe(scope(), taipei(13, 0))
     source.listed = FetchedPage(403, "")
     denied = ReadFailed("unavailable", "access_denied")
-    assert await r.observe(scope(), taipei(9, 30)) == denied
+    assert await r.observe(scope(), taipei(13, 30)) == denied
     count = len(source.requests)
-    assert await r.observe(scope(), taipei(10, 30)) == denied
+    assert await r.observe(scope(), taipei(14, 30)) == denied
     assert len(source.requests) == count
 
 
@@ -511,10 +511,10 @@ async def test_a_blank_carries_the_numbers_and_a_resumed_clinic_is_recorded():
     state = LocalDurableStorage()
     source = TwoPageSource(PAGE, detail_page(current=25, highest=30))
     r = reader(source, state)
-    await r.observe(scope(), taipei(11, 0))
-    await r.observe(scope(), taipei(11, 2))
+    await r.observe(scope(), taipei(15, 0))
+    await r.observe(scope(), taipei(15, 2))
     source.detail = detail_page(highest=30, numbers=((31, "checked_in"),))
-    blank = await r.observe(scope(), taipei(11, 4))
+    blank = await r.observe(scope(), taipei(15, 4))
     assert blank == ReadSkipped("blank_after_call")
     assert blank.progress.called_in_session is True
     assert blank.progress.numbers == (NumberStatus(31, "checked_in"),)
@@ -528,7 +528,7 @@ async def test_a_blank_carries_the_numbers_and_a_resumed_clinic_is_recorded():
     # is not the unobserved situation; calling again after it is.
     assert recorded() is None
     source.detail = detail_page(current=31, highest=31)
-    assert isinstance(await r.observe(scope(), taipei(11, 6)), QueueObservation)
+    assert isinstance(await r.observe(scope(), taipei(15, 6)), QueueObservation)
     assert recorded() == ["midday_blank"]
 
 
@@ -590,9 +590,10 @@ async def test_start_is_accepted_while_the_found_clinic_shows_no_usable_number(
     database, gate = await gate_with_visit(source)
     await seed_ntuh_at(database, gate, "v", DAY, session=session)
     r = gate._hospital_reader()
+    hour = 19 if session == "evening" else 15
     for minute in (0, 2):
-        await r.observe(scope(session=ClinicSession(session)), taipei(15, minute))
-    started = await gate.start_visit("v", taipei(15, 3).isoformat())
+        await r.observe(scope(session=ClinicSession(session)), taipei(hour, minute))
+    started = await gate.start_visit("v", taipei(hour, 3).isoformat())
     assert started == {"state": "active"}
 
 
@@ -625,10 +626,10 @@ async def test_a_link_that_stops_leading_to_the_clinic_falls_back_to_the_list(pa
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("page", UNUSABLE_PAGES)
-async def test_a_dead_link_in_the_night_messages_no_one_and_recovers(page):
+async def test_a_dead_link_before_the_session_starts_messages_no_one_and_recovers(page):
     source = TwoPageSource(BLANK_LIST, page)
     database, gate = await running_visit(source)
-    await tick_every_minute(gate, taipei(0, 40), taipei(13, 29))
+    await tick_every_minute(gate, taipei(12, 30), taipei(13, 29))
     assert await kinds(gate) == []
     assert counts(database, "v") == ("unavailable", "no_observation", 0)
     source.listed = PAGE
@@ -640,13 +641,13 @@ async def test_a_dead_link_in_the_night_messages_no_one_and_recovers(page):
 async def test_a_new_link_is_followed_and_learns_the_page_afresh():
     source = TwoPageSource(BLANK_LIST, detail_page(current=22, highest=80))
     r = reader(source)
-    await r.observe(scope(), taipei(9, 0))
-    await r.observe(scope(), taipei(9, 2))
+    await r.observe(scope(), taipei(13, 0))
+    await r.observe(scope(), taipei(13, 2))
     source.listed = BLANK_LIST.replace(SERVICE_ID, "8000099")
     source.detail = FetchedPage(404, "")
-    assert await r.observe(scope(), taipei(9, 4)) == ReadSkipped("clinic_not_started")
+    assert await r.observe(scope(), taipei(13, 4)) == ReadSkipped("clinic_not_started")
     source.detail = detail_page(current=60, highest=70)
-    assert await r.observe(scope(), taipei(9, 6)) == ReadSkipped("clinic_not_started")
+    assert await r.observe(scope(), taipei(13, 6)) == ReadSkipped("clinic_not_started")
     assert "ServiceIDSE=8000099&" in source.detail_urls[-1]
 
 
@@ -654,11 +655,11 @@ async def test_a_new_link_is_followed_and_learns_the_page_afresh():
 async def test_a_card_that_disappears_before_the_clinic_calls_is_noticed():
     source = TwoPageSource(BLANK_LIST, detail_page())
     database, gate = await running_visit(source)
-    await tick(gate, 0, 40)
-    await tick(gate, 0, 42)
+    await tick(gate, 12, 30)
+    await tick(gate, 12, 32)
     source.listed = NO_CARD
-    await tick_every_minute(gate, taipei(0, 43), taipei(13, 29))
-    # The organizer sees it overnight; the family is not messaged until it counts.
+    await tick_every_minute(gate, taipei(12, 33), taipei(13, 29))
+    # The organizer sees it at once; the family is not messaged until it counts.
     assert counts(database, "v")[:2] == ("unavailable", "card_not_found")
     assert await kinds(gate) == []
     await tick_every_minute(gate, taipei(13, 30), taipei(14, 0))
@@ -669,14 +670,14 @@ async def test_a_card_that_disappears_before_the_clinic_calls_is_noticed():
 async def test_a_substitute_who_takes_the_clinic_before_it_calls_is_noticed():
     source = TwoPageSource(BLANK_LIST, detail_page())
     database, gate = await running_visit(source)
-    await tick(gate, 8, 0)
-    await tick(gate, 8, 2)
+    await tick(gate, 13, 0)
+    await tick(gate, 13, 2)
     assert counts(database, "v")[:2] == ("unavailable", "no_observation")
     source.listed = BLANK_LIST.replace("合成醫師丙", "住院醫師(代)")
-    await tick_every_minute(gate, taipei(8, 3), taipei(8, 30))
+    await tick_every_minute(gate, taipei(13, 3), taipei(13, 30))
     assert counts(database, "v")[:2] == ("unavailable", "substitute_doctor")
     source.detail = detail_page(doctor="住院醫師", current=25, highest=25)
-    await tick(gate, 8, 32)
+    await tick(gate, 13, 32)
     assert counts(database, "v")[:2] == ("usable", "substitute_doctor")
 
 
@@ -759,7 +760,7 @@ async def test_a_page_that_keeps_failing_gives_way_to_a_healthy_list(outage):
     # A dead link may well answer 500. The list alone is what the family had.
     source = TwoPageSource(BLANK_LIST, outage)
     database, gate = await running_visit(source)
-    await tick_every_minute(gate, taipei(0, 40), taipei(13, 29))
+    await tick_every_minute(gate, taipei(12, 30), taipei(13, 29))
     assert await kinds(gate) == []
     source.listed = page_with("026")
     await tick_every_minute(gate, taipei(13, 30), taipei(13, 40))
@@ -783,9 +784,9 @@ async def test_a_dead_page_behind_a_failed_recheck_is_dropped_too():
     state = LocalDurableStorage()
     source = TwoPageSource(BLANK_LIST, detail_page())
     r = reader(source, state)
-    await r.observe(scope(), taipei(9, 0))
+    await r.observe(scope(), taipei(13, 0))
     source.listed, source.detail = FetchedPage(503, ""), FetchedPage(404, "")
-    assert await r.observe(scope(), taipei(9, 30)) == ReadFailed(
+    assert await r.observe(scope(), taipei(13, 30)) == ReadFailed(
         "unavailable", "no_observation"
     )
     (entry,) = json.loads(state.values[STATE_KEY]).values()
@@ -796,22 +797,22 @@ async def test_a_dead_page_behind_a_failed_recheck_is_dropped_too():
 async def test_a_throttled_source_is_left_alone_on_both_pages():
     source = TwoPageSource(BLANK_LIST, detail_page())
     r = reader(source)
-    await r.observe(scope(), taipei(9, 0))
+    await r.observe(scope(), taipei(13, 0))
     for minute in range(2, 30, 2):
-        await r.observe(scope(), taipei(9, minute))
+        await r.observe(scope(), taipei(13, minute))
     source.listed = FetchedPage(429, "", retry_after=600)
-    assert isinstance(await r.observe(scope(), taipei(9, 30)), ReadFailed)
+    assert isinstance(await r.observe(scope(), taipei(13, 30)), ReadFailed)
     count = len(source.requests)
     for minute in range(31, 40):
-        assert await r.observe(scope(), taipei(9, minute)) == ReadSkipped("not_due")
+        assert await r.observe(scope(), taipei(13, minute)) == ReadSkipped("not_due")
     assert len(source.requests) == count
     # The same holds when the detail page is the one that asks, twice in a row.
     source.listed = BLANK_LIST
-    await r.observe(scope(), taipei(9, 40))
+    await r.observe(scope(), taipei(13, 40))
     source.detail = FetchedPage(429, "")
     posts = source.list_posts
     for minute in (42, 43, 45):
-        assert isinstance(await r.observe(scope(), taipei(9, minute)), ReadFailed)
+        assert isinstance(await r.observe(scope(), taipei(13, minute)), ReadFailed)
     assert source.list_posts == posts
 
 
@@ -892,12 +893,12 @@ async def test_a_visit_started_days_ahead_reads_the_detail_page_on_its_day():
     database, gate = await started_three_days_ahead(source)
     assert not source.detail_requests
 
-    await gate.scheduled_tick(at(VISIT_DAY, 0, 40).isoformat())
-    await gate.scheduled_tick(at(VISIT_DAY, 0, 42).isoformat())
+    await gate.scheduled_tick(at(VISIT_DAY, 8, 40).isoformat())
+    await gate.scheduled_tick(at(VISIT_DAY, 8, 42).isoformat())
     source.details = [
         detail_page(room="合成科 03診", doctor="合成醫師甲", current=12, highest=15)
     ]
-    called = await gate.scheduled_tick(at(VISIT_DAY, 0, 44).isoformat())
+    called = await gate.scheduled_tick(at(VISIT_DAY, 8, 44).isoformat())
 
     assert called["events_created"] == 1
     assert await kinds(gate) == ["near"]
@@ -1003,7 +1004,7 @@ async def test_a_refusal_of_today_survives_the_cleanup():
         f"T0|OPH|morning|{DAY}",
     ]
     source = TwoPageSource(PAGE, detail_page())
-    refused = await reader(source, storage).observe(scope(), taipei(9, 0))
+    refused = await reader(source, storage).observe(scope(), taipei(13, 0))
     assert refused.reason == "access_denied" and not source.requests
 
 

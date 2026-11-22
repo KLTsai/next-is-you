@@ -20,7 +20,8 @@ page. Once the clinic's card is found, its detail-page link (`ServiceIDSE`) is
 kept for that day only and later reads are that page (`ntuh_detail.py`, #163).
 The list is read again every 30 minutes until the clinic calls, and whenever the
 link stops leading to the clinic's page. One read is one of the two pages, except
-that a page that fails may fall back to the other in the same read.
+that a page that fails may fall back to the other in the same read. Scheduled
+reads begin one hour before the session's published start (#181).
 
 Live hospital behavior is unverified. Tests drive this module with fixture
 pages and an injected fetcher and never contact the hospital.
@@ -95,13 +96,18 @@ AMPM_CODES = {
     ClinicSession.EVENING: "3",
 }
 # The session's published start, Taipei time (#144). A card missing before it is
-# not yet an unusable read. NTUH publishes no evening start the reader can read,
-# so 18:00 stands in for it until a source gives one.
+# not yet an unusable read, and scheduled reads begin an hour before it. NTUH
+# publishes no evening start the reader can read, so 18:00 stands in for it until a
+# source gives one.
 PUBLISHED_SESSION_START = {
     ClinicSession.MORNING: time(9, 0),
     ClinicSession.AFTERNOON: time(13, 30),
     ClinicSession.EVENING: time(18, 0),
 }
+# Scheduled reads of a clinic begin this long before its published start (captain,
+# 2026-11-22, #181). Start on the visit day reads whatever the hour, because it
+# must confirm the clinic.
+SCHEDULED_READ_LEAD = timedelta(hours=1)
 # One read per source every 2 to 3 minutes while the clinic is calling, and, from
 # the moment the card's detail page is found, every 2 minutes (#163). The
 # one-minute cron only offers the reader a chance to read; the reader skips
@@ -974,10 +980,12 @@ class NtuhProgressReader:
         ):
             return ReadFailed("scope_mismatch", "scope_mismatch")
 
-        # The only clock left: reads happen on the day the owner entered, and
-        # the scheduler's 23:59 Taipei cutoff closes the visit from above.
+        # Reads happen on the day the organizer entered, and the scheduler's 23:59
+        # Taipei cutoff closes the visit from above.
         if now.astimezone(TAIPEI).date() != scope.visit_date:
             return ReadSkipped("clinic_not_started")
+        if not for_start and now < _published_start(scope) - SCHEDULED_READ_LEAD:
+            return ReadSkipped("not_due")
 
         source = f"{BRANCH_CODE}|{scope.department_code}|{scope.session}"
         day = scope.visit_date.isoformat()
@@ -1067,7 +1075,7 @@ class NtuhProgressReader:
             if entry.get("called"):
                 return self._blank_list_read(entry, fetched=fetched)
             # Before the session's published start the finding is recorded but
-            # is not an unusable read, so nobody is messaged in the night.
+            # is not an unusable read, so nobody is messaged for it.
             if not for_start and now < _published_start(scope):
                 return ReadSkipped("card_not_listed")
             return ReadFailed("unavailable", "card_not_found")

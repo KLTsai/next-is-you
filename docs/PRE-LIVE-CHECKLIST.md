@@ -18,8 +18,21 @@ Staging is used by the captain alone. No family member is invited to it.
 - [ ] #134: an invitee who does not confirm within a minute is no longer deleted.
 - [ ] #135: a visit started before its day sends on the visit day.
 - [ ] #136: the new reminder rules, with the clinic and patient number in every
-  message. Its first step measures Staging's scheduler CPU and the parse time of
-  a captured NTUH detail page against the Free plan's 10 ms per invocation.
+  message. Its first step, the CPU measurements, is done (#162, #170).
+- [ ] The held tick's CPU on Staging, measured again after #163 is deployed (it adds
+  a cleanup of reader state to every tick): every Durable Object invocation stays
+  at or below 10 ms under `wrangler tail`. Last measured 5 to 9 ms. Evidence label
+  deployed.
+- [ ] #179: a refusal stops the whole hospital, and Start and the picker follow it.
+- [ ] #181: scheduled reads begin one hour before the session's published start.
+- [ ] #163's CPU condition ([HTTPS-SERVICE.md](HTTPS-SERVICE.md), #170 verdict),
+  evidence label live provider: before Staging's reading is turned on for use, one
+  synthetic visit reads a real NTUH detail page under `wrangler tail`, and every
+  Durable Object invocation stays at or below 10 ms, including the one that finds
+  the card on the list and the 30-minute list check. If one does not, stop and
+  bring the choice to the captain. Staging reads no hospital until it is live, so
+  the captain allows this one read before Staging is live: run by the captain,
+  time-boxed, one page, no LINE message (2026-11-22, #142).
 - [ ] #137: at most 5 retries of an unknown LINE outcome, and the monthly-limit
   `429` handled.
 - [ ] #138: a visit ends when its clinic ends.
@@ -56,6 +69,9 @@ Staging is used by the captain alone. No family member is invited to it.
 - Before each run, the captain checks the month's remaining messages in LINE
   Official Account Manager. The free plan allows 200 a month per official
   account.
+- After each run, the one who ran it reads the Worker's log for
+  `ntuh_unobserved_situation` the same day, and writes what was seen on #136 with no
+  clinic, doctor or number. Nothing else tells anyone.
 - Every merge to `main` reaches a live Staging. A production rollback re-runs an
   earlier pipeline run, which also puts that version on Staging.
 
@@ -70,6 +86,12 @@ Staging is used by the captain alone. No family member is invited to it.
     next, and record CPU and request headroom for each run.
   - At least one visit uses a real appointment (the captain's, or a consenting
     relative's with the captain as the only recipient), so the "about 8" and "about 5 people ahead" reminders are seen.
+  - At the real appointment, the page's current light is compared with the room's
+    light at least once, with the result recorded and no number kept.
+  - If a detail link stops working, what it answered (status, and for a redirect
+    whether it stays on the same host and path) is recorded before its rule changes.
+  - At least one visit is in a department whose calls follow number order
+    (#180), because ophthalmology calls too far out of order to show every reminder.
   - Edge cases (passed, check-in order, unavailable source, number gone from the
     list) are covered by fixtures.
 - [ ] #131: the security baseline, grilled after #22 passes and finished before
@@ -101,6 +123,12 @@ Staging is used by the captain alone. No family member is invited to it.
 - Nothing alerts anyone when the Worker itself stops running. The status page
   shows the last scheduler run time, but a family member who notices missing
   reminders has usually already missed the call.
+- A doctor change after the clinic has called is not noticed (`docs/NTUH-READER.md`).
+- If the reader's state is lost while a clinic is calling, the clinic reads as not
+  started until the page moves or its card shows a number.
+- Until #183, an evening visit gets no progress reminder. NTUH Main's clinic
+  schedule shows no evening clinic (#180), so it does not hold back Staging
+  (captain, 2026-11-22).
 - There is no backup outside Cloudflare. D1 Time Travel (7 days) is the only
   restore path, and it does not roll back the send gate Durable Object, so any
   restore is followed by a send interruption.

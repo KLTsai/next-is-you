@@ -14,9 +14,13 @@ nothing more, and the current light is the number most recently called rather
 than a queue position. Supported scope stays department OPH, afternoon session,
 as Issue #20 set it.
 
-The fragment's "Last updated" text is render time and the detail page's
-expected call number is undefined, so neither is read. Freshness is the time
-this reader fetched the page; it is never taken from the page.
+The fragment's "Last updated" text is render time, so it is never read.
+Freshness is the time this reader fetched the page; it is never taken from the
+page. Once the clinic's card is found, its detail-page link (`ServiceIDSE`) is
+kept for that day only and later reads are that page (`ntuh_detail.py`, #163).
+The list is read again every 30 minutes until the clinic calls, and whenever the
+link stops leading to the clinic's page. One read is one of the two pages, except
+that a page that fails may fall back to the other in the same read.
 
 Live hospital behavior is unverified. Tests drive this module with fixture
 pages and an injected fetcher and never contact the hospital.
@@ -35,10 +39,12 @@ from datetime import date, datetime, time, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from typing import Any, Awaitable, Callable, Mapping, Protocol
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from next_is_you.domain import (
     ClinicOption,
+    ExpectedCall,
+    NumberStatus,
     clinic_label,
     ClinicMatch,
     ClinicRoster,
@@ -51,6 +57,11 @@ from next_is_you.domain import (
     ReadSkipped,
     RosterQuery,
 )
+from next_is_you.ntuh_detail import (
+    MAX_NUMBER_DIGITS,
+    ProgressObservation,
+    parse_detail_page,
+)
 from next_is_you.source_samples import _page_status
 from next_is_you.persistence import TAIPEI
 
@@ -61,6 +72,7 @@ from next_is_you.persistence import TAIPEI
 WEBREG_BASE = "https://registration.ntuh.gov.tw/WebReg/WebReg"
 SELECTOR_PATH = f"{WEBREG_BASE}/ClinicCurrentLightNo"
 LIGHT_TABLE_URL = f"{WEBREG_BASE}/DeptLightTable"
+DETAIL_PATH = f"{WEBREG_BASE}/ClinicCurrentLightNoDetail"
 SCHEDULE_PATH = f"{WEBREG_BASE}/RegDeptSchedule"
 HOSPITAL_ID = "ntuh-main"
 BRANCH_CODE = "T0"
@@ -90,13 +102,18 @@ PUBLISHED_SESSION_START = {
     ClinicSession.AFTERNOON: time(13, 30),
     ClinicSession.EVENING: time(18, 0),
 }
-# One read per source every 2 to 3 minutes while the clinic is calling. The
+# One read per source every 2 to 3 minutes while the clinic is calling, and, from
+# the moment the card's detail page is found, every 2 minutes (#163). The
 # one-minute cron only offers the reader a chance to read; the reader skips
 # ticks inside the interval.
 MIN_READ_INTERVAL = timedelta(minutes=2)
 # Before the clinic has called anyone, reads only have to notice that it has
 # started, so they are sparse.
 PRE_ACTIVE_READ_INTERVAL = timedelta(minutes=5)
+# Until the clinic calls, the list is read again this often, so a cancelled clinic
+# or a substitute doctor is still noticed (captain, 2026-11-22). A link that did
+# not lead to the clinic's page is not tried again sooner either.
+LIST_RECHECK_INTERVAL = timedelta(minutes=30)
 # Blank reads in a row that end the watch once the clinic has been calling.
 END_BLANK_READS = 2
 # Duplicate reads of the same clinic in one tick reuse the same result.
@@ -191,6 +208,9 @@ class ListRow:
     # Non-empty when the card says the clinic calls by check-in order, in which
     # case the light number is not a called number.
     check_in_order: str = ""
+    # `ServiceIDSE` of the card's detail-page link: one per card per day. Kept
+    # only in the reader's transient state for that day, never in the database.
+    service_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,7 +311,7 @@ class _LightTableCollector(HTMLParser):
                 classes = set(value.split())
         if self._card is None:
             if tag == "a" and "open-link" in classes:
-                self._card = {}
+                self._card = {"service_id": _service_id(dict(attrs).get("href"))}
                 self._card_depth = 1
             return
         self._card_depth += 1
@@ -323,6 +343,21 @@ class _LightTableCollector(HTMLParser):
             self._card[self._field] = (self._card[self._field] + data).strip()
 
 
+_SERVICE_ID = re.compile(r"\d{1,12}")
+
+
+def _service_id(href: str | None) -> str:
+    """The `ServiceIDSE` of a card's detail link, or empty when it has none."""
+    if not href:
+        return ""
+    values = parse_qs(urlparse(href).query).get("ServiceIDSE", [])
+    return values[0] if len(values) == 1 and _SERVICE_ID.fullmatch(values[0]) else ""
+
+
+def detail_page_url(service_id: str) -> str:
+    return f"{DETAIL_PATH}?{urlencode({'ServiceIDSE': service_id, 'vHospitalCode': BRANCH_CODE})}"
+
+
 def parse_light_table(html: str) -> tuple[str, list[ListRow]]:
     """Return ("ok", rows) or a page-level failure ("challenge", "denied", "schema")."""
     collector = _LightTableCollector()
@@ -349,6 +384,7 @@ def parse_light_table(html: str) -> tuple[str, list[ListRow]]:
                 card["clinic_type"],
                 card["current"],
                 card.get("check_in_order", ""),
+                card.get("service_id", ""),
             )
         )
     return "ok", rows
@@ -984,25 +1020,52 @@ class NtuhProgressReader:
                 return _failure(entry.get("result")) or ReadFailed(
                     "unavailable", "no_observation"
                 )
-            result = await self._fetch_result(key, scope)
+            result = await self._fetch_result(key, scope, entry, now)
             self._record(entry, result, now)
             if result.get("blocked"):
                 states[blocked_key] = {"blocked": True}
             read_at = now
-            await self._save(states, scope.visit_date)
+        assert read_at is not None and result is not None
+        try:
+            return self._outcome(
+                entry,
+                scope,
+                now,
+                read_at,
+                result,
+                fetched=not reuse,
+                for_start=for_start,
+            )
+        finally:
+            # One save per read, made even if the outcome cannot be worked out, so
+            # the cadence always advances.
+            if not reuse:
+                await self._save(states, scope.visit_date)
 
+    def _outcome(
+        self,
+        entry: dict[str, Any],
+        scope: ClinicScope,
+        now: datetime,
+        read_at: datetime,
+        result: dict[str, Any],
+        *,
+        fetched: bool,
+        for_start: bool,
+    ) -> QueueObservation | ReadSkipped | ReadFailed:
         failure = _failure(result)
         if failure is not None:
             return failure
+        if "detail" in result:
+            return self._detail_outcome(
+                entry, scope, read_at, result["detail"], fetched=fetched
+            )
         rows = [ListRow(*row) for row in result["rows"]]
-        substitute = bool(result.get("substitute"))
         if not rows:
             # Once the clinic has called, its card going away is how this source
             # ends a clinic. Before that, a card that is not listed is a finding.
             if entry.get("called"):
-                return await self._without_a_number(
-                    entry, states, scope, fetched=not reuse
-                )
+                return self._blank_list_read(entry, fetched=fetched)
             # Before the session's published start the finding is recorded but
             # is not an unusable read, so nobody is messaged in the night.
             if not for_start and now < _published_start(scope):
@@ -1010,89 +1073,357 @@ class NtuhProgressReader:
             return ReadFailed("unavailable", "card_not_found")
         if len(rows) > 1:
             return ReadFailed("invalid", "ambiguous_match")
-        # A card that calls by check-in order shows no called number at all, so
-        # it is read as having none rather than as a number.
-        text = "" if rows[0].check_in_order else rows[0].current.strip()
-        if not text:
-            skipped = await self._without_a_number(
-                entry, states, scope, fetched=not reuse
-            )
-            if substitute and isinstance(skipped, ReadSkipped):
-                return replace(skipped, substitute_doctor=True)
-            return skipped
-        if not text.isascii() or not text.isdigit():
-            return ReadFailed("invalid", "invalid_data")
-        try:
-            current_number = int(text)
-        except ValueError:
-            return ReadFailed("invalid", "invalid_data")
-        if current_number < 1:
-            return ReadFailed("invalid", "invalid_data")
-        await self._calling(entry, states, scope, now, fetched=not reuse)
-        assert read_at is not None
-        return QueueObservation(
-            scope=scope,
-            observed_at=read_at.isoformat(),
-            current_number=current_number,
-            # This validates the read and requested scope, not the physical
-            # room light. Department/session are not labeled in source rows.
-            trustworthy_current=True,
-            substitute_doctor=substitute,
+        return self._card_outcome(
+            entry,
+            scope,
+            now,
+            read_at,
+            rows[0],
+            substitute=bool(result.get("substitute")),
+            fetched=fetched,
         )
 
-    async def _calling(
+    def _card_outcome(
         self,
         entry: dict[str, Any],
-        states: dict[str, dict[str, Any]],
         scope: ClinicScope,
         now: datetime,
+        read_at: datetime,
+        card: ListRow,
         *,
+        substitute: bool,
         fetched: bool,
-    ) -> None:
-        """A called number opens the watch and clears any run of blank reads."""
-        if not fetched:
-            return
-        entry["called"] = True
-        entry["blanks"] = 0
-        entry["due_at"] = (now + MIN_READ_INTERVAL).isoformat()
-        await self._save(states, scope.visit_date)
+    ) -> QueueObservation | ReadSkipped | ReadFailed:
+        """What the list card says: its number, or that it shows none."""
+        text = card.current.strip()
+        progress = QueueObservation(
+            scope=scope,
+            observed_at=read_at.isoformat(),
+            current_number=None,
+            substitute_doctor=substitute,
+            check_in_order=bool(card.check_in_order),
+            called_in_session=bool(entry.get("called")),
+        )
+        if card.check_in_order:
+            return ReadSkipped(
+                "check_in_order" if entry.get("called") else "clinic_not_started",
+                substitute_doctor=substitute,
+                progress=progress,
+            )
+        if not text:
+            if entry.get("called"):
+                return self._blank_list_read(entry, fetched=fetched)
+            # A clinic that has never shown a number today has not started, and
+            # that is not a failed read.
+            return ReadSkipped(
+                "clinic_not_started", substitute_doctor=substitute, progress=progress
+            )
+        number = _positive_number(text)
+        if number is None:
+            return ReadFailed("invalid", "invalid_data")
+        if fetched:
+            # A called number opens the watch and clears any run of blank reads.
+            entry["called"] = True
+            entry["card_number"] = number
+            entry["blanks"] = 0
+            entry["due_at"] = (now + MIN_READ_INTERVAL).isoformat()
+        # NTUH's list is the session's own, so a number on the card says the
+        # clinic has called in this session.
+        progress = replace(progress, current_number=number, called_in_session=True)
+        if scope.session == ClinicSession.EVENING:
+            return self._unobserved(
+                entry, scope, "evening_session", progress, fetched=fetched
+            )
+        # This validates the read and requested scope, not the physical room
+        # light. Department/session are not labeled in source rows.
+        return replace(progress, trustworthy_current=True)
 
-    async def _without_a_number(
-        self,
-        entry: dict[str, Any],
-        states: dict[str, dict[str, Any]],
-        scope: ClinicScope,
-        *,
-        fetched: bool,
+    def _blank_list_read(
+        self, entry: dict[str, Any], *, fetched: bool
     ) -> ReadSkipped | ReadFailed:
-        """No called number: the clinic has not started, or it is over.
+        """The list shows no number for a clinic that has called today.
 
-        A clinic that has never shown a number today has not started, and that
-        is not a failed read. Once it has shown one, the number going blank is
-        how this source ends a clinic; a run of blank reads confirms it before
-        the watch stops for the day.
+        The number going blank is how this list ends a clinic; a run of blank
+        reads confirms it before the watch stops for the day.
         """
-        if not entry.get("called"):
-            return ReadSkipped("clinic_not_started")
-        blanks = int(entry.get("blanks", 0)) + 1 if fetched else int(entry["blanks"])
+        blanks = int(entry.get("blanks", 0)) + (1 if fetched else 0)
         entry["blanks"] = blanks
         if blanks >= END_BLANK_READS:
             entry["ended"] = True
-        await self._save(states, scope.visit_date)
         if entry.get("ended"):
             return ReadSkipped("clinic_ended")
         return ReadFailed("unavailable", "empty_result")
 
-    async def _fetch_result(self, key: ClinicKey, scope: ClinicScope) -> dict[str, Any]:
-        """One read: GET the selector page for a token, then POST for the rows."""
-        try:
-            return await asyncio.wait_for(
-                self._read_light_table(key, scope), REQUEST_TIMEOUT_SECONDS
+    async def _fetch_result(
+        self, key: ClinicKey, scope: ClinicScope, entry: dict[str, Any], now: datetime
+    ) -> dict[str, Any]:
+        """One read: the clinic's detail page, or the session's list.
+
+        The list is read until the clinic's card is found, every 30 minutes until
+        the clinic calls, and when the card's link no longer leads to the clinic's
+        page. Each page has its own budget.
+        """
+        linked = bool(entry.get("service_id"))
+        if linked and not self._list_is_due(entry, now):
+            detail = await self._linked_page(entry, key)
+            if not detail.get("bad_link"):
+                return detail
+            self._drop_link(entry, detail, now)
+            linked = False
+        listed = await _within_budget(self._read_light_table(key, scope))
+        if "failure" not in listed:
+            self._note_card(entry, listed, now)
+            return listed
+        if not linked or listed.get("blocked") or listed.get("throttled"):
+            return listed
+        # Only the re-check failed, and the source did not ask to be left alone:
+        # the clinic's own page is still readable.
+        entry["list_due_at"] = (now + PRE_ACTIVE_READ_INTERVAL).isoformat()
+        detail = await self._linked_page(entry, key)
+        if not detail.get("bad_link"):
+            return detail
+        self._drop_link(entry, detail, now)
+        return listed
+
+    async def _linked_page(
+        self, entry: dict[str, Any], key: ClinicKey
+    ) -> dict[str, Any]:
+        """The linked detail page, marked `bad_link` when it is no use to the clinic."""
+        result = await _within_budget(self._read_detail_page(entry["service_id"], key))
+        if "detail" in result:
+            page = _progress_from_json(result["detail"])
+            if (
+                "card_number" in entry
+                and _signature(page) == entry.get("baseline")
+                and page.current_light != entry["card_number"]
+            ):
+                # The list says the clinic called another number, and this page has
+                # not moved since before it did.
+                return {**_failed("invalid", "stale_sample"), "bad_link": True}
+        elif result.get("outage") and int(entry.get("failures", 0)) >= 1:
+            # A page that fails twice in a row may be gone while the list is fine.
+            return {**result, "bad_link": True}
+        return result
+
+    @staticmethod
+    def _drop_link(
+        entry: dict[str, Any], detail: dict[str, Any], now: datetime
+    ) -> None:
+        print(
+            json.dumps(
+                {
+                    "event": "ntuh_detail_link_unusable",
+                    "reason": detail["failure"][1],
+                }
             )
-        except TimeoutError:
-            return _failed("unavailable", "timeout")
-        except Exception:
-            return _failed("unavailable", "no_observation")
+        )
+        entry["failed_link"] = [entry.pop("service_id"), now.isoformat()]
+
+    @staticmethod
+    def _list_is_due(entry: dict[str, Any], now: datetime) -> bool:
+        if entry.get("called"):
+            return False
+        due = _parse(entry.get("list_due_at"))
+        return due is None or now >= due
+
+    @staticmethod
+    def _note_card(
+        entry: dict[str, Any], listed: dict[str, Any], now: datetime
+    ) -> None:
+        """Keep the link of the one card that is the visit's clinic."""
+        entry["list_due_at"] = (now + LIST_RECHECK_INTERVAL).isoformat()
+        rows = listed["rows"]
+        service_id = rows[0][5] if len(rows) == 1 else ""
+        rejected, rejected_at = entry.get("failed_link") or ("", None)
+        since = _parse(rejected_at)
+        if (
+            service_id
+            and service_id == rejected
+            and since is not None
+            and now < since + LIST_RECHECK_INTERVAL
+        ):
+            # The list still links to the page that failed: read the list alone
+            # rather than ask for that page again on every read.
+            service_id = ""
+        if len(rows) == 1:
+            entry["substitute"] = bool(listed.get("substitute"))
+        if service_id and service_id != entry.get("page_id"):
+            # What was learnt from one page says nothing about another.
+            for fact in (
+                "baseline",
+                "card_number",
+                "top_called",
+                "light_rechecked",
+                "went_blank",
+            ):
+                entry.pop(fact, None)
+        if service_id:
+            entry["service_id"] = entry["page_id"] = service_id
+        else:
+            entry.pop("service_id", None)
+
+    async def _read_detail_page(
+        self, service_id: str, key: ClinicKey
+    ) -> dict[str, Any]:
+        """One GET of the clinic's detail page. It needs no token or cookie.
+
+        `bad_link` marks a page that answers but is not this clinic's page.
+        """
+        page = await self._fetch(
+            PageRequest(
+                detail_page_url(service_id),
+                headers=_headers({"Cookie": f"{LANGUAGE_COOKIE}={UI_LANGUAGE}"}),
+            )
+        )
+        failure = _transport_failure(page)
+        if failure is not None:
+            if failure["failure"][1] == "schema_drift":
+                failure["bad_link"] = True
+            return failure
+        status, progress = parse_detail_page(page.body)
+        if status in {"challenge", "denied"}:
+            return _failed("unavailable", "access_denied", blocked=True)
+        if status == "invalid":
+            return _failed("invalid", "invalid_data")
+        if status != "ok" or progress is None:
+            return {**_failed("invalid", "schema_drift"), "bad_link": True}
+        if not _same_room(progress.room, key.room):
+            # Doctors are not compared: a substitute's card names no doctor.
+            return {**_failed("invalid", "scope_mismatch"), "bad_link": True}
+        return {"detail": _progress_to_json(progress)}
+
+    def _detail_outcome(
+        self,
+        entry: dict[str, Any],
+        scope: ClinicScope,
+        read_at: datetime,
+        detail: dict[str, Any],
+        *,
+        fetched: bool,
+    ) -> QueueObservation | ReadSkipped:
+        """Turn the detail page into an observation or a wait that carries its facts.
+
+        A detail page is not cleared after its session, so a number on it does
+        not say the clinic has called. The first page read before the clinic
+        calls is kept as the frozen baseline; the clinic has called in this
+        session once the page shows a value the baseline did not, or once the
+        list card showed a number. A value that only disappeared is no call. The
+        page's light feeds the existing current-number fields, so the near and
+        unavailable behaviour is unchanged.
+        """
+        page = _progress_from_json(detail)
+        signature = _signature(page)
+        if fetched and not entry.get("called"):
+            baseline = entry.setdefault("baseline", signature)
+            if any(
+                value is not None and value != frozen
+                for value, frozen in zip(signature, baseline)
+            ):
+                entry["called"] = True
+            elif (
+                page.current_light is not None
+                and not page.check_in_order
+                and not entry.get("light_rechecked")
+            ):
+                # A number no one saw change: the list's card, which is this
+                # session's own, says whether the clinic called it.
+                entry["light_rechecked"] = True
+                entry["list_due_at"] = read_at.isoformat()
+        called = bool(entry.get("called"))
+        previous_top = int(entry.get("top_called") or 0)
+        frozen_top = (entry.get("baseline") or _NO_BASELINE)[1]
+        if fetched and called and page.highest_called not in (None, frozen_top):
+            # A highest called left from before the session is not this session's.
+            entry["top_called"] = max(page.highest_called, previous_top)
+        substitute = bool(entry.get("substitute"))
+        progress = QueueObservation(
+            scope=scope,
+            observed_at=read_at.isoformat(),
+            current_number=page.current_light,
+            highest_called_number=page.highest_called,
+            substitute_doctor=substitute,
+            current_flag=page.current_flag,
+            check_in_order=page.check_in_order,
+            check_in_position=page.check_in_position,
+            expected=page.expected,
+            numbers=page.numbers,
+            called_in_session=called,
+        )
+        if not called:
+            if page.check_in_order and any(value is not None for value in signature):
+                # Its list card shows no number to ask, so nothing says whether the
+                # position on the page is this session's.
+                progress = replace(progress, called_in_session=None)
+            return ReadSkipped(
+                "clinic_not_started", substitute_doctor=substitute, progress=progress
+            )
+        if scope.session == ClinicSession.EVENING:
+            return self._unobserved(
+                entry, scope, "evening_session", progress, fetched=fetched
+            )
+        if page.check_in_order:
+            # Its light is not a called number, so no current-number rule applies.
+            return ReadSkipped(
+                "check_in_order", substitute_doctor=substitute, progress=progress
+            )
+        if page.highest_called is not None and page.highest_called < previous_top:
+            # The highest called only grows within a session, so a lower one is a
+            # later block starting its own numbers on the same page.
+            return self._unobserved(
+                entry, scope, "later_block_opening", progress, fetched=fetched
+            )
+        if page.current_light is None:
+            # Pages go blank for good when a clinic ends; the blank is not a
+            # failed read and sends nothing (#138 owns the end of a visit).
+            if fetched:
+                entry["went_blank"] = True
+            return ReadSkipped(
+                "blank_after_call", substitute_doctor=substitute, progress=progress
+            )
+        if fetched and entry.pop("went_blank", False):
+            # Calling resumed, so the blank was a pause, which no one has observed.
+            self._record_unobserved(entry, scope, "midday_blank")
+        # This validates the read and requested scope, not the physical room light.
+        return replace(progress, trustworthy_current=True)
+
+    def _unobserved(
+        self,
+        entry: dict[str, Any],
+        scope: ClinicScope,
+        situation: str,
+        progress: QueueObservation,
+        *,
+        fetched: bool,
+    ) -> ReadSkipped:
+        """A situation no one has observed on NTUH's pages sends nothing (ADR 0003)."""
+        if fetched:
+            self._record_unobserved(entry, scope, situation)
+        return ReadSkipped(
+            "unobserved_situation",
+            substitute_doctor=progress.substitute_doctor,
+            unobserved=situation,
+            progress=progress,
+        )
+
+    @staticmethod
+    def _record_unobserved(
+        entry: dict[str, Any], scope: ClinicScope, situation: str
+    ) -> None:
+        """Log it once per clinic and day, with nothing that names a patient."""
+        recorded = entry.setdefault("unobserved", [])
+        if situation in recorded:
+            return
+        recorded.append(situation)
+        print(
+            json.dumps(
+                {
+                    "event": "ntuh_unobserved_situation",
+                    "situation": situation,
+                    "session": scope.session.value,
+                    "date": scope.visit_date.isoformat(),
+                }
+            )
+        )
 
     async def _read_light_table(
         self, key: ClinicKey, scope: ClinicScope
@@ -1146,7 +1477,14 @@ class NtuhProgressReader:
         matched, substitute = _identify(rows, key)
         return {
             "rows": [
-                [row.room, row.doctor, row.clinic_type, row.current, row.check_in_order]
+                [
+                    row.room,
+                    row.doctor,
+                    row.clinic_type,
+                    row.current,
+                    row.check_in_order,
+                    row.service_id,
+                ]
                 for row in matched
             ],
             "substitute": substitute,
@@ -1158,33 +1496,22 @@ class NtuhProgressReader:
         if "failure" not in result:
             entry["failures"] = 0
             # Dense checks are for a clinic that is calling; a clinic that has
-            # not started yet is checked sparsely. `_calling` tightens this as
-            # soon as a number appears.
+            # not started yet is checked sparsely. `_card_outcome` tightens this
+            # as soon as a number appears.
             interval = (
-                MIN_READ_INTERVAL if entry.get("called") else PRE_ACTIVE_READ_INTERVAL
+                MIN_READ_INTERVAL
+                if entry.get("called") or entry.get("service_id")
+                else PRE_ACTIVE_READ_INTERVAL
             )
             entry["due_at"] = (now + interval).isoformat()
             return
         failures = int(entry.get("failures", 0)) + 1
         entry["failures"] = failures
         delay = RETRY_BACKOFF[min(failures, len(RETRY_BACKOFF)) - 1]
-        retry_after = result.get("retry_after")
-        if isinstance(retry_after, int) and retry_after > 0:
-            delay = max(
-                delay,
-                timedelta(
-                    seconds=min(retry_after, int(RETRY_AFTER_CAP.total_seconds()))
-                ),
-            )
-        entry["due_at"] = (now + delay).isoformat()
+        entry["due_at"] = (now + max(delay, _retry_after(result))).isoformat()
 
     async def _load(self) -> dict[str, dict[str, Any]]:
-        raw = await self._state.get(STATE_KEY)
-        try:
-            loaded = json.loads(raw) if raw else {}
-        except (TypeError, ValueError):
-            return {}
-        return loaded if isinstance(loaded, dict) else {}
+        return _decode_states(await self._state.get(STATE_KEY))
 
     async def _save(self, states: dict[str, dict[str, Any]], today: date) -> None:
         kept = {
@@ -1194,6 +1521,90 @@ class NtuhProgressReader:
             and ("|clinic|" in entry_key or "|blocked|" in entry_key)
         }
         await self._state.put(STATE_KEY, json.dumps(kept, separators=(",", ":")))
+
+
+# A page read after the clinic had called has no frozen values to set aside.
+_NO_BASELINE = (None, None, None)
+
+
+async def forget_other_days(storage: ReaderState, today: date) -> None:
+    """Drop the stored state of every day but `today`, detail-page links included."""
+    raw = await storage.get(STATE_KEY)
+    if not raw:
+        return
+    states = _decode_states(raw)
+    kept = {key: entry for key, entry in states.items() if key.endswith(f"|{today}")}
+    if len(kept) != len(states) or not states:
+        # State that cannot be read as entries of a day is dropped whole.
+        encoded = json.dumps(kept, separators=(",", ":"))
+        if encoded != raw:
+            await storage.put(STATE_KEY, encoded)
+
+
+def _decode_states(raw: Any) -> dict[str, dict[str, Any]]:
+    try:
+        loaded = json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+async def _within_budget(read: Awaitable[dict[str, Any]]) -> dict[str, Any]:
+    """One page under one budget; what it raises becomes a failed read."""
+    try:
+        return await asyncio.wait_for(read, REQUEST_TIMEOUT_SECONDS)
+    except TimeoutError:
+        return {**_failed("unavailable", "timeout"), "outage": True}
+    except Exception:
+        return {**_failed("unavailable", "no_observation"), "outage": True}
+
+
+def _positive_number(text: str) -> int | None:
+    """The number a list card shows, or None for anything else (000 included)."""
+    if not text.isascii() or not text.isdigit() or len(text) > MAX_NUMBER_DIGITS:
+        return None
+    return int(text) or None
+
+
+def _same_room(page_room: str, room: str) -> bool:
+    """The detail page writes the department before the room: `眼科部 11診`."""
+    shown, wanted = _room_norm(page_room), _room_norm(room)
+    return shown.endswith(wanted) and not shown.removesuffix(wanted)[-1:].isdigit()
+
+
+def _signature(page: ProgressObservation) -> list[int | None]:
+    """The values that move when a clinic calls, in `_NO_BASELINE` order."""
+    return [page.current_light, page.highest_called, page.check_in_position]
+
+
+def _progress_to_json(progress: ProgressObservation) -> dict[str, Any]:
+    return {
+        "room": progress.room,
+        "doctor": progress.doctor,
+        "current_light": progress.current_light,
+        "current_flag": progress.current_flag,
+        "highest_called": progress.highest_called,
+        "check_in_order": progress.check_in_order,
+        "check_in_position": progress.check_in_position,
+        "expected": [
+            [e.number, e.kind, e.check_in_position] for e in progress.expected
+        ],
+        "numbers": [[n.number, n.state, n.check_in_position] for n in progress.numbers],
+    }
+
+
+def _progress_from_json(data: dict[str, Any]) -> ProgressObservation:
+    return ProgressObservation(
+        room=data["room"],
+        doctor=data["doctor"],
+        current_light=data["current_light"],
+        current_flag=data["current_flag"],
+        highest_called=data["highest_called"],
+        check_in_order=data["check_in_order"],
+        check_in_position=data["check_in_position"],
+        expected=tuple(ExpectedCall(*item) for item in data["expected"]),
+        numbers=tuple(NumberStatus(*item) for item in data["numbers"]),
+    )
 
 
 def _headers(extra: Mapping[str, str]) -> tuple[tuple[str, str], ...]:
@@ -1225,6 +1636,11 @@ def _transport_failure(
             "unavailable", "timeout" if page.status == 408 else "no_observation"
         )
         result["retry_after"] = page.retry_after
+        # A source that asks to be left alone is left alone, on every page.
+        if page.status == 429 or page.retry_after:
+            result["throttled"] = True
+        else:
+            result["outage"] = True
         return result
     if page.status != 200 or len(page.body) > max_body_chars:
         return _failed("invalid", "schema_drift")
@@ -1243,6 +1659,14 @@ def _failure(result: dict[str, Any] | None) -> ReadFailed | None:
         status, reason = result["failure"]
         return ReadFailed(status, reason)
     return None
+
+
+def _retry_after(result: dict[str, Any]) -> timedelta:
+    """How long the source asked to be left alone, within the cap."""
+    seconds = result.get("retry_after")
+    if not isinstance(seconds, int) or seconds <= 0:
+        return timedelta(0)
+    return min(timedelta(seconds=seconds), RETRY_AFTER_CAP)
 
 
 def _published_start(scope: ClinicScope) -> datetime:

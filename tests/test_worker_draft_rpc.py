@@ -262,6 +262,33 @@ def test_wrangler_draft_save_crosses_real_worker_durable_object_binding(tmp_path
             if error_code:
                 assert json.loads(response_body) == {"error": {"code": error_code}}
 
+        # Issue #163: the synthetic observation's progress fields cross the same
+        # binding. Number 82 is near patient 85 only once the clinic has called.
+        def test_control(operation, body):
+            status, response_body, _ = _request(
+                base_url + f"/__niy006_test/{operation}",
+                method="POST",
+                body=body,
+                headers={"content-type": "application/json"},
+            )
+            return status, json.loads(response_body)
+
+        observation = {"current_number": 82, "trustworthy": True}
+        numbers = [[85, "not_checked_in", None], [86, "checked_in", 2]]
+        for called, minute, events in ((False, 0, 0), (True, 2, 1)):
+            assert test_control(
+                "observation",
+                {
+                    **observation,
+                    "progress": {"called_in_session": called, "numbers": numbers},
+                },
+            ) == (200, {"configured": True})
+            status, tick = test_control("tick", {"now": f"2099-10-01T06:0{minute}:00Z"})
+            assert status == 200 and tick["events_created"] == events, tick
+        assert test_control(
+            "observation", {**observation, "progress": {"numbers": [[85, "gone"]]}}
+        ) == (400, {"configured": False})
+
     finally:
         if process.poll() is None:
             os.killpg(process.pid, signal.SIGTERM)

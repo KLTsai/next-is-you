@@ -82,8 +82,8 @@ metrics after authorized deployment; a quota/startup failure is a stop condition
 not an invitation to enable Paid. The local dry run proves compilation only.
 The 2026-10-03 native dry run with pywrangler 1.17.4 / Wrangler 4.147.0 reported
 9,329.18 KiB total upload (2,305.70 KiB gzip), 1,018 modules and four asset files.
-No deployed CPU, startup latency, memory, quota usage or provider measurements
-are available. Local wall-clock test timing is not a Free-plan CPU measurement.
+No startup latency, memory, quota usage or provider measurements are available;
+deployed CPU is in the two sections below. Local wall-clock test timing is not a Free-plan CPU measurement.
 
 ### Detail-page reader CPU check (Issue #162, 2026-11-21)
 
@@ -143,8 +143,8 @@ Captain decision (2026-11-21): bring CPU under the limit first, on the Free plan
 in [#170](https://github.com/KLTsai/next-is-you/issues/170), which now blocks
 #163. Research: [`research/workers-free-cpu-limit-2026-11-21.md`](../research/workers-free-cpu-limit-2026-11-21.md).
 
-The deployed CPU of a reading tick is not measured here. It is left to #22 ("One
-run watches 3 visits at once and records CPU" in
+The deployed CPU of a reading tick is not measured here. It is left to #163's CPU
+condition and to #22, which records CPU for each run, one visit at a time (#172,
 [`PRE-LIVE-CHECKLIST.md`](PRE-LIVE-CHECKLIST.md)).
 
 ### Scheduler CPU after the alarm change (Issue #170, 2026-11-21)
@@ -347,7 +347,8 @@ established, and what it did not, is in
    ```
 
    Deployment provisions `ASSETS`, `SEND_GATE`/`SystemSendGate` with SQLite
-   storage, and the existing one-minute scheduled handler on this one Worker.
+   storage, and the scheduler alarm with its watchdog Cron ([ADR
+   0005](adr/0005-scheduler-tick-runs-from-a-durable-object-alarm.md)) on this one Worker.
    No second service is needed. Missing auth settings deny login and protected
    APIs; every non-local-test runtime is held by code even if a push token exists.
 4. Provision `LINE_LOGIN_CHANNEL_ID` and the exact approved

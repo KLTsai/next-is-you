@@ -12,7 +12,6 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from next_is_you.ntuh_reader import FetchedPage
 from test_ntuh_reader import (
     DAY,
     PAGE,
@@ -36,13 +35,15 @@ class SwitchableSource(FakeSource):
 
     def __init__(self, page: str, **kwargs) -> None:
         super().__init__(page, **kwargs)
-        self.page = page
+        self._page = page
 
-    async def __call__(self, request):
-        if request.method == "POST":
-            self.requests.append(request)
-            return FetchedPage(200, self.page)
-        return await super().__call__(request)
+    @property
+    def page(self) -> str:
+        return self._page
+
+    @page.setter
+    def page(self, page: str) -> None:
+        self._page = self.script[0] = page
 
 
 def at(day, hour: int, minute: int = 0) -> datetime:

@@ -17,12 +17,19 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from typing import Literal
 
+from next_is_you.domain import CallKind, ExpectedCall, NumberState, NumberStatus
 from next_is_you.source_samples import _page_status
 
-NumberState = Literal["not_checked_in", "first_visit", "checked_in", "in_consultation"]
-CallKind = Literal["sequential", "passed", "exam", "senior", "check_in"]
+__all__ = [
+    "MAX_NUMBER_DIGITS",
+    "CallKind",
+    "ExpectedCall",
+    "NumberState",
+    "NumberStatus",
+    "ProgressObservation",
+    "parse_detail_page",
+]
 
 _VOID_ELEMENTS = frozenset(
     "area base br col embed hr img input link meta param source track wbr".split()
@@ -44,31 +51,15 @@ _KINDS: dict[str, CallKind] = {
     "敬老號": "senior",
 }
 
-_DIGITS = re.compile(r"\d+")
+_DIGITS = re.compile(r"\d+", re.ASCII)
+# Longer than any clinic number. A longer run of digits is not a number.
+MAX_NUMBER_DIGITS = 6
 # The region the parser reads, from the progress panel up to the legend after
 # the number list (#170). Everything else on the page is skipped unparsed.
 _REGION_START = re.compile(r'<[^<>]*class="[^"]*\bclinic-modal-progress\b')
 _REGION_END = re.compile(r'<[^<>]*class="[^"]*\bnumber-explain\b')
 _CHECK_IN_POSITION = re.compile(r"^報到(?:順序)?\s*(\d+)$")
 _CHECK_IN_ORDER_NOTE = "依報到順序看診"
-
-
-@dataclass(frozen=True, slots=True)
-class NumberStatus:
-    """One number on the list. `check_in_position` is 報到N in check-in-order clinics."""
-
-    number: int
-    state: NumberState
-    check_in_position: int | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ExpectedCall:
-    """One 預計叫號 entry. `check_in_position` is set for the `check_in` kind."""
-
-    number: int
-    kind: CallKind | None
-    check_in_position: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,10 +83,16 @@ class ProgressObservation:
 def _number(text: str) -> int | None:
     """A positive number from padded, unpadded or blank (U+3000) text, else None."""
     match = _DIGITS.search(text)
-    if match is None:
+    if match is None or len(match.group()) > MAX_NUMBER_DIGITS:
         return None
     value = int(match.group())
     return value if value > 0 else None
+
+
+def _is_garbled(text: str) -> bool:
+    """A light that is neither blank nor a positive number, such as 000 or abc."""
+    text = text.strip()
+    return bool(text) and (_DIGITS.fullmatch(text) is None or _number(text) is None)
 
 
 class _DetailCollector(HTMLParser):
@@ -194,7 +191,8 @@ def _progress_region(html: str) -> str:
 def parse_detail_page(html: str) -> tuple[str, ProgressObservation | None]:
     """Return ("ok", observation) or a page-level failure.
 
-    Failures are `challenge`, `denied` and `schema`. A page whose number list is
+    Failures are `challenge`, `denied`, `schema` and `invalid` (the current light
+    or the highest called is not a number). A page whose number list is
     empty is a valid observation with no numbers. A number carrying a tag this
     parser does not know fails the page, because skipping it would make the
     number look like it left the list.
@@ -212,6 +210,9 @@ def parse_detail_page(html: str) -> tuple[str, ProgressObservation | None]:
     doctor = collector.doctor.strip()
     if not collector.has_progress_list or not room or not doctor:
         return "schema", None
+
+    if _is_garbled(collector.light) or _is_garbled(collector.highest):
+        return "invalid", None
 
     numbers: list[NumberStatus] = []
     for entry in collector.numbers:

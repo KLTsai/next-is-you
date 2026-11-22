@@ -150,10 +150,24 @@ class OutboxScheduler:
                 source_status, source_reason = "invalid", "invalid_data"
             else:
                 if isinstance(observation, ReadSkipped):
-                    # Nothing was read: not a failed read, so no alert evaluation.
+                    # Not a failed read, and no number to evaluate.
                     if observation.source_read is not None:
                         await self._visits.set_source_read(
                             visit_id, *observation.source_read
+                        )
+                    if observation.progress is not None:
+                        # A page was read and understood, so it ends a run of
+                        # unusable reads and no earlier number stays shown.
+                        await self._visits.update_observation(
+                            visit_id,
+                            current_number=None,
+                            observed_at=_parse_time(observation.progress.observed_at),
+                            consecutive_unusable_reads=0,
+                        )
+                        # A reminder already queued is still owed its retry.
+                        event_ids.extend(
+                            str(event["id"])
+                            for event in await self._visits.retryable_events(visit_id)
                         )
                     continue
                 if isinstance(observation, ReadFailed):

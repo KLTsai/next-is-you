@@ -11,8 +11,8 @@ Start and scheduler paths already handle.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Callable, Mapping
+from datetime import date, datetime
+from typing import Any, Awaitable, Callable, Mapping
 
 from next_is_you.domain import (
     ClinicMatch,
@@ -34,6 +34,7 @@ from next_is_you.ntuh_reader import (
     SUPPORTED_DEPARTMENT,
     Fetcher,
     NtuhProgressReader,
+    forget_other_days as ntuh_forget_other_days,
 )
 
 
@@ -82,6 +83,10 @@ class HospitalEntry:
     # Labels for the manual clinic-code parts, so the setup form can show a parse
     # preview without hard-coding any hospital's format. Empty = freeform.
     clinic_code_labels: tuple[str, ...] = ()
+    # Drops the transient state the reader keeps for days other than the given
+    # Taipei day. Called with the storage alone, so it runs while reading is off
+    # or held and after the reader is retired. `None` when a reader keeps nothing.
+    forget_other_days: Callable[[Any, date], Awaitable[None]] | None = None
 
     @property
     def capability(self) -> SourceCapability:
@@ -114,6 +119,7 @@ HOSPITAL_REGISTRY: Mapping[HospitalId, HospitalEntry] = {
         # Only ophthalmology is evidenced today; mirrors ntuh_reader's scope.
         departments=(SupportedDepartment(SUPPORTED_DEPARTMENT, "眼科"),),
         clinic_code_labels=("診間", "醫師", "門診別"),
+        forget_other_days=ntuh_forget_other_days,
     ),
     # No reader until Issue #44 evidences a usable Shin Kong source; until then
     # it is offered to no one and reads fail closed.
@@ -123,6 +129,13 @@ HOSPITAL_REGISTRY: Mapping[HospitalId, HospitalEntry] = {
         official_link="https://reg.skh.org.tw/",
     ),
 }
+
+
+async def forget_other_days(storage: Any, today: date) -> None:
+    """Drop every hospital's transient reader state of any day but `today`."""
+    for entry in HOSPITAL_REGISTRY.values():
+        if entry.forget_other_days is not None:
+            await entry.forget_other_days(storage, today)
 
 
 class UnknownHospitalError(ValueError):

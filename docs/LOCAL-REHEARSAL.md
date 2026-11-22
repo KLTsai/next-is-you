@@ -119,6 +119,25 @@ Expected: **監控中** after API confirmation.
 The synthetic reader returns a fresh observation matching the visit scope; it
 does not prove real hospital freshness.
 
+The observation control also takes the progress fields later reminders read, in a
+`progress` object, so they can be rehearsed locally (#163): `highest_called_number`,
+`current_flag` (`sequential`, `passed`, `exam`, `senior`), `check_in_order`,
+`check_in_position`, `called_in_session`, `expected` as `[[number, kind, position]]`
+and `numbers` as `[[number, state, position]]` (state `not_checked_in`,
+`first_visit`, `checked_in` or `in_consultation`):
+
+```sh
+curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/observation \
+  -H 'content-type: application/json' \
+  --data '{"current_number":70,"trustworthy":true,"progress":{"highest_called_number":75,"called_in_session":true,"numbers":[[72,"checked_in",null]]}}'
+```
+
+A field it does not know, or a value it cannot hold, is refused with `400` and
+`{"configured":false}`, and the earlier observation stays. `called_in_session`
+`false` rehearses a clinic that has not started, and `check_in_order` `true` one
+that calls by check-in order: both send nothing, keep their progress fields, and
+need no `current_number`. Start the visit before setting either.
+
 For patient number `85`, set a near observation at `82` and run the alarm now:
 
 ```sh

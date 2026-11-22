@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
@@ -24,6 +26,7 @@ from next_is_you.domain import (
 )
 from next_is_you.ntuh_reader import (
     AMPM_CODES,
+    DETAIL_PATH,
     LIGHT_TABLE_URL,
     SCHEDULE_PATH,
     FetchedPage,
@@ -39,6 +42,7 @@ from next_is_you.ntuh_reader import (
     selector_page_url,
 )
 from next_is_you.persistence import CloudflareD1Store, Statement, VisitRepository
+from ntuh_detail_pages import detail_page
 from test_scheduler_outbox import (
     LocalContext,
     LocalD1,
@@ -91,27 +95,40 @@ def _page(item) -> FetchedPage:
 
 
 class FakeSource:
-    """Scripted two-step source.
+    """Scripted source.
 
-    One read is a GET of the selector page followed by a POST for the clinic
-    cards, so the script holds one entry per read and `urls` counts the POSTs.
-    An exception instance in a script is raised. A GET of the dept-wide
-    schedule page returns `schedule`, when it is set.
+    One read is the session list (a GET of the selector page, then a POST for the
+    clinic cards) until the card is found, then one GET of the card's detail page.
+    The script holds one entry per read, a session list. A detail read is rendered
+    from the card in its entry (its number as the light and the highest called),
+    which keeps list and detail in step; `details` scripts the detail pages on
+    their own, and a test about the two disagreeing uses `TwoPageSource`. An
+    exception instance is raised, and an entry that is not a list is served as is.
+    `links=False` strips the cards' detail links. A GET of the dept-wide schedule
+    page returns `schedule`, when it is set.
     """
 
     SESSION_COOKIES = ("ASP.NET_SessionId=synthetic", "__RequestVerificationToken_X=t")
 
-    def __init__(self, *script, selector=SELECTOR, schedule=None) -> None:
+    def __init__(
+        self, *script, selector=SELECTOR, schedule=None, details=None, links=True
+    ) -> None:
         self.script = list(script)
         self.selector = selector
         self.schedule = schedule
+        self.details = list(details) if details is not None else None
+        self.links = links
         self.requests: list[PageRequest] = []
+        self.reads: list[str] = []
 
     @property
     def urls(self) -> list[str]:
-        return [
-            request.url for request in self.requests if request.url == LIGHT_TABLE_URL
-        ]
+        """One entry per read: a list POST, or a detail GET."""
+        return list(self.reads)
+
+    @property
+    def detail_requests(self) -> list[PageRequest]:
+        return [r for r in self.requests if r.url.startswith(DETAIL_PATH)]
 
     def last_body(self) -> dict[str, str]:
         posts = [r for r in self.requests if r.method == "POST"]
@@ -120,18 +137,85 @@ class FakeSource:
     def headers_of(self, request: PageRequest) -> dict[str, str]:
         return dict(request.headers)
 
+    def _next(self):
+        return self.script.pop(0) if len(self.script) > 1 else self.script[0]
+
     async def __call__(self, request: PageRequest) -> FetchedPage:
         self.requests.append(request)
+        if request.url.startswith(DETAIL_PATH):
+            return self._detail(request)
         if request.method == "GET":
             if request.url.startswith(SCHEDULE_PATH) and self.schedule is not None:
                 return _page(self.schedule)
             page = _page(self.selector)
             return replace(page, cookies=self.SESSION_COOKIES)
-        item = self.script.pop(0) if len(self.script) > 1 else self.script[0]
+        self.reads.append(LIGHT_TABLE_URL)
+        item = self._next()
+        if not self.links and isinstance(item, str):
+            item = re.sub(r'href="[^"]*"', "", item)
         return _page(item)
 
+    def _detail(self, request: PageRequest) -> FetchedPage:
+        self.reads.append(DETAIL_PATH)
+        if self.details is not None:
+            item = self.details.pop(0) if len(self.details) > 1 else self.details[0]
+            return _page(item)
+        item = self._next()
+        page = _page(item)
+        if page.status != 200 or "open-link" not in page.body:
+            return page
+        service_id = parse_qsl(request.url.split("?", 1)[1])[0][1]
+        anchor = re.search(rf"ServiceIDSE={service_id}&amp;.*?</a>", page.body, re.S)
+        assert anchor is not None, f"no card links to {service_id}"
 
-def reader(source: FakeSource, state: LocalDurableStorage | None = None):
+        def text_of(css: str) -> str:
+            found = re.search(rf'class="{css}[^"]*">([^<]*)<', anchor.group(0))
+            return found.group(1).strip() if found else ""
+
+        number = int(text_of("number") or 0) or None
+        return FetchedPage(
+            200,
+            detail_page(
+                room=f"合成科 {text_of('room-number')}",
+                doctor=text_of("clinic-doc-name"),
+                current=number,
+                highest=number,
+                check_in_order=bool(text_of("according-to-order")),
+            ),
+        )
+
+
+class TwoPageSource:
+    """A source whose session list and detail page are set independently.
+
+    `listed` and `detail` may be a page, a `FetchedPage` or an exception to raise;
+    `delay` makes every request take that long.
+    """
+
+    def __init__(self, listed, detail, *, delay: float = 0) -> None:
+        self.listed, self.detail, self.delay = listed, detail, delay
+        self.requests: list[PageRequest] = []
+
+    @property
+    def list_posts(self) -> int:
+        return sum(request.method == "POST" for request in self.requests)
+
+    @property
+    def detail_urls(self) -> list[str]:
+        return [r.url for r in self.requests if r.url.startswith(DETAIL_PATH)]
+
+    async def __call__(self, request: PageRequest) -> FetchedPage:
+        self.requests.append(request)
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        if request.url.startswith(DETAIL_PATH):
+            return _page(self.detail)
+        if request.method == "POST":
+            return _page(self.listed)
+        return replace(_page(SELECTOR), cookies=FakeSource.SESSION_COOKIES)
+
+
+def reader(source, state: LocalDurableStorage | None = None):
     return NtuhProgressReader(state or LocalDurableStorage(), source)
 
 
@@ -356,8 +440,15 @@ async def test_unsupported_scope_is_rejected_without_a_request(bad) -> None:
 async def test_every_session_is_read_at_any_hour_of_the_entered_day(session, hour):
     source = FakeSource(PAGE)
     observation = await reader(source).observe(scope(session=session), taipei(hour, 0))
-    assert isinstance(observation, QueueObservation)
-    assert observation.current_number == 25
+    if session == ClinicSession.EVENING:
+        # Nobody has observed an evening session: it is read, flagged and
+        # recorded, and sends nothing (#163).
+        assert observation == ReadSkipped(
+            "unobserved_situation", unobserved="evening_session"
+        )
+    else:
+        assert isinstance(observation, QueueObservation)
+        assert observation.current_number == 25
     assert source.last_body()["AmpmCode"] == AMPM_CODES[session]
 
 
@@ -605,7 +696,8 @@ async def test_card_missing_its_number_is_schema_drift_not_a_clinic_end(method):
     ],
 )
 async def test_the_watch_ends_once_the_number_is_gone_for_two_reads(absent) -> None:
-    source = FakeSource(PAGE, absent)
+    # A card without a detail link is read from the list alone, as before #163.
+    source = FakeSource(PAGE, absent, links=False)
     r = reader(source)
     # A number opens the watch.
     assert isinstance(await r.observe(scope(), taipei(15, 0)), QueueObservation)
@@ -625,7 +717,7 @@ async def test_the_watch_ends_once_the_number_is_gone_for_two_reads(absent) -> N
 
 @pytest.mark.asyncio
 async def test_a_number_returning_clears_the_blank_run() -> None:
-    source = FakeSource(PAGE, page_with(""), PAGE, PAGE)
+    source = FakeSource(PAGE, page_with(""), PAGE, PAGE, links=False)
     r = reader(source)
     assert isinstance(await r.observe(scope(), taipei(15, 0)), QueueObservation)
     assert await r.observe(scope(), taipei(15, 2)) == ReadFailed(
@@ -638,7 +730,8 @@ async def test_a_number_returning_clears_the_blank_run() -> None:
 
 @pytest.mark.asyncio
 async def test_a_clinic_that_never_called_is_checked_sparsely_and_never_ends() -> None:
-    source = FakeSource(page_with(""))
+    # The list alone is read sparsely until the card's detail page is found.
+    source = FakeSource(page_with(""), links=False)
     r = reader(source)
     not_started = ReadSkipped("clinic_not_started")
     assert await r.observe(scope(), taipei(9, 0)) == not_started
@@ -650,7 +743,7 @@ async def test_a_clinic_that_never_called_is_checked_sparsely_and_never_ends() -
 
 @pytest.mark.asyncio
 async def test_the_first_number_switches_the_watch_to_the_dense_cadence() -> None:
-    source = FakeSource(page_with(""), PAGE)
+    source = FakeSource(page_with(""), PAGE, links=False)
     r = reader(source)
     assert await r.observe(scope(), taipei(9, 0)) == ReadSkipped("clinic_not_started")
     # Sparse until it starts.
@@ -1334,7 +1427,7 @@ async def test_three_failed_reads_inside_the_window_send_the_existing_unavailabl
 async def test_clinic_end_stops_reads_and_sends_no_unavailable_alert() -> None:
     # The clinic is calling well short of the patient's number, then its number
     # goes blank and stays blank.
-    source = FakeSource(page_with("010"), page_with(""))
+    source = FakeSource(page_with("010"), page_with(""), links=False)
     database, gate = await gate_with_visit(source)
     await active_visit(database, gate)
     for minute in (31, 33, 35, 40, 50):
@@ -1486,8 +1579,12 @@ async def test_a_schedule_form_clinic_code_reads_the_visit_day_card(method) -> N
 
 
 def _card(room: str, doctor: str, clinic_type: str, number: str = "") -> str:
+    # Every card links to its detail page, as the real list does; one ID per card.
+    service_id = 9_000_000 + sum(ord(c) for c in room + doctor + clinic_type)
     return (
-        f'<a class="open-link"><div class="room-number">{room}</div>'
+        f'<a href="/WebReg/WebReg/ClinicCurrentLightNoDetail?ServiceIDSE={service_id}'
+        f'&amp;vHospitalCode=T0" class="open-link">'
+        f'<div class="room-number">{room}</div>'
         f'<div class="clinic-doc-name">{doctor}</div>'
         f'<div class="clinic-type">{clinic_type}</div>'
         f'<div class="number">{number}</div>'

@@ -60,6 +60,21 @@ Staging is used by the captain alone. No family member is invited to it.
   6. sending is interrupted automatically, a second alert arrives, and the
      captain resumes again;
   7. a visit is stopped and its deletion 48 hours later is confirmed.
+- [ ] **Organizer page walkthrough on Staging**, evidence label live provider.
+  By hand on desktop Chrome, iPhone Safari and Android Chrome: real devices, not
+  emulation, which cannot reproduce Safari scrolling or the on-screen keyboard
+  resizing the page. Stop a visit while a send is in flight, so the page repaints
+  every second while the visit is stopping. A send can settle within seconds:
+  repeat until every step was done while a visit was stopping. On each device:
+  1. type in the member label and in every visit form field, with the on-screen
+     keyboard open on the phones: no character or cursor position is lost, apart
+     from the half-typed date under Known limitations;
+  2. scroll slowly, by wheel on desktop and by touch on the phones, with each
+     field focused: the page is never pulled back;
+  3. scroll until the focused field is off screen and wait 3 seconds: the page
+     does not move.
+
+  Record for each: browser and version, device and OS version, date.
 - [ ] Only NTUH Main (`ntuh-main`) is offered.
 
 ## While Staging is live
@@ -105,6 +120,9 @@ Staging is used by the captain alone. No family member is invited to it.
 - [ ] Production configuration: secrets, captain LINE ID, organizer allowlist,
   HTTPS callback, and local test mode off, checked without exposing values in
   logs or repository files ([SECRETS.md](SECRETS.md)).
+- [ ] **Organizer page walkthrough on Production**, evidence label live provider:
+  the Staging walkthrough repeated with the Production setup and a real LINE
+  sign-in. Record the same: browser and version, device and OS version, date.
 - [ ] A one-page guide for the family in Traditional Chinese: add the official
   account as a friend, accept the invitation, and what reminders look like.
 
@@ -134,3 +152,6 @@ Staging is used by the captain alone. No family member is invited to it.
 - There is no backup outside Cloudflare. D1 Time Travel (7 days) is the only
   restore path, and it does not roll back the send gate Durable Object, so any
   restore is followed by a send interruption.
+- The browser tests (`tests/test_organizer_page.py`) cannot catch two things the
+  organizer page does while it repaints: an open native dropdown closes, and a
+  date field keeps focus but not the half-typed segment.

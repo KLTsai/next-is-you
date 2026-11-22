@@ -10,7 +10,7 @@ import mimetypes
 import subprocess
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from playwright.sync_api import expect, sync_playwright
@@ -45,6 +45,7 @@ class Organizer:
         self.polls = 0
         self.hold_clinics = False
         self.held: list = []
+        self.clinic_days: list[str] = []
 
     def add_stopping_visit(self) -> None:
         self.visits.append(
@@ -77,6 +78,8 @@ class Organizer:
             route.fulfill(status=200, content_type=kind, body=file.read_bytes())
             return
         if path.endswith("/clinics"):
+            query = parse_qs(urlsplit(route.request.url).query)
+            self.clinic_days += query["date"]
             if self.hold_clinics:
                 self.held.append(route)
             else:
@@ -118,6 +121,12 @@ class Organizer:
         self.page.route("**/*", self.answer)
         self.page.goto(ORIGIN)
         expect(self.page.locator(DATE)).to_be_visible()
+
+    def plain_date_page(self, value: str = ""):
+        """A page of its own with only a date field: what the browser itself does."""
+        page = self.page.context.new_page()
+        page.set_content(f'<input type="date" value="{value}">')
+        return page
 
     def wait_for_polls(self, count: int) -> None:
         seen = self.polls
@@ -176,7 +185,8 @@ class Organizer:
 def organizer(dist: Path):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        page = browser.new_page(viewport={"width": 1280, "height": 1100})
+        context = browser.new_context(viewport={"width": 1280, "height": 1100})
+        page = context.new_page()
         try:
             yield Organizer(page, dist)
         finally:
@@ -218,24 +228,42 @@ def test_calendar_stays_open_when_the_clinics_arrive(dist):
 
 
 def test_half_typed_date_is_kept_while_a_visit_is_stopping(dist):
-    """The order of year, month and day follows the machine's language, so the
-    same keys typed on a page that never refreshes say what to expect."""
-
-    def type_date(app, pause) -> str:
-        app.page.locator(DATE).focus()
-        app.page.keyboard.type("01")
+    def type_date(page, pause) -> str:
+        page.locator('input[type="date"]').focus()
+        page.keyboard.type("01", delay=50)
         pause()
-        app.page.keyboard.type("052099")
-        return app.page.locator(DATE).input_value()
+        page.keyboard.type("052099", delay=50)
+        return page.locator('input[type="date"]').input_value()
 
     with organizer(dist) as app:
-        app.open()
-        expected = type_date(app, lambda: None)
-        assert expected
-    with organizer(dist) as app:
+        expected = type_date(app.plain_date_page(), lambda: None)
         app.add_stopping_visit()
         app.open()
-        assert type_date(app, lambda: app.wait_for_polls(2)) == expected
+        assert type_date(app.page, lambda: app.wait_for_polls(2)) == expected != ""
+
+
+def test_last_part_of_a_date_can_be_typed(dist):
+    """The last part is the day or the year, by the machine's language."""
+
+    def retype_last_part(page) -> str:
+        field = page.locator('input[type="date"]')
+        field.focus()
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("ArrowRight")
+        page.keyboard.type("18", delay=150)
+        return field.input_value()
+
+    with organizer(dist) as app:
+        expected = retype_last_part(app.plain_date_page("2099-01-05"))
+        app.open()
+        app.page.locator(DATE).fill("2099-01-05")
+        app.page.wait_for_timeout(500)
+        assert retype_last_part(app.page) == expected != "2099-01-05"
+        # The page follows the date once the typing stops.
+        app.page.wait_for_timeout(1500)
+        assert app.page.locator(DATE).input_value() == expected
+        assert app.clinic_days[-1] == expected or expected < "2099"
+        assert set(app.clinic_days) <= {"2099-01-05", expected}
 
 
 def test_number_typed_while_the_clinics_load_is_kept(dist):

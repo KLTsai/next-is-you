@@ -85,6 +85,7 @@ const pendingRecipientRemovals = new Set<string>();
 let stoppingRefreshTimer: number | null = null;
 let backgroundRepaintTimer: number | null = null;
 let paintedServerState = "";
+let lastDateKeyAt = Number.NEGATIVE_INFINITY;
 let draftsCollapsed = true;
 let invitationUrl: string | null = null;
 let invitationCreating = false;
@@ -542,10 +543,21 @@ function nativePickerIsOpen(): boolean {
   }
 }
 
+// A date field reports a change after the first digit that makes a whole date,
+// so the rest of that day or year is still to come.
+const DATE_TYPING_PAUSE_MS = 1000;
+
+function dateIsBeingTyped(): boolean {
+  const active = document.activeElement;
+  return active instanceof HTMLInputElement && active.type === "date"
+    && performance.now() - lastDateKeyAt < DATE_TYPING_PAUSE_MS;
+}
+
 // A repaint the organizer did not ask for: it waits for an open calendar or
-// dropdown to close, and never drops what is typed in the form.
+// dropdown to close and for a date to be typed, and never drops what is in the
+// form.
 function repaintInBackground(): void {
-  if (!nativePickerIsOpen()) {
+  if (!nativePickerIsOpen() && !dateIsBeingTyped()) {
     renderDashboard();
     return;
   }
@@ -793,10 +805,14 @@ function bindActions(): void {
       element.addEventListener("change", () => {
         rememberFormValues();
         formErrors = {};
-        renderDashboard(false);
+        if (dateIsBeingTyped()) repaintInBackground();
+        else renderDashboard(false);
       });
     });
   };
+  document.querySelector<HTMLInputElement>('#visit-form input[name="date"]')?.addEventListener("keydown", () => {
+    lastDateKeyAt = performance.now();
+  });
   rerenderOnChange('#visit-form [name="hospital"]');
   rerenderOnChange('#visit-form select[name="department_code"]');
   rerenderOnChange('#visit-form input[name="date"]');

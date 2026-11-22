@@ -123,6 +123,17 @@ async def test_skipped_reminders_hold_their_kind_and_never_count_or_send():
 
 
 @pytest.mark.asyncio
+async def test_at_the_cap_a_skipped_or_a_near_reminder_is_still_stored():
+    database, _, repository = await visit_for()
+    for kind in KINDS[1:]:
+        assert await create(repository, kind) == "created"
+    assert await create(repository, KINDS[0]) == "cap_reached"
+    assert await create(repository, "near") == "created"
+    assert await create(repository, KINDS[0], skipped=True) == "created"
+    assert outcomes(database)[KINDS[0]] == "skipped"
+
+
+@pytest.mark.asyncio
 async def test_a_skipped_reminder_stays_skipped_and_no_other_outcome_becomes_it():
     database, _, repository = await visit_for()
     await create(repository, "checked_in", skipped=True)

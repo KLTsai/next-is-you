@@ -1294,3 +1294,47 @@ def test_rehearsal_joined_family_member_is_told_how_to_return_to_the_manager_vie
         finally:
             context.close()
             browser.close()
+
+
+def test_rehearsal_invitee_who_waits_through_a_scheduler_tick_still_joins(tmp_path):
+    # Issue #134, local integration: the invitee is on the consent page when the
+    # per-minute tick runs, presses 確認加入 two minutes later and joins.
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = int(listener.getsockname()[1])
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        context = browser.new_context(viewport={"width": 390, "height": 800})
+        origin = f"http://127.0.0.1:{port}"
+        context.route(
+            "**/*",
+            lambda route: (
+                route.continue_()
+                if route.request.url.startswith(origin + "/")
+                else route.abort()
+            ),
+        )
+        page = context.new_page()
+        try:
+            with rehearsal(tmp_path, port):
+                control(
+                    page,
+                    origin,
+                    "pending-recipient-session",
+                    {"recipient_id": "synthetic-joiner", "now": "2026-11-20T01:00:00Z"},
+                )
+                page.goto(origin + "/recipient/consent")
+                control(page, origin, "tick", {"now": "2026-11-20T01:02:00Z"})
+                page.get_by_role("button", name="確認加入").click()
+                expect(page.get_by_role("status")).to_contain_text(
+                    "已加入，可以關閉這個頁面了。"
+                )
+
+                control(page, origin, "organizer-session")
+                page.goto(origin + "/")
+                members = page.locator("section", has=page.locator("#members-heading"))
+                expect(members).to_contain_text("Synthetic joiner")
+                members.screenshot(path=str(tmp_path / "members.png"))
+        finally:
+            context.close()
+            browser.close()

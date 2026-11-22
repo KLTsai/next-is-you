@@ -9,6 +9,8 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Mapping, Protocol, Sequence
 from zoneinfo import ZoneInfo
 
+from next_is_you.auth import SESSION_TTL_SECONDS
+
 TAIPEI = ZoneInfo("Asia/Taipei")
 UTC = timezone.utc
 
@@ -64,6 +66,12 @@ def _property(value: Any, key: str, default: Any = None) -> Any:
     if isinstance(value, Mapping):
         return value.get(key, default)
     return getattr(value, key, default)
+
+
+# A pending invitee (signed in from an invitation, 確認加入 not yet pressed) can
+# only press it while the sign-in from that invitation lasts, so the row is
+# erased once that sign-in has lapsed (#134).
+PENDING_INVITEE_LIMIT = timedelta(seconds=SESSION_TTL_SECONDS)
 
 
 def iso_utc(value: datetime) -> str:
@@ -1022,13 +1030,32 @@ class VisitRepository:
         return changes == 1
 
     async def erase_settled_withdrawals(self) -> int:
+        """Withdrawn recipients, once no send to them is in flight.
+
+        Only a withdrawn row has `consented_at`: an invitee still on the consent
+        page is inactive too, but has not opted in, and is kept (#134).
+        """
         return await self._store.execute(
             Statement(
                 """DELETE FROM recipients
-                WHERE active = 0 AND NOT EXISTS (
+                WHERE active = 0 AND consented_at IS NOT NULL AND NOT EXISTS (
                     SELECT 1 FROM outbound_events
                     WHERE recipient_id = recipients.id AND outcome = 'in_flight'
                 )"""
+            )
+        )
+
+    async def erase_lapsed_pending_invitees(self, now: datetime) -> int:
+        """Pending invitees whose sign-in lapsed before they pressed 確認加入.
+
+        A pending invitee has never been selected for a visit or sent anything,
+        so nothing else waits on the row.
+        """
+        return await self._store.execute(
+            Statement(
+                """DELETE FROM recipients
+                WHERE active = 0 AND consented_at IS NULL AND created_at <= ?""",
+                (iso_utc(now - PENDING_INVITEE_LIMIT),),
             )
         )
 

@@ -12,6 +12,7 @@ We decided on 2026-11-20, in the #136 grilling, that:
 - The reminder rule is one hospital-neutral rule that chooses which reminders it can send from the fields present. A reminder whose facts a hospital cannot supply is never sent for that hospital. There is no per-hospital reminder rule.
 - Estimates, such as "about N people ahead", are made by the rule from reported facts, are worded as estimates, and never as minutes.
 - A situation no one has observed on a hospital's pages sends nothing and is recorded, until observation supports a rule for it.
+- A session is not a situation: an evening session follows the same rule as a morning or an afternoon, and a hospital offers it only for a department whose evening page has been captured (captain, 2026-11-22, #183).
 - The rule is the same for every department, room and doctor. A clinic that calls out of order is handled by the checked-in reminder telling the family that the call order can change and later reminders may come too late, not by a rule for that department (captain, 2026-11-21): on 2026-11-20 眼科 called so far out of number order that no people-ahead threshold warned in time, while 內科 followed it (`research/private/source-evidence/ntuh-progress-validation-2026-11-20.md`).
 
 ## Considered options

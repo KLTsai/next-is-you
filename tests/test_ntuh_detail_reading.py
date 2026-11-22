@@ -693,6 +693,37 @@ async def test_a_refused_detail_page_stops_the_source_for_the_day():
     assert again.reason == "access_denied" and len(source.requests) == count
 
 
+@pytest.mark.asyncio
+async def test_a_redirected_detail_page_stops_reading_the_session_for_the_day():
+    source = TwoPageSource(page_with("010"), detail_page(current=10, highest=10))
+    database, gate = await running_visit(source)
+    await tick(gate, 15, 0)
+    source.detail = FetchedPage(302, "")
+    await tick(gate, 15, 2)
+    assert counts(database, "v")[:2] == ("unavailable", "access_denied")
+    count = len(source.requests)
+    # Healthy again, and in the near window, but a refusal is never read around.
+    source.detail = detail_page(current=26, highest=26)
+    source.listed = page_with("026")
+    await tick_every_minute(gate, taipei(15, 3), taipei(16, 0))
+    assert len(source.requests) == count
+    assert await kinds(gate) == ["unavailable"]
+
+
+@pytest.mark.asyncio
+async def test_a_list_read_states_no_numbers_and_an_empty_page_states_none_left():
+    source = TwoPageSource(PAGE, detail_page(current=25, highest=25))
+    r = reader(source)
+    listed = await r.observe(scope(), taipei(15, 0))
+    # The list card does not show the numbers: unknown, not "nobody is waiting".
+    assert listed.current_number == 25 and listed.numbers is None
+    read = await r.observe(scope(), taipei(15, 2))
+    assert read.current_number == 25 and read.numbers == ()
+    source.detail = FetchedPage(404, "")
+    fallback = await r.observe(scope(), taipei(15, 4))
+    assert fallback.current_number == 25 and fallback.numbers is None
+
+
 # Near and unavailable on detail-page observations
 
 
@@ -1013,7 +1044,11 @@ async def test_the_local_synthetic_observation_hook_accepts_the_progress_fields(
     # A later observation without progress clears the scripted one.
     assert await gate.set_test_observation(26, True)
     observation = await gate._hospital_reader().observe(scope(), taipei(15, 2))
-    assert observation.numbers == () and observation.called_in_session is None
+    assert observation.numbers is None and observation.called_in_session is None
+    # A scripted page with no number left is empty, not absent.
+    assert await gate.set_test_observation(27, True, {"numbers": []})
+    observation = await gate._hospital_reader().observe(scope(), taipei(15, 4))
+    assert observation.numbers == ()
 
 
 @pytest.mark.asyncio

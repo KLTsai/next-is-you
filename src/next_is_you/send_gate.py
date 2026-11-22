@@ -1094,7 +1094,7 @@ def _test_progress_fields(progress: Mapping[str, Any]) -> dict[str, Any]:
         "check_in_position": progress.get("check_in_position"),
         "called_in_session": called,
         "expected": expected,
-        "numbers": numbers,
+        "numbers": numbers if "numbers" in progress else None,
     }
 
 

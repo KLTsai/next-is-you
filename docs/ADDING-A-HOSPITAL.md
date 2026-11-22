@@ -171,11 +171,14 @@ Also (decided in #129, 2026-11-20):
   (Captain decision, 2026-11-21. The scheduler rechecks drafts today; running
   visits join the recheck with #130.)
 - On a challenge, block or error page, stop reading that hospital and do not
-  retry around it. A clear refusal from the hospital ends reading it until the
-  captain decides otherwise.
+  retry around it. A clear refusal (401, 403, 451 or a challenge) ends reading the
+  whole hospital until the captain clears it; a redirect ends it for the day. Start
+  and the clinic picker follow the same stop. (Captain, 2026-11-22. Today the
+  reader stops one department and session for the day; #179 builds this.)
 - Hospitals are not contacted before reading their public pages.
 - A patient number chosen for a Staging test may belong to a real patient. Only
-  the public queue is read, and nothing about that number is kept past its day.
+  the public queue is read. The number is deleted with its visit 48 hours after the visit ends;
+  the reader drops its copy of the page's facts when the day ends.
 
 ### Record the hospital's terms before work starts
 
@@ -216,6 +219,8 @@ These are product-wide and are not yours to relax when adding a hospital:
   that the number is verified against the room's physical light. No ETA is
   computed; the current number is never inferred from a next/highest number;
   missing is never treated as zero.
+- **Absent is not empty.** A fact the read does not state is absent (`None`), never an
+  empty list or zero. A read that lists no numbers leaves `numbers` as `None`.
 - **Minimal retention.** Keep only the matched clinic's transient read state;
   discard unrelated rows and raw responses. No raw patient responses are retained.
 - **Freshness is read time**, taken from when the reader fetched, never from the

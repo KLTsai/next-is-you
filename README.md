@@ -54,14 +54,14 @@ flowchart TD
     G -->|when authorized| H[LINE message<br/>when called number<br/>is close]
 ```
 
-The reader stores only the matched row's fields (room, doctor, clinic type, current number) for the clinic the owner's draft names. Raw response bodies are not retained. The send-gate is a per-environment hold: no environment emits a real LINE message until the Issue #22 pilot flips it, by design.
+The reader stores only the matched row's fields (room, doctor, clinic type, current number and the link to its page) for the clinic the owner's draft names, and what that clinic's own progress page states, including the status of every patient number still on its list. The reader drops its copy when the day ends. Raw response bodies are not retained. The send-gate is a per-environment hold: no environment emits a real LINE message until the Issue #22 pilot flips it, by design.
 
 ### Notification rules
 
 These are the rules the design uses once live operation is authorized by the [Issue #22 pilot](https://github.com/KLTsai/next-is-you/issues/22). Today the service does not poll the live hospital or send real LINE messages; the rules describe the intended behavior. Authoritative detail lives in [docs/NTUH-READER.md](docs/NTUH-READER.md) and [docs/HTTPS-SERVICE.md](docs/HTTPS-SERVICE.md).
 
-- **Polling cadence.** A one-minute cron offers the reader a chance to check; each clinic reads the official progress list at most once every 2 minutes (the owner-approved cadence in the NTUH reader guide is 2-3 minutes). An observation is considered fresh for up to 2 minutes. Transient failures retry at 1, 2, then 4 minutes; a server `Retry-After` is honored up to a 10-minute cap.
-- **Appointment day only.** Reads happen on the appointment day inside the hardcoded supported clock window described in [docs/NTUH-READER.md](docs/NTUH-READER.md). A missing matching row inside that window is a no-data state and sends no reminder. After 23:59 Taipei time on the appointment date the reminder expires with no further notice.
+- **Polling cadence.** A one-minute scheduler tick offers the reader a chance to check; each clinic is read at most once every 2 minutes (the cadence in the NTUH reader guide). An observation is considered fresh for up to 2 minutes. Transient failures retry at 1, 2, then 4 minutes; a server `Retry-After` is honored up to a 10-minute cap.
+- **Appointment day only.** Reads happen on the appointment day only, as described in [docs/NTUH-READER.md](docs/NTUH-READER.md). A clinic that is not listed sends no progress reminder. After 23:59 Taipei time on the appointment date the reminder expires with no further notice.
 - **Trigger condition.** A near reminder is eligible when the called current number is 1 to 3 numbers before the owner's number (the near window is distance `1..3`).
 - **Repeat near reminders ([#33](https://github.com/KLTsai/next-is-you/issues/33), merged).** Entering the near window, moving forward or backward inside it, or re-entering after a backward move all qualify, because only equality to the previous scheduled read suppresses a reminder. The message text is identical for every repeat.
 - **Per-visit cap.** Each recipient receives at most 20 near reminders per logical visit (`NEAR_REMINDER_CAP = 20`). Only non-superseded reminders count toward the cap; a superseded unsent reminder does not consume cap budget. A newer unsent near reminder supersedes an older unsent one for the same recipient.
@@ -167,7 +167,7 @@ Active work is tracked in [GitHub Issues](https://github.com/KLTsai/next-is-you/
 Next is you is a private family tool. It will not:
 
 - Become a public SaaS or support multi-tenant onboarding.
-- Calculate ETAs, predict the next number, or infer the queue from neighboring rows.
+- Calculate ETAs, predict the next number, or estimate from anything the hospital does not state. People ahead is the one estimate, made from the numbers the hospital lists and always worded as one (GLOSSARY.md).
 - Add paid-plan features, status badges that depend on external services, or marketing surfaces.
 
 Reminder sends remain held in every environment until the owner's handset pilot ([Issue #22](https://github.com/KLTsai/next-is-you/issues/22)) explicitly authorizes a real reminder.
@@ -189,7 +189,7 @@ The source research behind these rules is in [research/automated-access-taiwan-l
 
 Next is you is designed to keep as little as it needs:
 
-- **What is stored:** invitation records, consent records, and outbox events for scheduling and deduplication. No raw hospital response bodies are retained; the reader keeps only the matched row's fields (room, doctor, clinic type, current number) for the clinic the owner's draft names.
+- **What is stored:** invitation records, consent records, and outbox events for scheduling and deduplication. No raw hospital response bodies are retained; the reader keeps only the matched row's fields (room, doctor, clinic type, current number and the link to its page) for the clinic the owner's draft names, and what that clinic's own progress page states, including the status of every patient number still on its list. The reader drops its copy when the day ends.
 - **Appointment cutoff:** at 23:59 Taipei time on the appointment date, active reminders expire and no further notices are sent.
 - **Active-data cleanup:** drafts and expired reminders are cleaned up by the first scheduled run at or after 48 hours past the 23:59 Taipei cutoff; stopped reminders, 48 hours after Stop. Cleanup also runs while sends are held. During a recovery hold only expired drafts are cleaned up; everything else waits until the hold is released.
 - **Removal:** the organizer removes a member directly; there is no recipient-facing self-service withdrawal in this pass. When a member is removed, their record is erased. Someone who signs in from an invitation but does not press 確認加入 is a pending invitee: they can confirm while that sign-in lasts (four hours), and are erased after it. A new invitation works for them at any time.

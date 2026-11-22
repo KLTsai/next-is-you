@@ -123,7 +123,9 @@ class QueueObservation:
     check_in_order: bool = False
     check_in_position: int | None = None
     expected: tuple[ExpectedCall, ...] = ()
-    numbers: tuple[NumberStatus, ...] = ()
+    # None when the source read does not list the numbers (a list card). An empty
+    # tuple is a source that lists them and has none left.
+    numbers: tuple[NumberStatus, ...] | None = None
     # Whether the clinic has called a number in this session. A page can be
     # frozen from an earlier session, so a number on it alone does not say so.
     # None when the source cannot tell.

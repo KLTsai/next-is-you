@@ -27,6 +27,7 @@ Staging is used by the captain alone. No family member is invited to it.
   the card on the list and the 30-minute list check. If one does not, stop and
   bring the choice to the captain. Staging reads no hospital until it is live, so
   how this first read is run, and by whom, is the captain's to decide with #142.
+- [ ] #175: the organizer is told an evening visit sends no progress reminders.
 - [ ] #137: at most 5 retries of an unknown LINE outcome, and the monthly-limit
   `429` handled.
 - [ ] #138: a visit ends when its clinic ends.

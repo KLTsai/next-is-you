@@ -412,7 +412,10 @@ function runningVisitLink(item: OrganizerVisit): string {
   if (startFailures.get(item.id)?.code !== "another_visit_running") return "";
   const running = visits.find((visit) => visit.id !== item.id && ["active", "stopping"].includes(visit.state));
   if (!running) return "";
-  return ` <a class="running-visit-link" href="#visit-${escapeHtml(running.id)}">前往監控中的看診</a>`;
+  // Stop on a visit with a send in flight leaves it `stopping` until the send
+  // settles, and that still blocks Start: say so instead of a bare retry.
+  const stoppingNote = running.state === "stopping" ? " 它正在停止中，確認關閉後即可再開始。" : "";
+  return `${stoppingNote} <a class="running-visit-link" href="#visit-${escapeHtml(running.id)}">前往監控中的看診</a>`;
 }
 
 function visitCard(item: OrganizerVisit): string {

@@ -83,6 +83,8 @@ const pendingStarts = new Set<string>();
 const startFailures = new Map<string, { text: string; code: string }>();
 const pendingRecipientRemovals = new Set<string>();
 let stoppingRefreshTimer: number | null = null;
+let backgroundRepaintTimer: number | null = null;
+let paintedServerState = "";
 let draftsCollapsed = true;
 let invitationUrl: string | null = null;
 let invitationCreating = false;
@@ -520,8 +522,46 @@ function restoreFieldFocus(focus: FieldFocus | null): void {
   }
 }
 
+// Everything a refresh can change on the page.
+function serverState(): string {
+  return JSON.stringify([
+    authorized, loading, localTestMode, message, refreshWarning,
+    recipients, visits, sendingInterrupted, hospitals,
+  ]);
+}
+
+// Whether the organizer has a native calendar or dropdown open. A repaint
+// replaces its field, which closes it. Browsers without :open answer false.
+function nativePickerIsOpen(): boolean {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLInputElement || active instanceof HTMLSelectElement)) return false;
+  try {
+    return active.matches(":open");
+  } catch {
+    return false;
+  }
+}
+
+// A repaint the organizer did not ask for: it waits for an open calendar or
+// dropdown to close, and never drops what is typed in the form.
+function repaintInBackground(): void {
+  if (!nativePickerIsOpen()) {
+    renderDashboard();
+    return;
+  }
+  backgroundRepaintTimer ??= window.setTimeout(() => {
+    backgroundRepaintTimer = null;
+    repaintInBackground();
+  }, 250);
+}
+
 function renderDashboard(preserveCurrentForm = true): void {
   if (!app) return;
+  if (backgroundRepaintTimer !== null) {
+    window.clearTimeout(backgroundRepaintTimer);
+    backgroundRepaintTimer = null;
+  }
+  paintedServerState = serverState();
   if (preserveCurrentForm && !discardFormOnNextRender) rememberFormValues();
   discardFormOnNextRender = false;
   if (!authorized) {
@@ -550,7 +590,7 @@ function scheduleStoppingRefresh(): void {
   if (!authorized || !visits.some((visit) => visit.state === "stopping")) return;
   stoppingRefreshTimer = window.setTimeout(() => {
     stoppingRefreshTimer = null;
-    void loadDashboard();
+    void loadDashboard(false, true);
   }, 1000);
 }
 
@@ -575,10 +615,10 @@ async function maybeFetchRoster(): Promise<void> {
   }
   rosterKey = key;
   rosterLoading = false;
-  renderDashboard(false);
+  repaintInBackground();
 }
 
-async function loadDashboard(preserveSaveConfirmation = false): Promise<void> {
+async function loadDashboard(preserveSaveConfirmation = false, background = false): Promise<void> {
   if (!serviceStatus) return;
   loading = true;
   try {
@@ -617,7 +657,8 @@ async function loadDashboard(preserveSaveConfirmation = false): Promise<void> {
     }
   } finally {
     loading = false;
-    renderDashboard();
+    if (!background) renderDashboard();
+    else if (serverState() !== paintedServerState) repaintInBackground();
     scheduleStoppingRefresh();
   }
 }
@@ -707,7 +748,7 @@ function bindActions(): void {
     renderDashboard();
     window.setTimeout(() => {
       copyFeedback = "";
-      renderDashboard();
+      repaintInBackground();
     }, 2000);
   });
   document.querySelectorAll<HTMLButtonElement>("[data-withdraw-member]").forEach((button) => button.addEventListener("click", async () => {

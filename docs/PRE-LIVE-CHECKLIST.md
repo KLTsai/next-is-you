@@ -33,8 +33,6 @@ Staging is used by the captain alone. No family member is invited to it.
   bring the choice to the captain. Staging reads no hospital until it is live, so
   the captain allows this one read before Staging is live: run by the captain,
   time-boxed, one page, no LINE message (2026-11-22, #142).
-- [ ] #183: an evening session follows the same rules as any other, and is offered
-  only for a department whose evening page was captured.
 - [ ] #137: at most 5 retries of an unknown LINE outcome, and the monthly-limit
   `429` handled.
 - [ ] #138: a visit ends when its clinic ends.
@@ -128,6 +126,9 @@ Staging is used by the captain alone. No family member is invited to it.
 - A doctor change after the clinic has called is not noticed (`docs/NTUH-READER.md`).
 - If the reader's state is lost while a clinic is calling, the clinic reads as not
   started until the page moves or its card shows a number.
+- Until #183, an evening visit gets no progress reminder. NTUH Main's clinic
+  schedule shows no evening clinic (#180), so it does not hold back Staging
+  (captain, 2026-11-22).
 - There is no backup outside Cloudflare. D1 Time Travel (7 days) is the only
   restore path, and it does not roll back the send gate Durable Object, so any
   restore is followed by a send interruption.

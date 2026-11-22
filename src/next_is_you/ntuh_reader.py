@@ -20,7 +20,7 @@ page. Once the clinic's card is found, its detail-page link (`ServiceIDSE`) is
 kept for that day only and later reads are that page (`ntuh_detail.py`, #163).
 The list is read again every 30 minutes until the clinic calls, and whenever the
 link stops leading to the clinic's page. One read is one of the two pages, except
-that a broken link falls back to the list in the same read.
+that a page that fails may fall back to the other in the same read.
 
 Live hospital behavior is unverified. Tests drive this module with fixture
 pages and an injected fetcher and never contact the hospital.
@@ -57,7 +57,11 @@ from next_is_you.domain import (
     ReadSkipped,
     RosterQuery,
 )
-from next_is_you.ntuh_detail import ProgressObservation, parse_detail_page
+from next_is_you.ntuh_detail import (
+    MAX_NUMBER_DIGITS,
+    ProgressObservation,
+    parse_detail_page,
+)
 from next_is_you.source_samples import _page_status
 from next_is_you.persistence import TAIPEI
 
@@ -119,8 +123,6 @@ FRESH_MAX_AGE = timedelta(minutes=2)
 RETRY_BACKOFF = (timedelta(minutes=1), timedelta(minutes=2), timedelta(minutes=4))
 RETRY_AFTER_CAP = timedelta(minutes=10)
 REQUEST_TIMEOUT_SECONDS = 10
-# Longer than any clinic number. A longer run of digits is not a number.
-MAX_NUMBER_DIGITS = 6
 MAX_BODY_CHARS = 2_000_000
 # The dept-wide schedule page is larger than the per-session light table (the
 # 2026-11-03 OPH showAll capture was 2.2 MB), so it carries its own ceiling.
@@ -1093,9 +1095,7 @@ class NtuhProgressReader:
         fetched: bool,
     ) -> QueueObservation | ReadSkipped | ReadFailed:
         """What the list card says: its number, or that it shows none."""
-        # A card that calls by check-in order shows no called number at all, so
-        # it is read as having none rather than as a number.
-        text = "" if card.check_in_order else card.current.strip()
+        text = card.current.strip()
         progress = QueueObservation(
             scope=scope,
             observed_at=read_at.isoformat(),
@@ -1104,6 +1104,12 @@ class NtuhProgressReader:
             check_in_order=bool(card.check_in_order),
             called_in_session=bool(entry.get("called")),
         )
+        if card.check_in_order:
+            return ReadSkipped(
+                "check_in_order" if entry.get("called") else "clinic_not_started",
+                substitute_doctor=substitute,
+                progress=progress,
+            )
         if not text:
             if entry.get("called"):
                 return self._blank_list_read(entry, fetched=fetched)
@@ -1118,6 +1124,7 @@ class NtuhProgressReader:
         if fetched:
             # A called number opens the watch and clears any run of blank reads.
             entry["called"] = True
+            entry["card_number"] = number
             entry["blanks"] = 0
             entry["due_at"] = (now + MIN_READ_INTERVAL).isoformat()
         # NTUH's list is the session's own, so a number on the card says the
@@ -1158,30 +1165,59 @@ class NtuhProgressReader:
         """
         linked = bool(entry.get("service_id"))
         if linked and not self._list_is_due(entry, now):
-            detail = await self._detail_result(entry["service_id"], key)
+            detail = await self._linked_page(entry, key)
             if not detail.get("bad_link"):
                 return detail
-            print(
-                json.dumps(
-                    {
-                        "event": "ntuh_detail_link_unusable",
-                        "reason": detail["failure"][1],
-                    }
-                )
-            )
-            entry["bad_link"] = [entry.pop("service_id"), now.isoformat()]
+            self._drop_link(entry, detail, now)
             linked = False
         listed = await _within_budget(self._read_light_table(key, scope))
         if "failure" not in listed:
             self._note_card(entry, listed, now)
             return listed
-        if not linked or listed.get("blocked"):
+        if not linked or listed.get("blocked") or listed.get("throttled"):
             return listed
-        # Only the re-check failed: the clinic's own page is still readable.
-        entry["list_due_at"] = (
-            now + max(PRE_ACTIVE_READ_INTERVAL, _retry_after(listed))
-        ).isoformat()
-        return await self._detail_result(entry["service_id"], key)
+        # Only the re-check failed, and the source did not ask to be left alone:
+        # the clinic's own page is still readable.
+        entry["list_due_at"] = (now + PRE_ACTIVE_READ_INTERVAL).isoformat()
+        detail = await self._linked_page(entry, key)
+        if not detail.get("bad_link"):
+            return detail
+        self._drop_link(entry, detail, now)
+        return listed
+
+    async def _linked_page(
+        self, entry: dict[str, Any], key: ClinicKey
+    ) -> dict[str, Any]:
+        """The linked detail page, marked `bad_link` when it is no use to the clinic."""
+        result = await _within_budget(self._read_detail_page(entry["service_id"], key))
+        if "detail" in result:
+            page = _progress_from_json(result["detail"])
+            if (
+                "card_number" in entry
+                and _signature(page) == entry.get("baseline")
+                and page.current_light != entry["card_number"]
+            ):
+                # The list says the clinic called another number, and this page has
+                # not moved since before it did.
+                return {**_failed("invalid", "stale_sample"), "bad_link": True}
+        elif result.get("outage") and int(entry.get("failures", 0)) >= 1:
+            # A page that fails twice in a row may be gone while the list is fine.
+            return {**result, "bad_link": True}
+        return result
+
+    @staticmethod
+    def _drop_link(
+        entry: dict[str, Any], detail: dict[str, Any], now: datetime
+    ) -> None:
+        print(
+            json.dumps(
+                {
+                    "event": "ntuh_detail_link_unusable",
+                    "reason": detail["failure"][1],
+                }
+            )
+        )
+        entry["failed_link"] = [entry.pop("service_id"), now.isoformat()]
 
     @staticmethod
     def _list_is_due(entry: dict[str, Any], now: datetime) -> bool:
@@ -1198,7 +1234,7 @@ class NtuhProgressReader:
         entry["list_due_at"] = (now + LIST_RECHECK_INTERVAL).isoformat()
         rows = listed["rows"]
         service_id = rows[0][5] if len(rows) == 1 else ""
-        rejected, rejected_at = entry.get("bad_link") or ("", None)
+        rejected, rejected_at = entry.get("failed_link") or ("", None)
         since = _parse(rejected_at)
         if (
             service_id
@@ -1213,15 +1249,18 @@ class NtuhProgressReader:
             entry["substitute"] = bool(listed.get("substitute"))
         if service_id and service_id != entry.get("page_id"):
             # What was learnt from one page says nothing about another.
-            for fact in ("baseline", "top_called", "light_rechecked", "went_blank"):
+            for fact in (
+                "baseline",
+                "card_number",
+                "top_called",
+                "light_rechecked",
+                "went_blank",
+            ):
                 entry.pop(fact, None)
         if service_id:
             entry["service_id"] = entry["page_id"] = service_id
         else:
             entry.pop("service_id", None)
-
-    async def _detail_result(self, service_id: str, key: ClinicKey) -> dict[str, Any]:
-        return await _within_budget(self._read_detail_page(service_id, key))
 
     async def _read_detail_page(
         self, service_id: str, key: ClinicKey
@@ -1273,7 +1312,7 @@ class NtuhProgressReader:
         unavailable behaviour is unchanged.
         """
         page = _progress_from_json(detail)
-        signature = [page.current_light, page.highest_called, page.check_in_position]
+        signature = _signature(page)
         if fetched and not entry.get("called"):
             baseline = entry.setdefault("baseline", signature)
             if any(
@@ -1311,6 +1350,10 @@ class NtuhProgressReader:
             called_in_session=called,
         )
         if not called:
+            if page.check_in_order and any(value is not None for value in signature):
+                # Its list card shows no number to ask, so nothing says whether the
+                # position on the page is this session's.
+                progress = replace(progress, called_in_session=None)
             return ReadSkipped(
                 "clinic_not_started", substitute_doctor=substitute, progress=progress
             )
@@ -1511,9 +1554,9 @@ async def _within_budget(read: Awaitable[dict[str, Any]]) -> dict[str, Any]:
     try:
         return await asyncio.wait_for(read, REQUEST_TIMEOUT_SECONDS)
     except TimeoutError:
-        return _failed("unavailable", "timeout")
+        return {**_failed("unavailable", "timeout"), "outage": True}
     except Exception:
-        return _failed("unavailable", "no_observation")
+        return {**_failed("unavailable", "no_observation"), "outage": True}
 
 
 def _positive_number(text: str) -> int | None:
@@ -1527,6 +1570,11 @@ def _same_room(page_room: str, room: str) -> bool:
     """The detail page writes the department before the room: `眼科部 11診`."""
     shown, wanted = _room_norm(page_room), _room_norm(room)
     return shown.endswith(wanted) and not shown.removesuffix(wanted)[-1:].isdigit()
+
+
+def _signature(page: ProgressObservation) -> list[int | None]:
+    """The values that move when a clinic calls, in `_NO_BASELINE` order."""
+    return [page.current_light, page.highest_called, page.check_in_position]
 
 
 def _progress_to_json(progress: ProgressObservation) -> dict[str, Any]:
@@ -1588,6 +1636,11 @@ def _transport_failure(
             "unavailable", "timeout" if page.status == 408 else "no_observation"
         )
         result["retry_after"] = page.retry_after
+        # A source that asks to be left alone is left alone, on every page.
+        if page.status == 429 or page.retry_after:
+            result["throttled"] = True
+        else:
+            result["outage"] = True
         return result
     if page.status != 200 or len(page.body) > max_body_chars:
         return _failed("invalid", "schema_drift")

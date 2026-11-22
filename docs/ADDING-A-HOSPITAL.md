@@ -210,7 +210,7 @@ These are product-wide and are not yours to relax when adding a hospital:
   create a send. Return `ReadFailed` for an unusable read, `ReadSkipped` for a
   read that did not happen or found no current number to report, `None` for no
   observation. A page that was read and understood but has no such number (not
-  started, check-in order, an unobserved situation) carries its facts in
+  started, blank after a call, check-in order, an unobserved situation) carries its facts in
   `ReadSkipped.progress`, never marked as a trusted current number.
 - **Untrusted source.** A usable read means fresh, exact and unambiguous - never
   that the number is verified against the room's physical light. No ETA is

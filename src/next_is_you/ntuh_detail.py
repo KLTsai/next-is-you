@@ -22,6 +22,7 @@ from next_is_you.domain import CallKind, ExpectedCall, NumberState, NumberStatus
 from next_is_you.source_samples import _page_status
 
 __all__ = [
+    "MAX_NUMBER_DIGITS",
     "CallKind",
     "ExpectedCall",
     "NumberState",
@@ -52,7 +53,7 @@ _KINDS: dict[str, CallKind] = {
 
 _DIGITS = re.compile(r"\d+", re.ASCII)
 # Longer than any clinic number. A longer run of digits is not a number.
-_MAX_NUMBER_DIGITS = 6
+MAX_NUMBER_DIGITS = 6
 # The region the parser reads, from the progress panel up to the legend after
 # the number list (#170). Everything else on the page is skipped unparsed.
 _REGION_START = re.compile(r'<[^<>]*class="[^"]*\bclinic-modal-progress\b')
@@ -82,7 +83,7 @@ class ProgressObservation:
 def _number(text: str) -> int | None:
     """A positive number from padded, unpadded or blank (U+3000) text, else None."""
     match = _DIGITS.search(text)
-    if match is None or len(match.group()) > _MAX_NUMBER_DIGITS:
+    if match is None or len(match.group()) > MAX_NUMBER_DIGITS:
         return None
     value = int(match.group())
     return value if value > 0 else None

@@ -1065,7 +1065,7 @@ def _test_progress_fields(progress: Mapping[str, Any]) -> dict[str, Any]:
     if unknown:
         raise ValueError(f"unknown progress fields: {sorted(unknown)}")
     flag = progress.get("current_flag")
-    if flag is not None and flag not in get_args(CallKind):
+    if flag is not None and flag not in set(get_args(CallKind)) - {"check_in"}:
         raise ValueError("unknown current_flag")
     expected = tuple(ExpectedCall(*item) for item in progress.get("expected", []))
     if any(e.kind is not None and e.kind not in get_args(CallKind) for e in expected):
@@ -1085,7 +1085,7 @@ def _test_progress_fields(progress: Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError("a number is a positive integer")
     called = progress.get("called_in_session")
     check_in_order = progress.get("check_in_order", False)
-    if called not in (None, True, False) or check_in_order not in (True, False):
+    if not (called is None or type(called) is bool) or type(check_in_order) is not bool:
         raise ValueError("a yes-or-no field is true or false")
     return {
         "highest_called_number": progress.get("highest_called_number"),

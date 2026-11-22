@@ -55,7 +55,7 @@ The largest number a clinic has called so far today. A patient number below it h
 _Avoid_: Max number, current light
 
 **Called in this session**:
-Whether a clinic has called a number since its session started. A hospital's page can keep the numbers of an earlier session, so a number on it alone does not say so.
+Whether a clinic has called a number since its session started. A hospital's page can keep the numbers of an earlier session, so a current light on it alone does not say so.
 _Avoid_: Started, open, active
 
 **Check in**:

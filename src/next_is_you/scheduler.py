@@ -160,6 +160,11 @@ class OutboxScheduler:
                             observed_at=_parse_time(observation.progress.observed_at),
                             consecutive_unusable_reads=0,
                         )
+                        # A reminder already queued is still owed its retry.
+                        event_ids.extend(
+                            str(event["id"])
+                            for event in await self._visits.retryable_events(visit_id)
+                        )
                     continue
                 if isinstance(observation, ReadFailed):
                     source_status = observation.status

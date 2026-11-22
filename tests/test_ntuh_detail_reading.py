@@ -28,6 +28,7 @@ from next_is_you.ntuh_reader import STATE_KEY, FetchedPage
 from next_is_you.persistence import CloudflareD1Store, VisitRepository
 from ntuh_detail_pages import detail_page
 from test_ntuh_reader import (
+    CHECK_IN_ORDER_CLINIC,
     DAY,
     PAGE,
     LocalDurableStorage,
@@ -140,7 +141,7 @@ async def test_a_failed_recheck_reads_the_detail_page_and_backs_off():
     source = TwoPageSource(BLANK_LIST, detail_page())
     r = reader(source)
     await r.observe(scope(), taipei(9, 0))
-    source.listed = FetchedPage(503, "", retry_after=480)
+    source.listed = FetchedPage(503, "")
     pending = ReadSkipped("clinic_not_started")
     posts = []
     for minute in range(1, 45):
@@ -151,8 +152,8 @@ async def test_a_failed_recheck_reads_the_detail_page_and_backs_off():
         )
         if source.list_posts > before:
             posts.append(minute)
-    # Due at 30; then no sooner than the eight minutes the source asked for.
-    assert posts == [30, 38]
+    # Due at 30; then again no sooner than 5 minutes after each failure.
+    assert posts == [30, 36, 42]
 
 
 @pytest.mark.asyncio
@@ -481,7 +482,7 @@ async def test_an_evening_substitute_is_still_shown_to_the_organizer():
 
 @pytest.mark.asyncio
 async def test_an_evening_source_that_fails_still_reaches_the_family():
-    source = TwoPageSource(PAGE, FetchedPage(503, ""))
+    source = TwoPageSource(FetchedPage(503, ""), FetchedPage(503, ""))
     database, gate = await running_visit(source, session="evening")
     for minute in (0, 2, 3, 5):
         await tick(gate, 19, minute)
@@ -713,11 +714,124 @@ async def test_three_failed_detail_reads_send_one_unavailable_message():
     source = TwoPageSource(page_with("010"), detail_page(current=10, highest=10))
     database, gate = await running_visit(source)
     await tick(gate, 15, 0)
-    source.detail = FetchedPage(503, "")
+    source.detail = source.listed = FetchedPage(503, "")
     for minute in (2, 3, 5, 9, 13):
         await tick(gate, 15, minute)
     assert await kinds(gate) == ["unavailable"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outage", [FetchedPage(500, ""), FetchedPage(503, ""), TimeoutError()]
+)
+async def test_a_page_that_keeps_failing_gives_way_to_a_healthy_list(outage):
+    # A dead link may well answer 500. The list alone is what the family had.
+    source = TwoPageSource(BLANK_LIST, outage)
+    database, gate = await running_visit(source)
+    await tick_every_minute(gate, taipei(0, 40), taipei(13, 29))
+    assert await kinds(gate) == []
+    source.listed = page_with("026")
+    await tick_every_minute(gate, taipei(13, 30), taipei(13, 40))
+    assert await kinds(gate) == ["near"]
+    assert counts(database, "v") == ("usable", "none", 0)
+
+
+@pytest.mark.asyncio
+async def test_one_failed_page_keeps_the_link_and_never_asks_the_list():
+    source = TwoPageSource(page_with("024"), FetchedPage(503, ""))
+    r = reader(source)
+    await r.observe(scope(), taipei(15, 0))
+    assert isinstance(await r.observe(scope(), taipei(15, 2)), ReadFailed)
+    source.detail = detail_page(current=25, highest=25)
+    assert (await r.observe(scope(), taipei(15, 3))).current_number == 25
     assert source.list_posts == 1
+
+
+@pytest.mark.asyncio
+async def test_a_dead_page_behind_a_failed_recheck_is_dropped_too():
+    state = LocalDurableStorage()
+    source = TwoPageSource(BLANK_LIST, detail_page())
+    r = reader(source, state)
+    await r.observe(scope(), taipei(9, 0))
+    source.listed, source.detail = FetchedPage(503, ""), FetchedPage(404, "")
+    assert await r.observe(scope(), taipei(9, 30)) == ReadFailed(
+        "unavailable", "no_observation"
+    )
+    (entry,) = json.loads(state.values[STATE_KEY]).values()
+    assert "service_id" not in entry
+
+
+@pytest.mark.asyncio
+async def test_a_throttled_source_is_left_alone_on_both_pages():
+    source = TwoPageSource(BLANK_LIST, detail_page())
+    r = reader(source)
+    await r.observe(scope(), taipei(9, 0))
+    for minute in range(2, 30, 2):
+        await r.observe(scope(), taipei(9, minute))
+    source.listed = FetchedPage(429, "", retry_after=600)
+    assert isinstance(await r.observe(scope(), taipei(9, 30)), ReadFailed)
+    count = len(source.requests)
+    for minute in range(31, 40):
+        assert await r.observe(scope(), taipei(9, minute)) == ReadSkipped("not_due")
+    assert len(source.requests) == count
+    # The same holds when the detail page is the one that asks, twice in a row.
+    source.listed = BLANK_LIST
+    await r.observe(scope(), taipei(9, 40))
+    source.detail = FetchedPage(429, "")
+    posts = source.list_posts
+    for minute in (42, 43, 45):
+        assert isinstance(await r.observe(scope(), taipei(9, minute)), ReadFailed)
+    assert source.list_posts == posts
+
+
+@pytest.mark.asyncio
+async def test_a_reminder_with_an_unknown_outcome_is_retried_after_the_page_blanks():
+    source = TwoPageSource(page_with("010"), detail_page(current=26, highest=26))
+    database, gate = await running_visit(source)
+    await tick(gate, 14, 0)
+    await gate.set_test_line_mode("unknown")
+    await tick(gate, 14, 2)
+    await gate.set_test_line_mode("accepted")
+    source.detail = detail_page(highest=26)
+    await tick(gate, 14, 4)
+    (event,) = (await gate.test_snapshot())["events"]
+    assert (event["outcome"], event["attempt_count"]) == ("accepted", 2)
+
+
+@pytest.mark.asyncio
+async def test_a_check_in_order_clinic_never_ends_on_list_reads():
+    source = TwoPageSource(
+        PAGE,
+        detail_page(room="合成科 99診", check_in_order=True, check_in_position=3),
+    )
+    r = reader(source)
+    clinic = scope(CHECK_IN_ORDER_CLINIC)
+    await r.observe(clinic, taipei(14, 0))
+    unknown = await r.observe(clinic, taipei(14, 2))
+    # Nothing says whether an unchanged position is this session's.
+    assert unknown == ReadSkipped("clinic_not_started")
+    assert unknown.progress.called_in_session is None
+    source.detail = source.detail.replace("報到順序03", "報到順序04")
+    assert await r.observe(clinic, taipei(14, 4)) == ReadSkipped("check_in_order")
+    source.detail = FetchedPage(404, "")
+    for minute in (6, 8, 10, 12):
+        listed = await r.observe(clinic, taipei(14, minute))
+        assert listed == ReadSkipped("check_in_order")
+        assert listed.progress.check_in_order is True
+
+
+@pytest.mark.asyncio
+async def test_a_page_the_list_contradicts_is_not_used():
+    # The page still shows the earlier session's 26 of 30 while the list, which is
+    # this session's, has called 1.
+    source = TwoPageSource(BLANK_LIST, detail_page(current=26, highest=30))
+    database, gate = await running_visit(source)
+    await tick(gate, 13, 30)
+    await tick(gate, 13, 32)
+    source.listed = page_with("001")
+    await tick_every_minute(gate, taipei(13, 33), taipei(14, 20))
+    assert await kinds(gate) == []
+    assert stored_number(database) == 1
 
 
 @pytest.mark.asyncio
@@ -725,13 +839,13 @@ async def test_a_readable_page_between_failures_ends_their_run():
     source = TwoPageSource(page_with("010"), detail_page(current=10, highest=10))
     database, gate = await running_visit(source)
     await tick(gate, 14, 0)
-    source.detail = FetchedPage(503, "")
+    source.detail = source.listed = FetchedPage(503, "")
     await tick(gate, 14, 2)
     await tick(gate, 14, 3)
     assert counts(database, "v")[2] == 2
-    source.detail = detail_page(highest=10)
+    source.detail, source.listed = detail_page(highest=10), page_with("010")
     await tick_every_minute(gate, taipei(14, 4), taipei(16, 59))
-    source.detail = FetchedPage(503, "")
+    source.detail = source.listed = FetchedPage(503, "")
     await tick(gate, 17, 1)
     assert counts(database, "v")[2] == 1
     assert await kinds(gate) == []
@@ -936,7 +1050,10 @@ async def test_the_hook_reports_a_waiting_clinic_the_way_a_reader_does(
         {"numbers": [["28", "checked_in"]]},
         {"highest_called_number": 0},
         {"current_flag": "unknown"},
+        {"current_flag": "check_in"},
         {"called_in_session": "yes"},
+        {"called_in_session": 0},
+        {"check_in_order": 1},
     ],
 )
 async def test_the_hook_refuses_fields_it_cannot_hold(progress):

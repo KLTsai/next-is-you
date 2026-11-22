@@ -116,7 +116,8 @@ class QueueObservation:
     # booked one. The visit keeps running and the organizer decides.
     substitute_doctor: bool = False
     # Progress fields (ADR 0003): each is present only when the source states it
-    # outright, and a hospital that does not show one leaves it empty.
+    # outright, and a hospital that does not show one leaves it empty. Only
+    # `called_in_session` compares what the source showed at different times.
     current_flag: CallKind | None = None
     # The clinic calls by check-in order, so it has no highest called.
     check_in_order: bool = False

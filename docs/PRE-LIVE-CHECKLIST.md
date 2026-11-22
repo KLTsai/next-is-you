@@ -25,6 +25,8 @@ Staging is used by the captain alone. No family member is invited to it.
   deployed.
 - [ ] #179: a refusal stops the whole hospital, and Start and the picker follow it.
 - [ ] #181: scheduled reads begin one hour before the session's published start.
+- [ ] #188: a clinic schedule read stays within the Free plan's 10 ms and the reader's
+  size limit, for the picker, Start and the daily recheck.
 - [ ] #163's CPU condition ([HTTPS-SERVICE.md](HTTPS-SERVICE.md), #170 verdict),
   evidence label live provider: before Staging's reading is turned on for use, one
   synthetic visit reads a real NTUH detail page under `wrangler tail`, and every

@@ -487,6 +487,50 @@ function membersPanel(): string {
   </section>`;
 }
 
+type FieldFocus = { selector: string; start: number | null; end: number | null; numeric: boolean };
+
+// The dashboard repaints wholesale (polling, fetches, button actions), which
+// drops the focused field. Remember it and put the cursor back after the paint
+// so typing or keyboard navigation is not interrupted.
+function captureFieldFocus(): FieldFocus | null {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLInputElement || active instanceof HTMLSelectElement) || !app?.contains(active)) return null;
+  let selector = "";
+  if (active.id) selector = `#${CSS.escape(active.id)}`;
+  else if (active.name) {
+    selector = `${active.tagName.toLowerCase()}[name="${CSS.escape(active.name)}"]`;
+    if (active instanceof HTMLInputElement && (active.type === "checkbox" || active.type === "radio")) {
+      selector += `[value="${CSS.escape(active.value)}"]`;
+    }
+  }
+  if (!selector) return null;
+  const textual = active instanceof HTMLInputElement && ["text", "search", "url", "tel", "password"].includes(active.type);
+  return {
+    selector,
+    start: textual ? active.selectionStart : null,
+    end: textual ? active.selectionEnd : null,
+    numeric: active instanceof HTMLInputElement && active.type === "number",
+  };
+}
+
+function restoreFieldFocus(focus: FieldFocus | null): void {
+  if (!focus) return;
+  const field = app?.querySelector<HTMLInputElement | HTMLSelectElement>(focus.selector);
+  if (!field) return;
+  // preventScroll: a repaint while the organizer scrolls must not drag the
+  // page back to this field.
+  field.focus({ preventScroll: true });
+  if (field instanceof HTMLInputElement && focus.start !== null && focus.end !== null) {
+    field.setSelectionRange(focus.start, focus.end);
+  } else if (field instanceof HTMLInputElement && focus.numeric) {
+    // A number input has no selection API; borrow the text type to park the
+    // caret at the end, where digits are being typed.
+    field.type = "text";
+    field.setSelectionRange(field.value.length, field.value.length);
+    field.type = "number";
+  }
+}
+
 function renderDashboard(preserveCurrentForm = true): void {
   if (!app) return;
   if (preserveCurrentForm && !discardFormOnNextRender) rememberFormValues();
@@ -497,9 +541,7 @@ function renderDashboard(preserveCurrentForm = true): void {
     return;
   }
   const { drafts, reminders, reminderCount } = projectDashboardVisits(visits);
-  const labelFocus = document.activeElement instanceof HTMLInputElement && document.activeElement.id === "member-label"
-    ? { start: document.activeElement.selectionStart, end: document.activeElement.selectionEnd }
-    : null;
+  const fieldFocus = captureFieldFocus();
   app.innerHTML = `<div class="dashboard-top"><div><p class="eyebrow">安全的提醒管理</p><h1>看診提醒</h1></div><button class="secondary-button refresh-button" id="refresh" type="button" ${loading ? "disabled" : ""}>重新整理</button></div>
     ${message ? `<p class="message" role="status">${escapeHtml(message)}</p>` : ""}
     ${refreshWarning ? `<p class="message message-warning" role="status">${escapeHtml(refreshWarning)}</p>` : ""}
@@ -508,11 +550,7 @@ function renderDashboard(preserveCurrentForm = true): void {
     <section class="visits saved-drafts" aria-labelledby="drafts-heading"><div class="section-heading"><div><p class="eyebrow">提醒設定</p><h2 id="drafts-heading">已儲存草稿 <span class="draft-count">${drafts.length}</span></h2></div><button class="secondary-button drafts-toggle" type="button" data-drafts-toggle aria-expanded="${!draftsCollapsed}" aria-controls="saved-drafts-list">${draftsCollapsed ? "展開草稿" : "收合草稿"}</button></div><div id="saved-drafts-list" class="draft-list" ${draftsCollapsed ? "hidden" : ""}>${drafts.length ? drafts.map(visitCard).join("") : `<div class="empty-state"><h3>尚無已儲存草稿</h3><p>建立草稿後，會顯示在這裡。</p></div>`}</div></section>
     <section class="visits" aria-labelledby="visits-heading"><div class="section-heading"><div><p class="eyebrow">狀態與控制</p><h2 id="visits-heading">提醒清單 <span class="draft-count">${reminderCount}</span></h2></div></div>${reminders.length ? reminders.map(visitCard).join("") : `<div class="empty-state"><h3>尚無提醒狀態</h3><p>執行中、已停止或已結束的提醒會顯示在這裡。</p></div>`}</section>`;
   bindActions();
-  if (labelFocus) {
-    const field = document.querySelector<HTMLInputElement>("#member-label");
-    field?.focus();
-    field?.setSelectionRange(labelFocus.start, labelFocus.end);
-  }
+  restoreFieldFocus(fieldFocus);
 }
 
 function scheduleStoppingRefresh(): void {

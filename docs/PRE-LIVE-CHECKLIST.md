@@ -24,6 +24,7 @@ Staging is used by the captain alone. No family member is invited to it.
   at or below 10 ms under `wrangler tail`. Last measured 5 to 9 ms. Evidence label
   deployed.
 - [ ] #179: a refusal stops the whole hospital, and Start and the picker follow it.
+- [ ] #181: scheduled reads begin one hour before the session's published start.
 - [ ] #163's CPU condition ([HTTPS-SERVICE.md](HTTPS-SERVICE.md), #170 verdict),
   evidence label live provider: before Staging's reading is turned on for use, one
   synthetic visit reads a real NTUH detail page under `wrangler tail`, and every

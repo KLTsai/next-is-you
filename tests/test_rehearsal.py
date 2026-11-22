@@ -161,7 +161,7 @@ def test_rehearsal_started_reminder_keeps_its_last_recipient(tmp_path):
                     "observation",
                     {"current_number": 82, "trustworthy": True},
                 )
-                assert page.request.get(origin + "/cdn-cgi/local/scheduled").ok
+                assert page.request.post(origin + "/__niy006_test/alarm").ok
                 page.get_by_role("button", name="重新整理").click()
                 card = page.locator(
                     '[aria-labelledby="visit-rehearsal-remove-recipient"]'
@@ -263,7 +263,7 @@ def test_rehearsal_stop_shows_stopping_while_fake_line_request_is_in_flight(tmp_
                 )
                 control(page, origin, "line-mode", {"mode": "wait"})
                 page.evaluate(
-                    "() => { window.scheduledRequest = fetch('/cdn-cgi/local/scheduled'); }"
+                    "() => { window.scheduledRequest = fetch('/__niy006_test/alarm', { method: 'POST' }); }"
                 )
                 control(page, origin, "wait-request")
                 request_waiting = True
@@ -310,7 +310,7 @@ def test_rehearsal_stop_shows_stopping_while_fake_line_request_is_in_flight(tmp_
                 assert not snapshot["held"]
                 assert len(snapshot["events"]) == len(snapshot["line_requests"]) == 1
                 assert snapshot["events"][0]["outcome"] == "accepted"
-                assert page.request.get(origin + "/cdn-cgi/local/scheduled").ok
+                assert page.request.post(origin + "/__niy006_test/alarm").ok
                 assert control(page, origin, "snapshot") == snapshot
         finally:
             context.close()
@@ -447,7 +447,7 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
                     "observation",
                     {"current_number": 82, "trustworthy": True},
                 )
-                assert page.request.get(origin + "/cdn-cgi/local/scheduled").ok
+                assert page.request.post(origin + "/__niy006_test/alarm").ok
                 first = control(page, origin, "snapshot")
                 assert len(first["events"]) == len(first["line_requests"]) == 1
                 assert first["events"][0]["event_kind"] == "near"
@@ -506,7 +506,7 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
                 expect(active.locator(".state")).to_have_text("監控中")
                 expect(active).to_contain_text("掛號序號")
                 expect(active).to_contain_text("85")
-                assert page.request.get(origin + "/cdn-cgi/local/scheduled").ok
+                assert page.request.post(origin + "/__niy006_test/alarm").ok
                 restarted = control(page, origin, "snapshot")
                 assert restarted["events"] == first["events"]
                 assert restarted["line_requests"] == first["line_requests"]
@@ -670,7 +670,7 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
                     "observation",
                     {"current_number": 83, "trustworthy": True},
                 )
-                assert page.request.get(origin + "/cdn-cgi/local/scheduled").ok
+                assert page.request.post(origin + "/__niy006_test/alarm").ok
                 first = control(page, origin, "snapshot")
                 assert not first["held"]
                 assert len(first["events"]) == len(first["line_requests"]) == 1
@@ -681,7 +681,7 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
                 assert first["line_requests"][0]["retry_key"] == event["retry_key"]
                 assert first["line_requests"][0]["outbox_persisted"]
                 for _ in range(2):
-                    assert page.request.get(origin + "/cdn-cgi/local/scheduled").ok
+                    assert page.request.post(origin + "/__niy006_test/alarm").ok
                 assert control(page, origin, "snapshot") == first
 
             with rehearsal(tmp_path, port):
@@ -690,7 +690,7 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
                 # Both the D1 event and DO fake-request log survived the process exit.
                 assert control(page, origin, "snapshot") == first
                 for _ in range(2):
-                    assert page.request.get(origin + "/cdn-cgi/local/scheduled").ok
+                    assert page.request.post(origin + "/__niy006_test/alarm").ok
                 assert control(page, origin, "snapshot") == first
                 page.locator(f'[data-stop="{visit_id}"]').click()
                 expect(page.locator(f'[data-correct="{visit_id}"]')).to_be_visible(
@@ -699,7 +699,7 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
                 stopped_card = page.locator(f'article:has([data-correct="{visit_id}"])')
                 expect(stopped_card).to_contain_text("掛號序號")
                 expect(stopped_card).to_contain_text("86")
-                assert page.request.get(origin + "/cdn-cgi/local/scheduled").ok
+                assert page.request.post(origin + "/__niy006_test/alarm").ok
                 assert control(page, origin, "snapshot") == first
                 visits = page.evaluate(
                     "async () => (await fetch('/api/organizer/visits')).json()"

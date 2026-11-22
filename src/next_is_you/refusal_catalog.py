@@ -17,6 +17,7 @@ START_REFUSAL_CODES = MappingProxyType(
     {
         "visit_not_found": 404,
         "invalid_lifecycle_state": 409,
+        "another_visit_running": 409,
         "observation_unavailable": 503,
         "observation_stale": 409,
         "observation_scope_mismatch": 409,

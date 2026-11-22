@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import re
 import subprocess
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from httpx import ASGITransport, AsyncClient
@@ -255,3 +257,34 @@ def test_env_files_are_ignored_but_template_is_tracked():
         text=True,
     )
     assert tracked.returncode == 0
+
+
+def test_cron_only_asks_the_send_gate_to_keep_its_alarm():
+    calls = []
+
+    class Gate:
+        async def ensure_alarm(self):
+            calls.append("ensure_alarm")
+
+        def __getattr__(self, name):
+            raise AssertionError(f"the Cron must not call {name}")
+
+    class Namespace:
+        def getByName(self, name):
+            assert name == "next-is-you-system"
+            return Gate()
+
+    asyncio.run(worker.run_cron({"SEND_GATE": Namespace()}))
+
+    assert calls == ["ensure_alarm"]
+
+
+def test_every_wrangler_config_runs_the_watchdog_cron_every_five_minutes():
+    root = Path(__file__).resolve().parents[1]
+    configs = sorted(root.glob("wrangler*.jsonc"))
+    assert len(configs) == 5
+    for config in configs:
+        text = config.read_text(encoding="utf-8")
+        crons = re.search(r'"crons"\s*:\s*\[([^\]]*)\]', text)
+        assert crons is not None, config.name
+        assert re.findall(r'"([^"]+)"', crons.group(1)) == ["*/5 * * * *"], config.name

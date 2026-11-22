@@ -27,6 +27,7 @@ The former local tickets are [inactive historical records](../docs/archive/ticke
 ## Delivery and operations research
 
 - [Schema migration risk practices](schema-migration-risk-practices.md) (2026-11-19): how teams classify, review, rehearse, back up, and roll forward schema changes, with SQLite rebuild and Cloudflare D1 specifics and what fits a solo operator.
+- [Workers Free plan 10 ms CPU limit and the Python tick](workers-free-cpu-limit-2026-11-21.md) (2026-11-21): how Cloudflare counts and enforces CPU per invocation for Cron and Durable Object invocations and Python Workers, and which techniques fit this project's tick. Supporting evidence for #162 and #170, not a measurement.
 
 ## Local-only supporting material
 

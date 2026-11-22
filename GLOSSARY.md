@@ -105,11 +105,11 @@ A deployed environment that reads real hospitals and sends real LINE reminders. 
 _Avoid_: Send hold, configuration hold, production hold, go-live
 
 **Send interruption**:
-A stop on all sending in one environment. The system enters it when its record of what it has sent was changed by something outside its own control, such as a restore or a migration, or when it could not write down the result of a send; the captain can also set it by hand before a restore or rollback. Only the captain ends it, by resuming sending after checking. Visits keep their state through it: it pauses them, it does not stop them. A LINE request whose outcome is merely unknown is retried, not interrupted. Shown to organizers on active visits as 發送中斷中，提醒暫停, and in service status as 發送中斷.
+A stop on all sending in one environment. The system enters it when its record of what it has sent was changed by something outside its own control, such as a restore or a migration, or when it could not write down the result of a send; the captain can also set it by hand before a restore or rollback. Only the captain ends it, by resuming sending after checking. Visits keep their state through it: it pauses them, it does not stop them. A LINE request whose outcome is merely unknown is retried, not interrupted. Shown to users as LINE 通知暫停發送.
 _Avoid_: Recovery hold, reconciliation hold, safety stop, brake
 
 **Resume sending**:
-The captain ending a send interruption once they have checked what happened. Running visits that are still valid carry on; it never brings back a stopped visit. Shown to users as 恢復發送.
+The captain ending a send interruption once they have checked what happened. Running visits that are still valid carry on; it never brings back a stopped visit. Shown to users as 恢復發送 LINE 通知.
 _Avoid_: Release, unhold, end interruption
 
 ### Delivery

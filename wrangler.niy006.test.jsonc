@@ -32,7 +32,7 @@
     }
   },
   "triggers": {
-    "crons": ["* * * * *"]
+    "crons": ["*/5 * * * *"]
   },
   "vars": {
     "NIY006_LOCAL_TEST_MODE": "1",

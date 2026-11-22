@@ -50,6 +50,13 @@ except ModuleNotFoundError as error:
             self.env = env
 
 
+# ADR 0005: the alarm drives the tick. A visit that is running keeps the
+# one-minute cadence the reader expects; otherwise lifecycle chores run on a
+# slower alarm.
+ACTIVE_ALARM_DELAY = timedelta(minutes=1)
+IDLE_ALARM_DELAY = timedelta(minutes=5)
+
+
 class SystemSendGate(_DurableObjectBase):
     """One SQLite-backed Durable Object serializes every send and close action."""
 
@@ -59,6 +66,37 @@ class SystemSendGate(_DurableObjectBase):
         self._stop_transition_lock = asyncio.Lock()
         self._test_request_started = asyncio.Event()
         self._test_request_release = asyncio.Event()
+
+    async def alarm(self, alarm_info: Any = None) -> None:
+        await self.alarm_tick()
+
+    async def alarm_tick(self, now: str | None = None) -> dict[str, Any]:
+        """Run one tick from the Durable Object alarm (ADR 0005).
+
+        The next alarm is set before the tick runs, so a tick that is cut
+        short still leaves the chain in place. The slow alarm goes first, so
+        even a failed running-visit check leaves one.
+        """
+        tick_time = _datetime(now)
+        await self._set_alarm(tick_time + IDLE_ALARM_DELAY)
+        if await self._repository().has_running_visit():
+            await self._set_alarm(tick_time + ACTIVE_ALARM_DELAY)
+        return await self.scheduled_tick(now)
+
+    async def ensure_alarm(self, now: str | None = None) -> None:
+        """Watchdog for the Cron (ADR 0005): restore a missing alarm, never tick.
+
+        It touches only this object's alarm, so a Worker invocation cut short
+        while calling it cannot leave D1 or a tick half done.
+        """
+        if await self.ctx.storage.getAlarm() is None:
+            await self._set_alarm(_datetime(now))
+
+    async def _set_alarm(self, at: datetime, *, only_if_earlier: bool = False) -> None:
+        due = _epoch_ms(at)
+        current = await self.ctx.storage.getAlarm() if only_if_earlier else None
+        if current is None or current > due:
+            await self.ctx.storage.setAlarm(due)
 
     async def scheduled_tick(self, now: str | None = None) -> dict[str, Any]:
         result = await self._scheduled_tick(_datetime(now), now is not None)
@@ -217,9 +255,18 @@ class SystemSendGate(_DurableObjectBase):
         hospital has no schedule, so it skips that check and is refused on any
         day before the visit day, with nothing stored. Future-dated drafts that
         match transition to active without a live observation; the scheduler
-        polls them on visit day.
+        polls them on visit day. A started visit brings the next alarm within a
+        minute, so the reader's cadence starts now (ADR 0005). While any other
+        visit is active or stopping, Start is refused first with
+        `another_visit_running` and stores nothing.
         """
         timestamp = _datetime(now)
+        result = await self._start_visit(visit_id, timestamp)
+        if result.get("state") == "active":
+            await self._set_alarm(timestamp + ACTIVE_ALARM_DELAY, only_if_earlier=True)
+        return result
+
+    async def _start_visit(self, visit_id: str, timestamp: datetime) -> dict[str, Any]:
         async with self._lock:
             repository = self._repository()
             visit = await repository.get_visit(visit_id)
@@ -227,6 +274,11 @@ class SystemSendGate(_DurableObjectBase):
                 return {"error": "visit_not_found"}
             if visit["state"] != "draft":
                 return {"error": "invalid_lifecycle_state"}
+            # One running visit at a time (#172): the tick is not split per
+            # visit yet, so a second one would exceed the Free plan CPU limit.
+            # Checked under the gate lock before anything is read or stored.
+            if await repository.has_other_running_visit(visit_id):
+                return {"error": "another_visit_running"}
             visit_date = date.fromisoformat(str(visit["visit_date"]))
             today = timestamp.astimezone(TAIPEI).date()
             if visit_date < today:
@@ -1024,6 +1076,10 @@ def _field(value: Any, key: str, default: Any = None) -> Any:
     if isinstance(value, Mapping):
         return value.get(key, default)
     return getattr(value, key, default) if value is not None else default
+
+
+def _epoch_ms(value: datetime) -> int:
+    return int(value.timestamp() * 1000)
 
 
 def _datetime(value: str | None) -> datetime:

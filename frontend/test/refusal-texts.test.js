@@ -94,6 +94,13 @@ test("a refused Start for a hospital with no clinic schedule names the visit day
   );
 });
 
+test("a refused Start while another visit runs tells the organizer to stop it first", () => {
+  assert.equal(
+    startRefusalMessage({ code: "another_visit_running" }),
+    "目前已有一個看診在監控中，請先停止它再開始這一個。",
+  );
+});
+
 const KNOWN_ACTIONS = new Set([
   "retry_later",
   "reload",
@@ -103,6 +110,7 @@ const KNOWN_ACTIONS = new Set([
   "wait_for_schedule",
   "start_on_visit_day",
   "check_clinic_code",
+  "stop_running_visit",
 ]);
 
 test("every refusal text names a known action and is a string or a function of facts", () => {

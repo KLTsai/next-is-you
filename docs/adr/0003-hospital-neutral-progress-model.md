@@ -23,4 +23,4 @@ We decided on 2026-11-20, in the #136 grilling, that:
 
 - Adding a hospital is a reader that fills the fields it can and a record of what it cannot. The reminder set it gets follows automatically.
 - The rule must be tested per combination of present fields, not per hospital.
-- Reading NTUH's per-clinic detail page falls under the source access rules in `docs/ADDING-A-HOSPITAL.md`: the list once to find the card's link, then the detail page at the reader's stated cadence, counted across every live environment.
+- Reading NTUH's per-clinic detail page falls under the source access rules in `docs/ADDING-A-HOSPITAL.md`: the list to find the card's link, then the detail page at the reader's stated cadence, counted across every live environment. Amended by the captain on 2026-11-22 (#163): until the clinic calls, the list is read again every 30 minutes, because a card removed or given to a substitute doctor after the link was found could not be noticed otherwise. It is also read again when the link stops leading to the clinic's page.

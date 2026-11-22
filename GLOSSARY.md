@@ -54,6 +54,10 @@ _Avoid_: Called number, current number, progress
 The largest number a clinic has called so far today. A patient number below it has had its call, whether or not the patient has been seen. Shown to users as 已叫最大號.
 _Avoid_: Max number, current light
 
+**Called in this session**:
+Whether a clinic has called a number since its session started. A hospital's page can keep the numbers of an earlier session, so a number on it alone does not say so.
+_Avoid_: Started, open, active
+
 **Check in**:
 A patient telling the clinic they have arrived, by card or at the desk. Some clinics see patients in the order they checked in instead of by patient number. Shown to users as 報到.
 _Avoid_: Arrive, register, 掛號

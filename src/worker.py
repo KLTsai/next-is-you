@@ -874,7 +874,9 @@ def create_app(
                 body.get("trustworthy") is True,
                 body.get("progress"),
             )
-            return JSONResponse({"configured": configured})
+            return JSONResponse(
+                {"configured": configured}, status_code=200 if configured else 400
+            )
         if operation == "stop":
             state = await gate.stop_visit(str(body["visit_id"]), str(body["now"]))
             return JSONResponse({"state": state})

@@ -34,15 +34,15 @@ def detail_page(
     expected: tuple[tuple[int, str], ...] = (),
     numbers: tuple[tuple[int, str] | tuple[int, str, int], ...] = (),
 ) -> str:
-    """The detail page of a clinic. `None` renders the page's own blank (000)."""
-    light = f"{current:03d}" if current is not None else "000"
+    """The detail page of a clinic. `None` renders the page's own blank (U+3000)."""
+    light = f"{current:03d}" if current is not None else "\u3000"
     flag_text = (
         f"報到順序{check_in_position:02d}"
         if check_in_position is not None
         else _FLAG_TEXT.get(flag or "", "")
     )
     note = "依報到順序看診" if check_in_order else ""
-    highest_text = f"{highest:03d}" if highest is not None else ""
+    highest_text = f"{highest:03d}" if highest is not None else "\u3000"
     expected_html = "".join(
         f'<span class="expected-item"><span class="number">{number:03d}</span>'
         f'<span class="type">({kind})</span></span>'

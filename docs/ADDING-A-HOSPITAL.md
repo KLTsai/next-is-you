@@ -91,7 +91,11 @@ still being evidenced; reads for it fail closed and it is offered to no one.
 3. **Register it** in `HOSPITAL_REGISTRY` with its `display_name`,
    `reader_type` (for example `ShinKongReader`, built as
    `reader_type(deps.storage, deps.fetch)` unless you pass `build_reader`),
-   `official_link`, departments and clinic-code labels.
+   `official_link`, departments and clinic-code labels. A reader that stores
+   transient state also registers `forget_other_days`, a function of the storage
+   and the Taipei day that drops the state of every other day. The send gate calls
+   it at the start of every tick, before any hold, and it stays registered when
+   the reader is retired.
 4. **Add fixture-driven tests** for the reader. The registry contract test in
    `tests/test_hospital_registry.py` runs against every registered hospital, so
    a new entry is checked automatically. Make no live request in tests.
@@ -106,7 +110,8 @@ A new hospital touches these places:
 
 1. The reader module (`src/next_is_you/<hospital>_reader.py`).
 2. `HOSPITAL_REGISTRY` in `hospital_registry.py` (reader type, display name,
-   official link, departments, clinic-code labels).
+   official link, departments, clinic-code labels, `forget_other_days`).
+
 There is no database step and no enum step. The database does not enumerate
 hospitals and a hospital id is a plain string the registry owns (ADR 0002,
 `docs/adr/0002-hospital-list-lives-in-code.md`), so adding a hospital needs no
@@ -203,7 +208,10 @@ These are product-wide and are not yours to relax when adding a hospital:
 - **Fail closed.** Zero or several matching clinics never produce a number.
   Timeout, stale, denied/challenged, and schema drift do not activate a draft or
   create a send. Return `ReadFailed` for an unusable read, `ReadSkipped` for a
-  read that did not happen, `None` for no observation.
+  read that did not happen or found no current number to report, `None` for no
+  observation. A page that was read and understood but has no such number (not
+  started, check-in order, an unobserved situation) carries its facts in
+  `ReadSkipped.progress`, never marked as a trusted current number.
 - **Untrusted source.** A usable read means fresh, exact and unambiguous - never
   that the number is verified against the room's physical light. No ETA is
   computed; the current number is never inferred from a next/highest number;

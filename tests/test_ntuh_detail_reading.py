@@ -1,33 +1,44 @@
 """Issue #163: the visit-day read takes the card's detail page and reports progress.
 
-Fixture/mock evidence: a scripted source serves the session list and synthetic
-detail pages (`ntuh_detail_pages.py`). The local integration test runs Start and the
-scheduled tick through the send gate. Nothing reaches the hospital.
+Fixture/mock evidence: a source whose session list and detail page are set
+independently (`TwoPageSource`, `ntuh_detail_pages.py`), so the two may disagree.
+Local integration evidence: tests that name the gate run Start and the scheduled
+tick through it. Nothing reaches the hospital.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from datetime import timedelta
 
 import pytest
 
+import next_is_you.ntuh_reader as ntuh_reader
 from next_is_you.domain import (
     ClinicSession,
     ExpectedCall,
     NumberStatus,
     QueueObservation,
+    ReadFailed,
     ReadSkipped,
 )
-from next_is_you.send_gate import _TestHospitalReader
+from next_is_you.hospital_registry import forget_other_days
+from next_is_you.ntuh_reader import STATE_KEY, FetchedPage
+from next_is_you.persistence import CloudflareD1Store, VisitRepository
 from ntuh_detail_pages import detail_page
 from test_ntuh_reader import (
+    DAY,
     PAGE,
-    FakeSource,
     LocalDurableStorage,
+    TwoPageSource,
+    _card,
+    counts,
+    gate_with_visit,
     page_with,
     reader,
     scope,
+    seed_ntuh_at,
     taipei,
 )
 from test_visit_day_matching import (
@@ -37,56 +48,133 @@ from test_visit_day_matching import (
     at,
     card_page,
     started_three_days_ahead,
+    tick_every_minute,
 )
-from test_ntuh_reader import _card
 
 # The `11診/合成醫師丙/醫師約診` card of the list fixture links to this ID.
 SERVICE_ID = "8000011"
 NO_CARD = PAGE.replace("合成醫師丙", "其他醫師")
+BLANK_LIST = page_with("")
+SUBSTITUTE_LIST = PAGE.replace("合成醫師丙", "住院醫師(代)")
+UNUSABLE_PAGES = [
+    pytest.param(FetchedPage(404, ""), id="not-found"),
+    pytest.param(FetchedPage(410, ""), id="gone"),
+    pytest.param("<html><body>moved</body></html>", id="panel-gone"),
+    pytest.param(detail_page(room="合成科 99診", current=26, highest=30), id="room"),
+    pytest.param(detail_page(room="合成科 111診", current=26, highest=30), id="111"),
+]
 
 
-def live(**fields) -> str:
-    return detail_page(**fields)
+async def running_visit(source, *, patient: int = 28, session: str = "afternoon"):
+    """A visit on the fixture clinic that is already running on its day."""
+    database, gate = await gate_with_visit(source)
+    await seed_ntuh_at(database, gate, "v", DAY, session=session, patient=patient)
+    repository = VisitRepository(CloudflareD1Store(database))
+    assert await repository.start("v", taipei(0, 1))
+    return database, gate
+
+
+async def tick(gate, hour: int, minute: int) -> dict:
+    return await gate.scheduled_tick(taipei(hour, minute).isoformat())
+
+
+async def kinds(gate) -> list[str]:
+    return [event["event_kind"] for event in (await gate.test_snapshot())["events"]]
+
+
+def stored_number(database):
+    return database.connection.execute(
+        "SELECT near_last_current_number FROM visits"
+    ).fetchone()[0]
+
+
+# Which page is read, and when
 
 
 @pytest.mark.asyncio
 async def test_the_list_is_read_until_the_card_is_found_then_only_the_detail_page():
-    source = FakeSource(
-        NO_CARD,
-        page_with(""),
-        details=[
-            live(),
-            live(current=25, highest=30),
-            live(current=26, highest=31),
-        ],
-    )
+    source = TwoPageSource(NO_CARD, detail_page())
     r = reader(source)
-    # The card is not listed yet: the list is read again, on the pre-call cadence.
-    first = await r.observe(scope(), taipei(0, 40))
     # Before the session's published start a missing card is recorded, not an
     # unusable read.
-    assert first == ReadSkipped("card_not_listed")
-    assert not source.detail_requests
-    # NO_CARD is retried; the card appears, so the list read finds its link.
+    assert await r.observe(scope(), taipei(0, 40)) == ReadSkipped("card_not_listed")
+    source.listed = page_with("024")
     assert await r.observe(scope(), taipei(0, 41)) == ReadSkipped("not_due")
-    assert await r.observe(scope(), taipei(0, 46)) == ReadSkipped("clinic_not_started")
-    assert [q.method for q in source.requests if q.method == "POST"] == ["POST", "POST"]
-    detail_url = source.detail_requests[-1].url
-    assert f"ServiceIDSE={SERVICE_ID}" in detail_url
+    assert isinstance(await r.observe(scope(), taipei(0, 45)), QueueObservation)
+    assert source.list_posts == 2 and not source.detail_urls
+    source.detail = detail_page(current=25, highest=30)
     # From here on only the detail page, every 2 minutes and never sooner.
-    assert await r.observe(scope(), taipei(0, 47)) == ReadSkipped("not_due")
-    assert isinstance(await r.observe(scope(), taipei(0, 48)), QueueObservation)
-    assert await r.observe(scope(), taipei(0, 49)) == ReadSkipped("not_due")
-    assert isinstance(await r.observe(scope(), taipei(0, 50)), QueueObservation)
-    assert len([q for q in source.requests if q.method == "POST"]) == 2
-    assert len(source.detail_requests) == 3
+    for minute in range(46, 60):
+        await r.observe(scope(), taipei(0, minute))
+    assert source.list_posts == 2
+    assert len(source.detail_urls) == 7
+    assert all(f"ServiceIDSE={SERVICE_ID}&" in url for url in source.detail_urls)
+
+
+@pytest.mark.asyncio
+async def test_the_list_is_rechecked_every_thirty_minutes_only_until_the_clinic_calls():
+    source = TwoPageSource(BLANK_LIST, detail_page())
+    r = reader(source)
+    lists = []
+    for minute in range(0, 120):
+        before = source.list_posts
+        requests = len(source.requests)
+        await r.observe(scope(), taipei(9 + minute // 60, minute % 60))
+        if source.list_posts > before:
+            lists.append(minute)
+        # One read is one page: never the list and the detail page together.
+        assert len(source.requests) - requests <= 2
+    assert lists == [0, 30, 60, 90]
+
+    source.detail = detail_page(current=1, highest=1)
+    await r.observe(scope(), taipei(11, 2))
+    assert isinstance(await r.observe(scope(), taipei(11, 4)), QueueObservation)
+    posts = source.list_posts
+    for minute in range(5, 60):
+        await r.observe(scope(), taipei(11, minute))
+    assert source.list_posts == posts
+
+
+@pytest.mark.asyncio
+async def test_a_failed_recheck_reads_the_detail_page_and_backs_off():
+    source = TwoPageSource(BLANK_LIST, detail_page())
+    r = reader(source)
+    await r.observe(scope(), taipei(9, 0))
+    source.listed = FetchedPage(503, "", retry_after=480)
+    pending = ReadSkipped("clinic_not_started")
+    posts = []
+    for minute in range(1, 45):
+        before = source.list_posts
+        assert await r.observe(scope(), taipei(9, minute)) in (
+            pending,
+            ReadSkipped("not_due"),
+        )
+        if source.list_posts > before:
+            posts.append(minute)
+    # Due at 30; then no sooner than the eight minutes the source asked for.
+    assert posts == [30, 38]
+
+
+@pytest.mark.asyncio
+async def test_a_refused_recheck_stops_the_source_for_the_day():
+    source = TwoPageSource(BLANK_LIST, detail_page())
+    r = reader(source)
+    await r.observe(scope(), taipei(9, 0))
+    source.listed = FetchedPage(403, "")
+    denied = ReadFailed("unavailable", "access_denied")
+    assert await r.observe(scope(), taipei(9, 30)) == denied
+    count = len(source.requests)
+    assert await r.observe(scope(), taipei(10, 30)) == denied
+    assert len(source.requests) == count
 
 
 @pytest.mark.asyncio
 async def test_the_detail_request_carries_the_language_and_no_session_cookie():
-    source = FakeSource(PAGE, details=[live(current=25, highest=30)])
-    await reader(source).observe(scope(), taipei(15, 0))
-    (request,) = source.detail_requests
+    source = TwoPageSource(PAGE, detail_page(current=25, highest=30))
+    r = reader(source)
+    await r.observe(scope(), taipei(15, 0))
+    await r.observe(scope(), taipei(15, 2))
+    request = source.requests[-1]
     headers = dict(request.headers)
     assert request.method == "GET" and request.body is None
     assert headers["Cookie"] == "Localization.CurrentUICulture=zh-TW"
@@ -94,16 +182,68 @@ async def test_the_detail_request_carries_the_language_and_no_session_cookie():
 
 
 @pytest.mark.asyncio
+async def test_each_page_has_its_own_request_budget(monkeypatch):
+    monkeypatch.setattr(ntuh_reader, "REQUEST_TIMEOUT_SECONDS", 0.25)
+    # Two list requests of 0.1 s follow a 0.1 s page that does not answer as the
+    # clinic's: 0.3 s together, each page inside its own budget.
+    source = TwoPageSource(PAGE, detail_page(current=24, highest=24), delay=0.1)
+    r = reader(source)
+    assert isinstance(await r.observe(scope(), taipei(15, 0)), QueueObservation)
+    source.detail = FetchedPage(404, "")
+    assert isinstance(await r.observe(scope(), taipei(15, 2)), QueueObservation)
+
+
+@pytest.mark.asyncio
+async def test_one_read_is_saved_once_and_the_cadence_survives_a_broken_outcome(
+    monkeypatch,
+):
+    class CountingStorage(LocalDurableStorage):
+        puts = 0
+
+        async def put(self, key, value):
+            self.puts += 1
+            await super().put(key, value)
+
+    state = CountingStorage()
+    source = TwoPageSource(PAGE, detail_page(current=25, highest=30))
+    r = reader(source, state)
+    for minute in (0, 2, 4):
+        await r.observe(scope(), taipei(15, minute))
+    assert state.puts == 3
+    # A repeated read in the same tick changes nothing, so it saves nothing.
+    await r.observe(scope(), taipei(15, 4, 10))
+    assert state.puts == 3
+
+    monkeypatch.setattr(r, "_outcome", lambda *a, **k: 1 / 0)
+    with pytest.raises(ZeroDivisionError):
+        await r.observe(scope(), taipei(15, 6))
+    count = len(source.requests)
+    assert await r.observe(scope(), taipei(15, 7)) == ReadSkipped("not_due")
+    assert len(source.requests) == count
+
+
+# What the page says
+
+
+@pytest.mark.asyncio
 async def test_the_observation_carries_the_progress_fields_the_page_states():
-    page = live(
-        current=25,
-        flag="passed",
-        highest=30,
-        expected=((27, "順號"), (31, "過號")),
-        numbers=((25, "in_consultation"), (28, "checked_in"), (29, "not_checked_in")),
+    source = TwoPageSource(
+        page_with("024"),
+        detail_page(
+            current=25,
+            flag="passed",
+            highest=30,
+            expected=((27, "順號"), (31, "過號")),
+            numbers=(
+                (25, "in_consultation"),
+                (28, "checked_in"),
+                (29, "not_checked_in"),
+            ),
+        ),
     )
-    source = FakeSource(PAGE, details=[page])
-    observation = await reader(source).observe(scope(), taipei(15, 0))
+    r = reader(source)
+    await r.observe(scope(), taipei(15, 0))
+    observation = await r.observe(scope(), taipei(15, 2))
 
     assert isinstance(observation, QueueObservation)
     assert observation.current_number == 25
@@ -123,160 +263,631 @@ async def test_the_observation_carries_the_progress_fields_the_page_states():
 
 
 @pytest.mark.asyncio
+async def test_a_repeated_read_in_one_tick_gives_the_same_answer():
+    for page in (
+        detail_page(current=26, highest=31),
+        detail_page(highest=31),
+        detail_page(current=1, highest=1),
+    ):
+        source = TwoPageSource(PAGE, detail_page(current=25, highest=30))
+        r = reader(source)
+        await r.observe(scope(), taipei(15, 0))
+        await r.observe(scope(), taipei(15, 2))
+        source.detail = page
+        first = await r.observe(scope(), taipei(15, 4))
+        count = len(source.requests)
+        assert await r.observe(scope(), taipei(15, 4, 10)) == first
+        assert await r.observe_for_start(scope(), taipei(15, 5)) == first
+        assert len(source.requests) == count
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("light", ["abc", "000", "9" * 5000, "²"])
+async def test_a_garbled_detail_light_is_invalid_data_and_reaches_the_family(light):
+    source = TwoPageSource(page_with("010"), detail_page(current=10, highest=10))
+    database, gate = await running_visit(source)
+    await tick(gate, 14, 0)
+    source.detail = detail_page(current=10, highest=10).replace(">010<", f">{light}<")
+    for minute in (2, 3, 5):
+        await tick(gate, 14, minute)
+    assert counts(database, "v")[:2] == ("invalid", "invalid_data")
+    assert await kinds(gate) == ["unavailable"]
+    # The link still leads to the clinic's page, so the list is not read again.
+    assert source.list_posts == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("light", ["9" * 5000, "000", "²"])
+async def test_a_garbled_list_light_never_raises(light):
+    r = reader(TwoPageSource(page_with(light), detail_page()))
+    assert await r.observe(scope(), taipei(15, 0)) == ReadFailed(
+        "invalid", "invalid_data"
+    )
+
+
+# Called in this session
+
+
+@pytest.mark.asyncio
 async def test_before_the_clinic_calls_the_visit_is_pending_and_sends_nothing():
-    source = FakeSource(page_with(""), details=[live()])
-    r = reader(source)
-    pending = ReadSkipped("clinic_not_started")
-    assert await r.observe(scope(), taipei(9, 0)) == pending
-    assert await r.observe(scope(), taipei(9, 2)) == pending
-    assert await r.observe(scope(), taipei(9, 4)) == pending
+    page = detail_page(numbers=((28, "not_checked_in"), (29, "first_visit")))
+    source = TwoPageSource(BLANK_LIST, page)
+    database, gate = await running_visit(source)
+    created = await tick_every_minute(gate, taipei(13, 0), taipei(14, 30))
+    assert created == 0 and await kinds(gate) == []
+    assert counts(database, "v") == ("unavailable", "no_observation", 0)
+
+
+@pytest.mark.asyncio
+async def test_a_pending_read_delivers_the_facts_but_never_a_comparable_number():
+    frozen = detail_page(
+        current=22, highest=80, numbers=((28, "not_checked_in"), (29, "first_visit"))
+    )
+    r = reader(TwoPageSource(BLANK_LIST, frozen))
+    listed = await r.observe(scope(), taipei(13, 0))
+    assert listed.progress.called_in_session is False
+    pending = await r.observe(scope(), taipei(13, 2))
+    assert pending == ReadSkipped("clinic_not_started")
+    assert pending.progress.called_in_session is False
+    assert pending.progress.numbers == (
+        NumberStatus(28, "not_checked_in"),
+        NumberStatus(29, "first_visit"),
+    )
+    assert pending.progress.is_comparable_to(scope()) is False
 
 
 @pytest.mark.asyncio
 async def test_a_page_frozen_from_an_earlier_session_is_not_called_in_this_session():
-    frozen = live(current=22, highest=80, numbers=((30, "checked_in"),))
-    source = FakeSource(
-        page_with(""),
-        details=[frozen, frozen, frozen, live(current=5, highest=5)],
-    )
+    frozen = detail_page(current=22, highest=80, numbers=((30, "checked_in"),))
+    source = TwoPageSource(BLANK_LIST, frozen)
     r = reader(source)
-    pending = ReadSkipped("clinic_not_started")
     # The leftover light and highest called of the morning are on the afternoon's
     # page before it starts; unchanged, they are not a call.
-    for minute in (0, 2, 4):
-        assert await r.observe(scope(), taipei(13, minute)) == pending
-    observation = await r.observe(scope(), taipei(13, 6))
+    for minute in range(0, 40, 2):
+        assert await r.observe(scope(), taipei(13, minute)) == ReadSkipped(
+            "clinic_not_started"
+        )
+    source.detail = detail_page(current=5, highest=5)
+    observation = await r.observe(scope(), taipei(13, 40))
     assert isinstance(observation, QueueObservation)
     assert observation.called_in_session is True
     assert observation.current_number == 5
 
 
 @pytest.mark.asyncio
-async def test_a_number_on_the_list_card_says_the_clinic_has_called():
-    # A read that starts mid-session has no frozen baseline to compare with.
-    source = FakeSource(PAGE, details=[live(current=25, highest=30)])
-    observation = await reader(source).observe(scope(), taipei(15, 0))
-    assert observation.called_in_session is True
+async def test_a_frozen_page_that_only_clears_is_not_a_call():
+    frozen = detail_page(current=22, highest=80)
+    source = TwoPageSource(BLANK_LIST, frozen)
+    r = reader(source)
+    for minute in (0, 2, 4):
+        await r.observe(scope(), taipei(13, minute))
+    for page in (detail_page(highest=80), detail_page(), frozen):
+        source.detail = page
+        for _ in range(3):
+            result = await r.observe(scope(), taipei(13, minute := minute + 2))
+            assert result == ReadSkipped("clinic_not_started")
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("flag", "session", "page"),
+    "resets",
     [
-        ("evening_session", ClinicSession.EVENING, live(current=26, highest=31)),
-        ("midday_blank", ClinicSession.AFTERNOON, live(highest=31)),
-        ("later_block_opening", ClinicSession.AFTERNOON, live(current=1, highest=1)),
+        pytest.param(
+            [detail_page(highest=80), detail_page(current=1, highest=1)],
+            id="light-clears-first",
+        ),
+        pytest.param(
+            [detail_page(current=1, highest=80)], id="light-resets-before-highest"
+        ),
     ],
 )
-async def test_unobserved_situations_are_flagged_recorded_and_send_nothing(
-    flag, session, page
-):
+async def test_the_frozen_highest_called_never_looks_like_a_later_block(resets):
+    # The page of the day keeps 22/80 until the clinic starts; patient 28's clinic
+    # then calls 20 to 31, and 25, 26 and 27 are each a near reminder.
+    source = TwoPageSource(BLANK_LIST, detail_page(current=22, highest=80))
+    database, gate = await running_visit(source)
+    await tick(gate, 13, 0)
+    await tick(gate, 13, 2)
+    # The page's unexplained number asks the list once; the resets come after it.
+    await tick(gate, 13, 4)
+    assert source.list_posts == 2
+    minute = 6
+    for page in (*resets, *(detail_page(current=n, highest=n) for n in range(20, 32))):
+        source.detail = page
+        await tick(gate, 13, minute)
+        minute += 2
+    assert await kinds(gate) == ["near"] * 3
+
+
+@pytest.mark.asyncio
+async def test_a_number_on_the_list_card_says_the_clinic_has_called():
+    # A read that starts mid-session has no frozen baseline to compare with.
+    r = reader(TwoPageSource(PAGE, detail_page(current=25, highest=30)))
+    observation = await r.observe(scope(), taipei(15, 0))
+    assert observation.called_in_session is True and observation.current_number == 25
+    observation = await r.observe(scope(), taipei(15, 2))
+    assert observation.called_in_session is True
+
+
+@pytest.mark.asyncio
+async def test_a_clinic_that_called_between_the_two_pages_is_noticed_at_once():
+    # The list was read just before the first call and the page just after it, so
+    # the page's number looks frozen until the list is asked again.
+    source = TwoPageSource(BLANK_LIST, detail_page(current=25, highest=25))
+    database, gate = await running_visit(source)
+    await tick(gate, 13, 30)
+    source.listed = PAGE
+    await tick(gate, 13, 32)
+    assert await kinds(gate) == []
+    await tick(gate, 13, 34)
+    assert await kinds(gate) == ["near"]
+
+
+@pytest.mark.asyncio
+async def test_a_number_that_never_changes_asks_the_list_once_not_on_every_read():
+    source = TwoPageSource(BLANK_LIST, detail_page(current=22, highest=80))
+    r = reader(source)
+    for minute in range(0, 30):
+        await r.observe(scope(), taipei(13, minute))
+    assert source.list_posts == 2
+
+
+# Situations no one has observed, and clinics without a current number
+
+
+@pytest.mark.asyncio
+async def test_an_evening_session_is_recorded_and_sends_nothing(capsys):
+    source = TwoPageSource(PAGE, detail_page(current=25, highest=30))
+    database, gate = await running_visit(source, session="evening")
+    for minute, number in ((0, 25), (2, 26), (4, 27)):
+        source.detail = detail_page(current=number, highest=30)
+        await tick(gate, 19, minute)
+    assert await kinds(gate) == []
+    assert counts(database, "v") == ("unavailable", "no_observation", 0)
+    logged = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if "ntuh_unobserved_situation" in line
+    ]
+    assert logged == [
+        {
+            "event": "ntuh_unobserved_situation",
+            "situation": "evening_session",
+            "session": "evening",
+            "date": "2026-10-22",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_an_evening_card_without_a_detail_link_sends_nothing_either():
+    source = TwoPageSource(re.sub(r'href="[^"]*"', "", PAGE), detail_page())
+    database, gate = await running_visit(source, session="evening")
+    await tick(gate, 19, 0)
+    assert await kinds(gate) == []
+    assert not source.detail_urls
+
+
+@pytest.mark.asyncio
+async def test_an_evening_substitute_is_still_shown_to_the_organizer():
+    source = TwoPageSource(
+        SUBSTITUTE_LIST, detail_page(doctor="住院醫師", current=25, highest=25)
+    )
+    database, gate = await running_visit(source, session="evening")
+    for minute in (0, 2):
+        await tick(gate, 19, minute)
+        assert counts(database, "v")[:2] == ("unavailable", "substitute_doctor")
+
+
+@pytest.mark.asyncio
+async def test_an_evening_source_that_fails_still_reaches_the_family():
+    source = TwoPageSource(PAGE, FetchedPage(503, ""))
+    database, gate = await running_visit(source, session="evening")
+    for minute in (0, 2, 3, 5):
+        await tick(gate, 19, minute)
+    assert await kinds(gate) == ["unavailable"]
+
+
+@pytest.mark.asyncio
+async def test_a_blank_after_the_clinic_called_is_not_a_failure_and_sends_nothing():
+    source = TwoPageSource(page_with("010"), detail_page(current=10, highest=10))
+    database, gate = await running_visit(source)
+    await tick(gate, 14, 0)
+    await tick(gate, 14, 2)
+    assert stored_number(database) == 10
+    source.detail = detail_page(
+        highest=10, numbers=((28, "checked_in"), (29, "not_checked_in"))
+    )
+    await tick_every_minute(gate, taipei(14, 3), taipei(20, 0))
+    # The organizer no longer sees the number of hours ago as usable.
+    assert counts(database, "v") == ("unavailable", "empty_result", 0)
+    assert stored_number(database) is None
+    assert await kinds(gate) == []
+
+
+@pytest.mark.asyncio
+async def test_a_blank_carries_the_numbers_and_a_resumed_clinic_is_recorded():
     state = LocalDurableStorage()
-    source = FakeSource(PAGE, details=[live(current=25, highest=30), page])
+    source = TwoPageSource(PAGE, detail_page(current=25, highest=30))
     r = reader(source, state)
-    first = await r.observe(scope(session=session), taipei(15, 0))
-    if session == ClinicSession.EVENING:
-        assert first == ReadSkipped("unobserved_situation", unobserved=flag)
-    else:
-        assert isinstance(first, QueueObservation)
-    flagged = await r.observe(scope(session=session), taipei(15, 2))
+    await r.observe(scope(), taipei(11, 0))
+    await r.observe(scope(), taipei(11, 2))
+    source.detail = detail_page(highest=30, numbers=((31, "checked_in"),))
+    blank = await r.observe(scope(), taipei(11, 4))
+    assert blank == ReadSkipped("blank_after_call")
+    assert blank.progress.called_in_session is True
+    assert blank.progress.numbers == (NumberStatus(31, "checked_in"),)
+    assert blank.progress.is_comparable_to(scope()) is False
 
-    assert flagged == ReadSkipped("unobserved_situation", unobserved=flag)
-    assert flagged.source_read is None
-    recorded = json.loads(await state.get("ntuh_reader_state"))
-    assert [entry["unobserved"] for entry in recorded.values()] == [[flag]]
+    def recorded():
+        (entry,) = json.loads(state.values[STATE_KEY]).values()
+        return entry.get("unobserved")
+
+    # Every clinic observed stayed blank after its last call, so the blank alone
+    # is not the unobserved situation; calling again after it is.
+    assert recorded() is None
+    source.detail = detail_page(current=31, highest=31)
+    assert isinstance(await r.observe(scope(), taipei(11, 6)), QueueObservation)
+    assert recorded() == ["midday_blank"]
 
 
 @pytest.mark.asyncio
-async def test_a_card_that_calls_by_check_in_order_stays_pending():
-    page = live(check_in_order=True, check_in_position=3)
-    source = FakeSource(PAGE, details=[page])
-    result = await reader(source).observe(scope(), taipei(15, 0))
-    assert result == ReadSkipped("clinic_not_started")
+async def test_a_later_block_is_recorded_and_sends_nothing():
+    state = LocalDurableStorage()
+    source = TwoPageSource(PAGE, detail_page(current=25, highest=30))
+    r = reader(source, state)
+    await r.observe(scope(), taipei(15, 0))
+    await r.observe(scope(), taipei(15, 2))
+    source.detail = detail_page(current=1, highest=1, numbers=((2, "checked_in"),))
+    flagged = await r.observe(scope(), taipei(15, 4))
+    assert flagged == ReadSkipped(
+        "unobserved_situation", unobserved="later_block_opening"
+    )
+    assert flagged.progress.numbers == (NumberStatus(2, "checked_in"),)
+    (entry,) = json.loads(state.values[STATE_KEY]).values()
+    assert entry["unobserved"] == ["later_block_opening"]
 
 
 @pytest.mark.asyncio
-async def test_a_detail_page_without_its_panel_fails_closed():
-    source = FakeSource(PAGE, details=["<html><body>moved</body></html>"])
-    result = await reader(source).observe(scope(), taipei(15, 0))
-    assert (result.status, result.reason) == ("invalid", "schema_drift")
+async def test_a_check_in_order_clinic_delivers_its_position_and_sends_nothing():
+    source = TwoPageSource(BLANK_LIST, detail_page(check_in_order=True))
+    database, gate = await running_visit(source)
+    await tick(gate, 13, 30)
+    source.detail = detail_page(
+        current=26,
+        check_in_order=True,
+        check_in_position=3,
+        numbers=((28, "checked_in", 5),),
+    )
+    await tick(gate, 13, 32)
+    source.detail = source.detail.replace("報到順序03", "報到順序04")
+    await tick(gate, 13, 34)
+    assert await kinds(gate) == []
+
+    r = gate._hospital_reader()
+    result = await r.observe(scope(), taipei(13, 34))
+    assert result == ReadSkipped("check_in_order")
+    assert result.progress.check_in_order is True
+    assert result.progress.check_in_position == 4
+    assert result.progress.called_in_session is True
+    assert result.progress.numbers == (NumberStatus(28, "checked_in", 5),)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("session", "page"),
+    [
+        ("evening", detail_page(current=25, highest=30)),
+        ("afternoon", detail_page(current=3, check_in_order=True, check_in_position=3)),
+        ("afternoon", detail_page(highest=30)),
+    ],
+)
+async def test_start_is_accepted_while_the_found_clinic_shows_no_usable_number(
+    session, page
+):
+    source = TwoPageSource(PAGE, page)
+    database, gate = await gate_with_visit(source)
+    await seed_ntuh_at(database, gate, "v", DAY, session=session)
+    r = gate._hospital_reader()
+    for minute in (0, 2):
+        await r.observe(scope(session=ClinicSession(session)), taipei(15, minute))
+    started = await gate.start_visit("v", taipei(15, 3).isoformat())
+    assert started == {"state": "active"}
+
+
+# The link and the clinic it leads to
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("page", UNUSABLE_PAGES)
+async def test_a_link_that_stops_leading_to_the_clinic_falls_back_to_the_list(page):
+    source = TwoPageSource(page_with("024"), detail_page(current=24, highest=24))
+    database, gate = await running_visit(source)
+    await tick(gate, 15, 0)
+    await tick(gate, 15, 2)
+    source.detail = page
+    source.listed = page_with("026")
+    await tick(gate, 15, 4)
+    # 26 is the list's; the wrong page's own number is never used.
+    assert counts(database, "v") == ("usable", "none", 0)
+    assert stored_number(database) == 26
+    assert await kinds(gate) == ["near"]
+    # The same link is not asked for again on every read.
+    details = len(source.detail_urls)
+    await tick_every_minute(gate, taipei(15, 5), taipei(15, 33))
+    assert len(source.detail_urls) == details
+    source.detail = detail_page(current=27, highest=27)
+    await tick_every_minute(gate, taipei(15, 34), taipei(15, 37))
+    assert len(source.detail_urls) > details
+    assert stored_number(database) == 27
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("page", UNUSABLE_PAGES)
+async def test_a_dead_link_in_the_night_messages_no_one_and_recovers(page):
+    source = TwoPageSource(BLANK_LIST, page)
+    database, gate = await running_visit(source)
+    await tick_every_minute(gate, taipei(0, 40), taipei(13, 29))
+    assert await kinds(gate) == []
+    assert counts(database, "v") == ("unavailable", "no_observation", 0)
+    source.listed = PAGE
+    await tick_every_minute(gate, taipei(13, 30), taipei(13, 36))
+    assert await kinds(gate) == ["near"]
+
+
+@pytest.mark.asyncio
+async def test_a_new_link_is_followed_and_learns_the_page_afresh():
+    source = TwoPageSource(BLANK_LIST, detail_page(current=22, highest=80))
+    r = reader(source)
+    await r.observe(scope(), taipei(9, 0))
+    await r.observe(scope(), taipei(9, 2))
+    source.listed = BLANK_LIST.replace(SERVICE_ID, "8000099")
+    source.detail = FetchedPage(404, "")
+    assert await r.observe(scope(), taipei(9, 4)) == ReadSkipped("clinic_not_started")
+    source.detail = detail_page(current=60, highest=70)
+    assert await r.observe(scope(), taipei(9, 6)) == ReadSkipped("clinic_not_started")
+    assert "ServiceIDSE=8000099&" in source.detail_urls[-1]
+
+
+@pytest.mark.asyncio
+async def test_a_card_that_disappears_before_the_clinic_calls_is_noticed():
+    source = TwoPageSource(BLANK_LIST, detail_page())
+    database, gate = await running_visit(source)
+    await tick(gate, 0, 40)
+    await tick(gate, 0, 42)
+    source.listed = NO_CARD
+    await tick_every_minute(gate, taipei(0, 43), taipei(13, 29))
+    # The organizer sees it overnight; the family is not messaged until it counts.
+    assert counts(database, "v")[:2] == ("unavailable", "card_not_found")
+    assert await kinds(gate) == []
+    await tick_every_minute(gate, taipei(13, 30), taipei(14, 0))
+    assert await kinds(gate) == ["unavailable"]
+
+
+@pytest.mark.asyncio
+async def test_a_substitute_who_takes_the_clinic_before_it_calls_is_noticed():
+    source = TwoPageSource(BLANK_LIST, detail_page())
+    database, gate = await running_visit(source)
+    await tick(gate, 8, 0)
+    await tick(gate, 8, 2)
+    assert counts(database, "v")[:2] == ("unavailable", "no_observation")
+    source.listed = BLANK_LIST.replace("合成醫師丙", "住院醫師(代)")
+    await tick_every_minute(gate, taipei(8, 3), taipei(8, 30))
+    assert counts(database, "v")[:2] == ("unavailable", "substitute_doctor")
+    source.detail = detail_page(doctor="住院醫師", current=25, highest=25)
+    await tick(gate, 8, 32)
+    assert counts(database, "v")[:2] == ("usable", "substitute_doctor")
 
 
 @pytest.mark.asyncio
 async def test_a_refused_detail_page_stops_the_source_for_the_day():
-    source = FakeSource(PAGE, details=[live(current=25, highest=30)])
+    source = TwoPageSource(PAGE, detail_page(current=25, highest=30))
     r = reader(source)
-    assert isinstance(await r.observe(scope(), taipei(15, 0)), QueueObservation)
-    source.details = ["<html>請完成驗證 captcha</html>"]
+    await r.observe(scope(), taipei(15, 0))
+    source.detail = "<html>請完成驗證 captcha</html>"
     refused = await r.observe(scope(), taipei(15, 2))
-    assert (refused.status, refused.reason) == ("unavailable", "access_denied")
+    assert refused == ReadFailed("unavailable", "access_denied")
     count = len(source.requests)
     again = await r.observe(scope(), taipei(15, 40))
     assert again.reason == "access_denied" and len(source.requests) == count
 
 
+# Near and unavailable on detail-page observations
+
+
 @pytest.mark.asyncio
-async def test_the_detail_link_is_forgotten_when_the_day_is_over():
-    state = LocalDurableStorage()
-    source = FakeSource(PAGE, details=[live(current=25, highest=30)])
-    r = reader(source, state)
-    assert isinstance(await r.observe(scope(), taipei(15, 0)), QueueObservation)
-    assert SERVICE_ID in await state.get("ntuh_reader_state")
+async def test_near_follows_the_detail_light_whatever_the_list_says():
+    source = TwoPageSource(page_with("010"), detail_page(current=10, highest=40))
+    database, gate = await running_visit(source)
+    await tick(gate, 15, 0)
+    for minute, light in ((2, 24), (4, 25), (6, 25), (8, 27), (10, 26), (12, 28)):
+        source.detail = detail_page(current=light, highest=40)
+        await tick(gate, 15, minute)
+    # 25, 27 and 26 each moved inside the window of patient 28; the repeated 25
+    # and the numbers outside it did not.
+    assert await kinds(gate) == ["near"] * 3
 
-    next_day = taipei(15, 0) + timedelta(days=1)
-    assert await r.observe(scope(), next_day) == ReadSkipped("clinic_not_started")
 
-    assert SERVICE_ID not in json.dumps(state.values)
-    assert not json.loads(await state.get("ntuh_reader_state"))
+@pytest.mark.asyncio
+async def test_three_failed_detail_reads_send_one_unavailable_message():
+    source = TwoPageSource(page_with("010"), detail_page(current=10, highest=10))
+    database, gate = await running_visit(source)
+    await tick(gate, 15, 0)
+    source.detail = FetchedPage(503, "")
+    for minute in (2, 3, 5, 9, 13):
+        await tick(gate, 15, minute)
+    assert await kinds(gate) == ["unavailable"]
+    assert source.list_posts == 1
+
+
+@pytest.mark.asyncio
+async def test_a_readable_page_between_failures_ends_their_run():
+    source = TwoPageSource(page_with("010"), detail_page(current=10, highest=10))
+    database, gate = await running_visit(source)
+    await tick(gate, 14, 0)
+    source.detail = FetchedPage(503, "")
+    await tick(gate, 14, 2)
+    await tick(gate, 14, 3)
+    assert counts(database, "v")[2] == 2
+    source.detail = detail_page(highest=10)
+    await tick_every_minute(gate, taipei(14, 4), taipei(16, 59))
+    source.detail = FetchedPage(503, "")
+    await tick(gate, 17, 1)
+    assert counts(database, "v")[2] == 1
+    assert await kinds(gate) == []
 
 
 @pytest.mark.asyncio
 async def test_a_visit_started_days_ahead_reads_the_detail_page_on_its_day():
-    detail = live(room="合成科 03診", doctor="合成醫師甲", current=12, highest=15)
     source = SwitchableSource(
-        card_page(_card("03 診", "合成醫師甲", "普通門診", "012")),
+        card_page(_card("03 診", "合成醫師甲", "普通門診", "")),
         schedule=SCHEDULE_FIXTURE,
-        details=[detail],
+        details=[detail_page(room="合成科 03診", doctor="合成醫師甲")],
     )
     database, gate = await started_three_days_ahead(source)
     assert not source.detail_requests
 
-    tick = await gate.scheduled_tick(at(VISIT_DAY, 9, 0).isoformat())
+    await gate.scheduled_tick(at(VISIT_DAY, 0, 40).isoformat())
+    await gate.scheduled_tick(at(VISIT_DAY, 0, 42).isoformat())
+    source.details = [
+        detail_page(room="合成科 03診", doctor="合成醫師甲", current=12, highest=15)
+    ]
+    called = await gate.scheduled_tick(at(VISIT_DAY, 0, 44).isoformat())
 
-    assert tick["events_created"] == 1
-    (request,) = source.detail_requests
+    assert called["events_created"] == 1
+    assert await kinds(gate) == ["near"]
     service_id = (
         _card("03 診", "合成醫師甲", "普通門診").split("ServiceIDSE=")[1].split("&")[0]
     )
-    assert f"ServiceIDSE={service_id}" in request.url
-    snapshot = await gate.test_snapshot()
-    assert [event["event_kind"] for event in snapshot["events"]] == ["near"]
+    assert len(source.detail_requests) == 2
+    assert all(f"ServiceIDSE={service_id}" in r.url for r in source.detail_requests)
 
-    # The link is kept only in that day's transient state.
-    stored = await gate.ctx.storage.get("ntuh_reader_state")
-    assert service_id in stored
+    # The link is kept only in that day's transient state, never in the database.
+    assert service_id in await gate.ctx.storage.get(STATE_KEY)
+    assert service_id not in "".join(database.connection.iterdump())
     await gate.scheduled_tick(at(VISIT_DAY + timedelta(days=1), 0, 5).isoformat())
-    assert service_id not in (await gate.ctx.storage.get("ntuh_reader_state") or "")
+    assert service_id not in json.dumps(gate.ctx.storage.values, default=str)
+
+
+# The link never outlives its day
+
+
+async def linked_gate():
+    source = TwoPageSource(page_with("010"), detail_page(current=10, highest=10))
+    database, gate = await running_visit(source)
+    await tick(gate, 15, 0)
+    await tick(gate, 15, 2)
+    assert SERVICE_ID in gate.ctx.storage.values[STATE_KEY]
+    return database, gate
+
+
+async def recovery_hold(gate):
+    await gate.ctx.storage.put("recovery_hold", True)
+
+
+async def ledger_mismatch(gate):
+    await gate.ctx.storage.put("scheduler_ledger_digest", "changed")
+
+
+async def send_hold(gate):
+    gate.env["NIY_ENVIRONMENT"] = "production"
+
+
+async def reader_off(gate):
+    gate.env.pop("NTUH_READER_ENABLED")
+
+
+async def nothing_held(gate):
+    pass
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "held", [nothing_held, recovery_hold, ledger_mismatch, send_hold, reader_off]
+)
+async def test_the_link_is_dropped_the_next_day_whatever_holds_the_tick(held):
+    database, gate = await linked_gate()
+    await held(gate)
+    # The same day keeps it, so a hold does not cost the running visit its state.
+    await tick(gate, 23, 58)
+    assert SERVICE_ID in gate.ctx.storage.values[STATE_KEY]
+    await gate.scheduled_tick((taipei(0, 1) + timedelta(days=1)).isoformat())
+    assert SERVICE_ID not in json.dumps(gate.ctx.storage.values, default=str)
+
+
+@pytest.mark.asyncio
+async def test_a_failing_cleanup_never_stops_the_tick(monkeypatch, capsys):
+    database, gate = await linked_gate()
+
+    async def boom(*args):
+        raise RuntimeError("storage")
+
+    monkeypatch.setattr("next_is_you.send_gate.forget_other_days", boom)
+    await gate.scheduled_tick((taipei(0, 1) + timedelta(days=1)).isoformat())
+    state = database.connection.execute("SELECT state FROM visits").fetchone()[0]
+    assert state == "expired"
+    assert "forget_other_days_failed" in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw", ["not json", "[1]", '"x"'])
+async def test_unreadable_reader_state_is_dropped_whole(raw):
+    storage = LocalDurableStorage({STATE_KEY: raw})
+    await forget_other_days(storage, DAY)
+    assert storage.values[STATE_KEY] == "{}"
+
+
+@pytest.mark.asyncio
+async def test_a_refusal_of_today_survives_the_cleanup():
+    yesterday = DAY - timedelta(days=1)
+    storage = LocalDurableStorage(
+        {
+            STATE_KEY: json.dumps(
+                {
+                    f"T0|OPH|afternoon|blocked|{DAY}": {"blocked": True},
+                    f"T0|OPH|morning|{DAY}": {"blocked": True},
+                    f"T0|OPH|afternoon|clinic|[]|{yesterday}": {"service_id": "1"},
+                }
+            )
+        }
+    )
+    await forget_other_days(storage, DAY)
+    kept = json.loads(storage.values[STATE_KEY])
+    assert sorted(kept) == [
+        f"T0|OPH|afternoon|blocked|{DAY}",
+        f"T0|OPH|morning|{DAY}",
+    ]
+    source = TwoPageSource(PAGE, detail_page())
+    refused = await reader(source, storage).observe(scope(), taipei(9, 0))
+    assert refused.reason == "access_denied" and not source.requests
+
+
+# The local synthetic observation hook
+
+
+async def hooked_gate():
+    database, gate = await gate_with_visit(
+        TwoPageSource(PAGE, detail_page()), enabled=False
+    )
+    return gate
 
 
 @pytest.mark.asyncio
 async def test_the_local_synthetic_observation_hook_accepts_the_progress_fields():
-    storage = LocalDurableStorage()
-    hook = _TestHospitalReader(storage)
-    gate_progress = {
-        "highest_called_number": 30,
-        "current_flag": "senior",
-        "check_in_order": False,
-        "called_in_session": True,
-        "expected": [[27, "sequential", None]],
-        "numbers": [[28, "checked_in", None], [29, "checked_in", 2]],
-    }
-    await storage.put("test_current_number", 25)
-    await storage.put("test_trustworthy", True)
-    await storage.put("test_progress", json.dumps(gate_progress))
-
-    observation = await hook.observe(scope(), taipei(15, 0))
-
+    gate = await hooked_gate()
+    assert await gate.set_test_observation(
+        25,
+        True,
+        {
+            "highest_called_number": 30,
+            "current_flag": "senior",
+            "called_in_session": True,
+            "expected": [[27, "sequential", None]],
+            "numbers": [[28, "checked_in", None], [29, "checked_in", 2]],
+        },
+    )
+    observation = await gate._hospital_reader().observe(scope(), taipei(15, 0))
+    assert observation.current_number == 25
     assert observation.highest_called_number == 30
     assert observation.current_flag == "senior"
     assert observation.called_in_session is True
@@ -285,3 +896,52 @@ async def test_the_local_synthetic_observation_hook_accepts_the_progress_fields(
         NumberStatus(28, "checked_in"),
         NumberStatus(29, "checked_in", 2),
     )
+    # A later observation without progress clears the scripted one.
+    assert await gate.set_test_observation(26, True)
+    observation = await gate._hospital_reader().observe(scope(), taipei(15, 2))
+    assert observation.numbers == () and observation.called_in_session is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("progress", "reason"),
+    [
+        ({"called_in_session": False}, "clinic_not_started"),
+        ({"check_in_order": True, "check_in_position": 4}, "check_in_order"),
+    ],
+)
+async def test_the_hook_reports_a_waiting_clinic_the_way_a_reader_does(
+    progress, reason
+):
+    gate = await hooked_gate()
+    numbers = {"numbers": [[28, "not_checked_in", None]]}
+    for current in (None, 27):
+        assert await gate.set_test_observation(current, True, {**progress, **numbers})
+        result = await gate._hospital_reader().observe(scope(), taipei(15, 0))
+        assert result == ReadSkipped(reason)
+        assert result.progress.numbers == (NumberStatus(28, "not_checked_in"),)
+        assert result.progress.is_comparable_to(scope()) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "progress",
+    [
+        [1],
+        "x",
+        {"highest": 5},
+        {"expected": [5]},
+        {"expected": [[27, "later"]]},
+        {"numbers": [[28, "gone"]]},
+        {"numbers": [["28", "checked_in"]]},
+        {"highest_called_number": 0},
+        {"current_flag": "unknown"},
+        {"called_in_session": "yes"},
+    ],
+)
+async def test_the_hook_refuses_fields_it_cannot_hold(progress):
+    gate = await hooked_gate()
+    assert await gate.set_test_observation(25, True)
+    assert await gate.set_test_observation(5, True, progress) is False
+    observation = await gate._hospital_reader().observe(scope(), taipei(15, 0))
+    assert observation.current_number == 25

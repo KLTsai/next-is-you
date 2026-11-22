@@ -93,11 +93,6 @@ class OutboxScheduler:
         if now.tzinfo is None:
             raise ValueError("scheduler time must be timezone-aware")
         await self._visits.recover_in_flight_events(now)
-        forget = getattr(self._hospital, "forget_past_days", None)
-        if forget is not None:
-            # Storage only, no outside request: the reader's per-day state, such
-            # as a clinic's detail-page link, does not outlive its day.
-            await forget(now)
         return LifecycleCounts(
             stops_finalized=await self._visits.finalize_stopping(now),
             visits_expired=await self._visits.expire_due_visits(now),
@@ -151,10 +146,19 @@ class OutboxScheduler:
                 source_status, source_reason = "invalid", "invalid_data"
             else:
                 if isinstance(observation, ReadSkipped):
-                    # Nothing was read: not a failed read, so no alert evaluation.
+                    # Not a failed read, and no number to evaluate.
                     if observation.source_read is not None:
                         await self._visits.set_source_read(
                             visit_id, *observation.source_read
+                        )
+                    if observation.progress is not None:
+                        # A page was read and understood, so it ends a run of
+                        # unusable reads and no earlier number stays shown.
+                        await self._visits.update_observation(
+                            visit_id,
+                            current_number=None,
+                            observed_at=_parse_time(observation.progress.observed_at),
+                            consecutive_unusable_reads=0,
                         )
                     continue
                 if isinstance(observation, ReadFailed):

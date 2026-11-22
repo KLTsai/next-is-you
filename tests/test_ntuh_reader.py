@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from dataclasses import replace
@@ -96,15 +97,15 @@ def _page(item) -> FetchedPage:
 class FakeSource:
     """Scripted source.
 
-    One read is a GET of the selector page followed by a POST for the clinic
-    cards until the card is found, then one GET of the card's detail page. The
-    script holds one entry per read. A script entry is the session list as the
-    POST answers it; the detail page of the same read is rendered from the card
-    in that entry (its number as the light and the highest called), unless
-    `details` scripts the detail pages itself, one per detail read. An exception
-    instance in a script is raised, and any other entry that is not a list is
-    served as is. `links=False` strips the cards' detail links. A GET of the
-    dept-wide schedule page returns `schedule`, when it is set.
+    One read is the session list (a GET of the selector page, then a POST for the
+    clinic cards) until the card is found, then one GET of the card's detail page.
+    The script holds one entry per read, a session list. A detail read is rendered
+    from the card in its entry (its number as the light and the highest called),
+    which keeps list and detail in step; `details` scripts the detail pages on
+    their own, and a test about the two disagreeing uses `TwoPageSource`. An
+    exception instance is raised, and an entry that is not a list is served as is.
+    `links=False` strips the cards' detail links. A GET of the dept-wide schedule
+    page returns `schedule`, when it is set.
     """
 
     SESSION_COOKIES = ("ASP.NET_SessionId=synthetic", "__RequestVerificationToken_X=t")
@@ -119,12 +120,10 @@ class FakeSource:
         self.links = links
         self.requests: list[PageRequest] = []
         self.reads: list[str] = []
-        self._list_item = None
-        self._list_read = False
 
     @property
     def urls(self) -> list[str]:
-        """One entry per read: a list POST, or a detail GET with no POST before it."""
+        """One entry per read: a list POST, or a detail GET."""
         return list(self.reads)
 
     @property
@@ -152,22 +151,16 @@ class FakeSource:
             return replace(page, cookies=self.SESSION_COOKIES)
         self.reads.append(LIGHT_TABLE_URL)
         item = self._next()
-        self._list_item, self._list_read = item, True
         if not self.links and isinstance(item, str):
             item = re.sub(r'href="[^"]*"', "", item)
         return _page(item)
 
     def _detail(self, request: PageRequest) -> FetchedPage:
-        after_list, self._list_read = self._list_read, False
-        if not after_list:
-            self.reads.append(LIGHT_TABLE_URL)
+        self.reads.append(DETAIL_PATH)
         if self.details is not None:
             item = self.details.pop(0) if len(self.details) > 1 else self.details[0]
             return _page(item)
-        if after_list:
-            item = self._list_item
-        else:
-            item = self._list_item = self._next()
+        item = self._next()
         page = _page(item)
         if page.status != 200 or "open-link" not in page.body:
             return page
@@ -192,7 +185,37 @@ class FakeSource:
         )
 
 
-def reader(source: FakeSource, state: LocalDurableStorage | None = None):
+class TwoPageSource:
+    """A source whose session list and detail page are set independently.
+
+    `listed` and `detail` may be a page, a `FetchedPage` or an exception to raise;
+    `delay` makes every request take that long.
+    """
+
+    def __init__(self, listed, detail, *, delay: float = 0) -> None:
+        self.listed, self.detail, self.delay = listed, detail, delay
+        self.requests: list[PageRequest] = []
+
+    @property
+    def list_posts(self) -> int:
+        return sum(request.method == "POST" for request in self.requests)
+
+    @property
+    def detail_urls(self) -> list[str]:
+        return [r.url for r in self.requests if r.url.startswith(DETAIL_PATH)]
+
+    async def __call__(self, request: PageRequest) -> FetchedPage:
+        self.requests.append(request)
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        if request.url.startswith(DETAIL_PATH):
+            return _page(self.detail)
+        if request.method == "POST":
+            return _page(self.listed)
+        return replace(_page(SELECTOR), cookies=FakeSource.SESSION_COOKIES)
+
+
+def reader(source, state: LocalDurableStorage | None = None):
     return NtuhProgressReader(state or LocalDurableStorage(), source)
 
 
@@ -264,9 +287,7 @@ async def test_a_read_posts_the_token_branch_department_and_session() -> None:
         await reader(source).observe(scope(), taipei(15, 0)), QueueObservation
     )
 
-    get_request, post_request, detail_request = source.requests
-    assert detail_request.method == "GET"
-    assert detail_request.url.startswith(DETAIL_PATH)
+    get_request, post_request = source.requests
     assert get_request.url == selector_page_url() and get_request.method == "GET"
     assert post_request.url == LIGHT_TABLE_URL and post_request.method == "POST"
     assert source.last_body() == {
@@ -420,8 +441,8 @@ async def test_every_session_is_read_at_any_hour_of_the_entered_day(session, hou
     source = FakeSource(PAGE)
     observation = await reader(source).observe(scope(session=session), taipei(hour, 0))
     if session == ClinicSession.EVENING:
-        # Nobody has observed an evening session on the detail page: it is read,
-        # flagged and recorded, and sends nothing (#163).
+        # Nobody has observed an evening session: it is read, flagged and
+        # recorded, and sends nothing (#163).
         assert observation == ReadSkipped(
             "unobserved_situation", unobserved="evening_session"
         )

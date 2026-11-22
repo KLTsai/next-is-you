@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, get_args
 
 from next_is_you.line_messaging import LinePushClient, LinePushHttpResponse
 from next_is_you.persistence import (
@@ -18,12 +18,17 @@ from next_is_you.persistence import (
     visit_cutoff,
 )
 from next_is_you.domain import (
+    CallKind,
     ClinicRoster,
     ClinicScope,
     ClinicSession,
+    ExpectedCall,
     HospitalReader,
     MatchKind,
     MatchQuery,
+    NumberState,
+    NumberStatus,
+    QueueObservation,
     ReadFailed,
     ReadSkipped,
     RosterQuery,
@@ -33,6 +38,7 @@ from next_is_you.hospital_registry import (
     ReaderDeps,
     RegistryHospitalReader,
     capability_of,
+    forget_other_days,
     require_registered,
 )
 from next_is_you.ntuh_reader import WorkersFetcher
@@ -107,6 +113,7 @@ class SystemSendGate(_DurableObjectBase):
         self, tick_time: datetime, fixed_clock: bool
     ) -> dict[str, Any]:
         async with self._lock:
+            await self._forget_other_days(tick_time)
             # A recovery hold freezes everything the ledger covers until the
             # captain reconciles; expired drafts are outside it and still go.
             if await self._recovery_held():
@@ -165,6 +172,26 @@ class SystemSendGate(_DurableObjectBase):
                 ):
                     await self._save_ledger()
         return result
+
+    async def _forget_other_days(self, tick_time: datetime) -> None:
+        """Drop reader state whose day is over, whatever holds the rest of the tick.
+
+        Transient state in this object only, outside the ledger. A failure is
+        logged and never stops the tick: the next one tries again.
+        """
+        try:
+            await forget_other_days(
+                self.ctx.storage, tick_time.astimezone(TAIPEI).date()
+            )
+        except Exception as error:
+            print(
+                json.dumps(
+                    {
+                        "event": "forget_other_days_failed",
+                        "error": type(error).__name__,
+                    }
+                )
+            )
 
     async def stop_visit(self, visit_id: str, now: str | None = None) -> str | None:
         timestamp = _datetime(now)
@@ -360,9 +387,9 @@ class SystemSendGate(_DurableObjectBase):
             if (
                 clinic_identified
                 and isinstance(observation, ReadSkipped)
-                and observation.reason in {"clinic_not_started", "unobserved_situation"}
+                and observation.reason in _START_WAITS
             ):
-                # The card is identified; waiting for its first number is the
+                # The card is identified; waiting for its next number is the
                 # reader's job, so Start is accepted and the visit runs once the
                 # clinic calls. A situation no one has observed yet sends nothing
                 # and is recorded by the reader, so it does not refuse Start either.
@@ -863,9 +890,15 @@ class SystemSendGate(_DurableObjectBase):
         `progress` takes the observation's own progress fields by name:
         highest_called_number, current_flag, check_in_order, check_in_position,
         called_in_session, expected `[[number, kind, position]]` and numbers
-        `[[number, state, position]]`.
+        `[[number, state, position]]`. `called_in_session` false makes the read a
+        clinic that has not started, and `check_in_order` true one with no called
+        number, as a hospital's reader reports them.
         """
         self._require_test_mode()
+        try:
+            _test_progress_fields(progress or {})
+        except (AttributeError, KeyError, TypeError, ValueError):
+            return False
         await self.ctx.storage.put("test_progress", json.dumps(progress or {}))
         await self.ctx.storage.put(
             "test_current_number", current_number if current_number is not None else -1
@@ -982,6 +1015,15 @@ class SystemSendGate(_DurableObjectBase):
             raise RuntimeError("local scheduler test controls are disabled")
 
 
+_START_WAITS = frozenset(
+    (
+        "clinic_not_started",
+        "blank_after_call",
+        "check_in_order",
+        "unobserved_situation",
+    )
+)
+
 _START_ERRORS = {
     "unavailable": "observation_unavailable",
     "stale": "observation_stale",
@@ -1009,33 +1051,83 @@ def _current_number_only_error(observation: ReadSkipped | ReadFailed) -> str:
     return _START_ERRORS.get(observation.status, "observation_unavailable")
 
 
+def _test_progress_fields(progress: Mapping[str, Any]) -> dict[str, Any]:
+    """The synthetic observation's progress fields; raises on one it cannot hold."""
+    unknown = set(progress) - {
+        "highest_called_number",
+        "current_flag",
+        "check_in_order",
+        "check_in_position",
+        "called_in_session",
+        "expected",
+        "numbers",
+    }
+    if unknown:
+        raise ValueError(f"unknown progress fields: {sorted(unknown)}")
+    flag = progress.get("current_flag")
+    if flag is not None and flag not in get_args(CallKind):
+        raise ValueError("unknown current_flag")
+    expected = tuple(ExpectedCall(*item) for item in progress.get("expected", []))
+    if any(e.kind is not None and e.kind not in get_args(CallKind) for e in expected):
+        raise ValueError("unknown expected kind")
+    numbers = tuple(NumberStatus(*item) for item in progress.get("numbers", []))
+    if any(n.state not in get_args(NumberState) for n in numbers):
+        raise ValueError("unknown number state")
+    for value in (
+        progress.get("highest_called_number"),
+        progress.get("check_in_position"),
+        *(e.number for e in expected),
+        *(e.check_in_position for e in expected),
+        *(n.number for n in numbers),
+        *(n.check_in_position for n in numbers),
+    ):
+        if value is not None and (type(value) is not int or value < 1):
+            raise ValueError("a number is a positive integer")
+    called = progress.get("called_in_session")
+    check_in_order = progress.get("check_in_order", False)
+    if called not in (None, True, False) or check_in_order not in (True, False):
+        raise ValueError("a yes-or-no field is true or false")
+    return {
+        "highest_called_number": progress.get("highest_called_number"),
+        "current_flag": flag,
+        "check_in_order": check_in_order,
+        "check_in_position": progress.get("check_in_position"),
+        "called_in_session": called,
+        "expected": expected,
+        "numbers": numbers,
+    }
+
+
 class _TestHospitalReader:
     def __init__(self, storage: Any) -> None:
         self._storage = storage
 
     async def observe(self, scope, now):
-        from next_is_you.domain import QueueObservation
-
-        from next_is_you.domain import ExpectedCall, NumberStatus
-
-        current_number = await self._storage.get("test_current_number")
-        trustworthy = await self._storage.get("test_trustworthy")
-        if current_number is None or int(current_number) < 1:
-            return None
-        progress = json.loads(await self._storage.get("test_progress") or "{}")
-        return QueueObservation(
+        stored = await self._storage.get("test_current_number")
+        current_number = int(stored) if stored is not None and int(stored) > 0 else None
+        observation = QueueObservation(
             scope=scope,
             observed_at=now.isoformat(),
-            current_number=int(current_number),
-            trustworthy_current=trustworthy is True,
-            highest_called_number=progress.get("highest_called_number"),
-            current_flag=progress.get("current_flag"),
-            check_in_order=bool(progress.get("check_in_order", False)),
-            check_in_position=progress.get("check_in_position"),
-            expected=tuple(ExpectedCall(*e) for e in progress.get("expected", [])),
-            numbers=tuple(NumberStatus(*n) for n in progress.get("numbers", [])),
-            called_in_session=progress.get("called_in_session"),
+            current_number=current_number,
+            trustworthy_current=(await self._storage.get("test_trustworthy")) is True,
+            **_test_progress_fields(
+                json.loads(await self._storage.get("test_progress") or "{}")
+            ),
         )
+        # The same outcomes a hospital's reader gives for these two facts, so the
+        # local rehearsal cannot evaluate a number a reader would never report.
+        waiting = (
+            "clinic_not_started"
+            if observation.called_in_session is False
+            else "check_in_order"
+            if observation.check_in_order
+            else None
+        )
+        if waiting is not None:
+            return ReadSkipped(
+                waiting, progress=replace(observation, trustworthy_current=False)
+            )
+        return observation if current_number is not None else None
 
     async def observe_for_start(self, scope, now):
         # The test reader makes no distinction between Start and scheduled reads.

@@ -50,7 +50,9 @@ _KINDS: dict[str, CallKind] = {
     "敬老號": "senior",
 }
 
-_DIGITS = re.compile(r"\d+")
+_DIGITS = re.compile(r"\d+", re.ASCII)
+# Longer than any clinic number. A longer run of digits is not a number.
+_MAX_NUMBER_DIGITS = 6
 # The region the parser reads, from the progress panel up to the legend after
 # the number list (#170). Everything else on the page is skipped unparsed.
 _REGION_START = re.compile(r'<[^<>]*class="[^"]*\bclinic-modal-progress\b')
@@ -80,10 +82,16 @@ class ProgressObservation:
 def _number(text: str) -> int | None:
     """A positive number from padded, unpadded or blank (U+3000) text, else None."""
     match = _DIGITS.search(text)
-    if match is None:
+    if match is None or len(match.group()) > _MAX_NUMBER_DIGITS:
         return None
     value = int(match.group())
     return value if value > 0 else None
+
+
+def _is_garbled(text: str) -> bool:
+    """A light that is neither blank nor a positive number, such as 000 or abc."""
+    text = text.strip()
+    return bool(text) and (_DIGITS.fullmatch(text) is None or _number(text) is None)
 
 
 class _DetailCollector(HTMLParser):
@@ -182,7 +190,8 @@ def _progress_region(html: str) -> str:
 def parse_detail_page(html: str) -> tuple[str, ProgressObservation | None]:
     """Return ("ok", observation) or a page-level failure.
 
-    Failures are `challenge`, `denied` and `schema`. A page whose number list is
+    Failures are `challenge`, `denied`, `schema` and `invalid` (the current light
+    or the highest called is not a number). A page whose number list is
     empty is a valid observation with no numbers. A number carrying a tag this
     parser does not know fails the page, because skipping it would make the
     number look like it left the list.
@@ -200,6 +209,9 @@ def parse_detail_page(html: str) -> tuple[str, ProgressObservation | None]:
     doctor = collector.doctor.strip()
     if not collector.has_progress_list or not room or not doctor:
         return "schema", None
+
+    if _is_garbled(collector.light) or _is_garbled(collector.highest):
+        return "invalid", None
 
     numbers: list[NumberStatus] = []
     for entry in collector.numbers:

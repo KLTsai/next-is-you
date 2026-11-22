@@ -20,6 +20,13 @@ Staging is used by the captain alone. No family member is invited to it.
 - [ ] #136: the new reminder rules, with the clinic and patient number in every
   message. Its first step measures Staging's scheduler CPU and the parse time of
   a captured NTUH detail page against the Free plan's 10 ms per invocation.
+- [ ] #163's CPU condition ([HTTPS-SERVICE.md](HTTPS-SERVICE.md), #170 verdict),
+  evidence label live provider: before Staging's reading is turned on for use, one
+  synthetic visit reads a real NTUH detail page under `wrangler tail`, and every
+  Durable Object invocation stays at or below 10 ms, including the one that finds
+  the card on the list and the 30-minute list check. If one does not, stop and
+  bring the choice to the captain. Staging reads no hospital until it is live, so
+  how this first read is run, and by whom, is the captain's to decide with #142.
 - [ ] #137: at most 5 retries of an unknown LINE outcome, and the monthly-limit
   `429` handled.
 - [ ] #138: a visit ends when its clinic ends.

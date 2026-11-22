@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal, Protocol
@@ -139,28 +139,36 @@ class QueueObservation:
 class ReadSkipped:
     """A reader outcome that is not a failed read and counts as no failure.
 
-    `not_due` leaves the stored source status untouched. `clinic_not_started`
-    and `clinic_ended` describe where the clinic is in its own day, never a
-    failed read, so they must not feed the unavailable alert. `card_not_listed`
-    is a card the hospital has not listed before the session's published start:
-    the organizer sees it, but it is not yet an unusable read.
+    `not_due` leaves the stored source status untouched. `clinic_not_started`,
+    `blank_after_call`, `clinic_ended` and `check_in_order` describe where the
+    clinic is in its own day, never a failed read, so they must not feed the
+    unavailable alert. `card_not_listed` is a card the hospital has not listed
+    before the session's published start: the organizer sees it, but it is not
+    yet an unusable read. `unobserved_situation` is one no one has observed on
+    the hospital's pages; `unobserved` names it.
     """
 
     reason: str
     substitute_doctor: bool = False
-    # For `unobserved_situation`: which situation no one has observed on the
-    # hospital's pages the reader flagged. It sends nothing and is recorded.
     unobserved: str = ""
+    # The facts the page stated, when a page was read and understood. They never
+    # feed the current-number rules (`trustworthy_current` is false); rules that
+    # use other progress facts read them from here.
+    progress: QueueObservation | None = field(default=None, compare=False)
 
     @property
     def source_read(self) -> tuple[str, str] | None:
         if self.reason == "card_not_listed":
             return "unavailable", "card_not_found"
-        if self.reason == "clinic_not_started":
+        if self.reason in (
+            "clinic_not_started",
+            "check_in_order",
+            "unobserved_situation",
+        ):
             if self.substitute_doctor:
                 return "unavailable", "substitute_doctor"
             return "unavailable", "no_observation"
-        if self.reason == "clinic_ended":
+        if self.reason in ("blank_after_call", "clinic_ended"):
             return "unavailable", "empty_result"
         return None
 

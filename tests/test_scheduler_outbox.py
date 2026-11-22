@@ -961,6 +961,8 @@ async def test_start_gate_requires_fresh_exact_trusted_observation_and_freezes_r
     }
     visit = await repository.get_visit("draft-start")
     assert visit["state"] == "active" and visit["roster_frozen"] == 1
+    # Only one visit runs at a time (#172): free the slot for the next Start.
+    assert await gate.stop_visit("draft-start", timestamp.isoformat()) == "stopped"
 
     class MismatchedReader:
         async def observe(self, expected, now):

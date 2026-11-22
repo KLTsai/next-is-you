@@ -141,3 +141,5 @@ footer p { margin: 0; }
   .stop-row { align-items: stretch; flex-direction: column; }
   .invitation-link-row { flex-direction: column; }
 }
+.running-visit-link { color: inherit; font-weight: 700; text-decoration: underline; white-space: nowrap; }
+.visit-heading h3 { scroll-margin-top: 96px; }

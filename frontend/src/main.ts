@@ -77,7 +77,7 @@ let initialPatientNumber: string | null = null;
 let discardFormOnNextRender = false;
 const pendingStops = new Set<string>();
 const pendingStarts = new Set<string>();
-const startFailures = new Map<string, string>();
+const startFailures = new Map<string, { text: string; code: string }>();
 const pendingRecipientRemovals = new Set<string>();
 let stoppingRefreshTimer: number | null = null;
 let draftsCollapsed = true;
@@ -406,6 +406,18 @@ function formMarkup(): string {
   </section>`;
 }
 
+// The link from a draft refused for "another visit is running" to that visit's
+// card, or "" when the refusal is something else or the running card is gone.
+function runningVisitLink(item: OrganizerVisit): string {
+  if (startFailures.get(item.id)?.code !== "another_visit_running") return "";
+  const running = visits.find((visit) => visit.id !== item.id && ["active", "stopping"].includes(visit.state));
+  if (!running) return "";
+  // Stop on a visit with a send in flight leaves it `stopping` until the send
+  // settles, and that still blocks Start: say so instead of a bare retry.
+  const stoppingNote = running.state === "stopping" ? " 它正在停止中，確認關閉後即可再開始。" : "";
+  return `${stoppingNote} <a class="running-visit-link" href="#visit-${escapeHtml(running.id)}">前往監控中的看診</a>`;
+}
+
 function visitCard(item: OrganizerVisit): string {
   const stateKey = visitStatusKey(item);
   const active = item.state === "active";
@@ -447,7 +459,7 @@ function visitCard(item: OrganizerVisit): string {
     ${item.state === "stopped" ? `<p class="inline-state" role="status">提醒已停止。</p>` : ""}
     ${item.state === "expired" ? `<p class="inline-state" role="status">此提醒已結束。修正日期或診次並儲存後，可重新檢查並啟動同一筆提醒。</p>` : ""}
     ${pendingStart ? `<p class="inline-state" role="status">正在檢查可信院方觀察…</p>` : ""}
-    ${startFailures.has(item.id) && !pendingStart && item.state === "draft" ? `<p class="inline-state inline-error" role="alert">${escapeHtml(startFailures.get(item.id) ?? "")}</p>` : ""}
+    ${startFailures.has(item.id) && !pendingStart && item.state === "draft" ? `<p class="inline-state inline-error" role="alert">${escapeHtml(startFailures.get(item.id)?.text ?? "")}${runningVisitLink(item)}</p>` : ""}
     <div class="visit-actions">
       ${item.state === "draft" ? `<button class="secondary-button" type="button" data-edit="${escapeHtml(item.id)}">修正草稿</button><button class="primary-button" type="button" data-start="${escapeHtml(item.id)}" ${canRequestStart(item) && !pendingStart && editing?.visit.id !== item.id ? "" : "disabled"}>${pendingStart ? "重新檢查中…" : "重新檢查並開始提醒"}</button>` : ""}
       ${item.state === "stopped" ? `<button class="secondary-button" type="button" data-correct="${escapeHtml(item.id)}">修正後重新檢查</button>` : ""}
@@ -818,7 +830,10 @@ function bindActions(): void {
       const result = await startVisit(id);
       message = result.state === "active" ? "服務已回覆啟動成功。" : "服務尚未確認啟動，請查看清單狀態。";
     } catch (error) {
-      startFailures.set(id, startFailureText(error, item));
+      startFailures.set(id, {
+        text: startFailureText(error, item),
+        code: error instanceof OrganizerApiError ? error.code : "",
+      });
     } finally {
       pendingStarts.delete(id);
       await loadDashboard();

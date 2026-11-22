@@ -256,7 +256,9 @@ class SystemSendGate(_DurableObjectBase):
         day before the visit day, with nothing stored. Future-dated drafts that
         match transition to active without a live observation; the scheduler
         polls them on visit day. A started visit brings the next alarm within a
-        minute, so the reader's cadence starts now (ADR 0005).
+        minute, so the reader's cadence starts now (ADR 0005). While any other
+        visit is active or stopping, Start is refused first with
+        `another_visit_running` and stores nothing.
         """
         timestamp = _datetime(now)
         result = await self._start_visit(visit_id, timestamp)
@@ -272,6 +274,11 @@ class SystemSendGate(_DurableObjectBase):
                 return {"error": "visit_not_found"}
             if visit["state"] != "draft":
                 return {"error": "invalid_lifecycle_state"}
+            # One running visit at a time (#172): the tick is not split per
+            # visit yet, so a second one would exceed the Free plan CPU limit.
+            # Checked under the gate lock before anything is read or stored.
+            if await repository.has_other_running_visit(visit_id):
+                return {"error": "another_visit_running"}
             visit_date = date.fromisoformat(str(visit["visit_date"]))
             today = timestamp.astimezone(TAIPEI).date()
             if visit_date < today:

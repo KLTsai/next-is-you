@@ -8,6 +8,18 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+# The kinds #164 added (src/next_is_you/alerts.py); spelled out, as this check runs
+# without the application.
+REMINDER_KINDS = (
+    "check_in_soon",
+    "passed",
+    "checked_in",
+    "getting_close",
+    "almost_turn",
+    "check_in_order",
+    "left_list",
+    "left_list_not_checked_in",
+)
 MIGRATION_NAME = re.compile(r"^(\d{4})_[a-z0-9_]+\.sql$")
 
 # Issue #111: migrations from this number on start with a risk header. Earlier
@@ -192,6 +204,38 @@ def _check_near_reminder_rules(connection: sqlite3.Connection) -> None:
         pass
     else:
         raise SystemExit("single unavailable warning is not enforced by the schema")
+
+    # The cap of 8 (#164): the unavailable warning above counts, a skipped reminder
+    # does not, and each kind is stored once.
+    def insert_reminder(kind: str, outcome: str = "pending") -> None:
+        connection.execute(
+            "INSERT INTO outbound_events (id, visit_id, recipient_id, event_kind, retry_key, "
+            "payload_json, outcome, created_at) "
+            "VALUES (?, 'cm-v', 'cm-r', ?, ?, '{}', ?, '2026-09-27T00:01:00Z')",
+            (f"cm-{kind}", kind, f"cm-key-{kind}", outcome),
+        )
+
+    def refused(kind: str, outcome: str = "pending") -> bool:
+        try:
+            insert_reminder(kind, outcome)
+        except sqlite3.IntegrityError:
+            return True
+        return False
+
+    for kind in REMINDER_KINDS[:7]:
+        insert_reminder(kind)
+    if not refused(REMINDER_KINDS[7]):
+        raise SystemExit("reminder cap of 8 is not enforced by the schema")
+    if refused(REMINDER_KINDS[7], "skipped"):
+        raise SystemExit("a skipped reminder counts toward the cap of 8")
+    connection.execute("DELETE FROM outbound_events WHERE event_kind = 'unavailable'")
+    connection.execute(
+        "UPDATE outbound_events SET id = 'cm-moved', retry_key = 'cm-moved' "
+        "WHERE event_kind = ?",
+        (REMINDER_KINDS[0],),
+    )
+    if not refused(REMINDER_KINDS[0]):
+        raise SystemExit("one reminder per kind is not enforced by the schema")
 
     connection.execute("DELETE FROM recipients WHERE id = 'cm-r'")
     if connection.execute("SELECT COUNT(*) FROM outbound_events").fetchone()[0] != 0:

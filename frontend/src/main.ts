@@ -386,7 +386,7 @@ function formMarkup(): string {
     const departmentField = `<label class="field"><span>科別</span><select name="department_code" required>${deptPrompt}${deptOptions}</select>${errorMarkup("department_code")}</label>`;
     const dateField = `<label class="field"><span>看診日期</span><input name="date" type="date" value="${escapeHtml(selectedDate)}" required>${errorMarkup("date")}</label>`;
     const clinicSection = clinicSectionMarkup(entry, selectedDept, selectedDate, selectedClinic, selectedSession);
-    const patientField = `<label class="field"><span>掛號序號</span><input name="patient_number" type="number" min="1" max="999999" value="${escapeHtml(formValue("patient_number", initialPatientNumber ?? ""))}" required inputmode="numeric"><small>僅供這筆提醒使用；已儲存草稿會顯示序號，方便辨識。</small>${errorMarkup("patient_number")}</label>`;
+    const patientField = `<label class="field"><span>掛號序號</span><input name="patient_number" type="text" inputmode="numeric" pattern="[1-9][0-9]{0,5}" maxlength="6" title="請輸入 1 到 999999 的數字" value="${escapeHtml(formValue("patient_number", initialPatientNumber ?? ""))}" required><small>僅供這筆提醒使用；已儲存草稿會顯示序號，方便辨識。</small>${errorMarkup("patient_number")}</label>`;
     body = `<div class="form-grid">${departmentField}${dateField}</div>${clinicSection}${patientField}`;
   }
 
@@ -487,7 +487,7 @@ function membersPanel(): string {
   </section>`;
 }
 
-type FieldFocus = { selector: string; start: number | null; end: number | null; numeric: boolean };
+type FieldFocus = { selector: string; start: number | null; end: number | null };
 
 // The dashboard repaints wholesale (polling, fetches, button actions), which
 // drops the focused field. Remember it and put the cursor back after the paint
@@ -505,12 +505,7 @@ function captureFieldFocus(): FieldFocus | null {
   }
   if (!selector) return null;
   const textual = active instanceof HTMLInputElement && ["text", "search", "url", "tel", "password"].includes(active.type);
-  return {
-    selector,
-    start: textual ? active.selectionStart : null,
-    end: textual ? active.selectionEnd : null,
-    numeric: active instanceof HTMLInputElement && active.type === "number",
-  };
+  return { selector, start: textual ? active.selectionStart : null, end: textual ? active.selectionEnd : null };
 }
 
 function restoreFieldFocus(focus: FieldFocus | null): void {
@@ -522,12 +517,6 @@ function restoreFieldFocus(focus: FieldFocus | null): void {
   field.focus({ preventScroll: true });
   if (field instanceof HTMLInputElement && focus.start !== null && focus.end !== null) {
     field.setSelectionRange(focus.start, focus.end);
-  } else if (field instanceof HTMLInputElement && focus.numeric) {
-    // A number input has no selection API; borrow the text type to park the
-    // caret at the end, where digits are being typed.
-    field.type = "text";
-    field.setSelectionRange(field.value.length, field.value.length);
-    field.type = "number";
   }
 }
 

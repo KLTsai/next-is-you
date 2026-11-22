@@ -5,7 +5,7 @@
 //
 // `text` is a string, or a function of the facts the refusal carries that
 // returns "" while those facts are missing. `action` names what the organizer
-// should do next; it is not shown yet.
+// should do next; it is not shown yet (the draft card's link to the running visit keys off the code `another_visit_running`).
 
 import { unpublishedDayNotice } from "./schedule-window.js";
 

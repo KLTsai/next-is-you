@@ -70,3 +70,41 @@ if ((offenders > 0)); then
     printf 'Remove the agent Co-authored-by trailer from %d commit(s) and push again.\n' "$offenders" >&2
     exit 1
 fi
+
+# The owner's writing rule: never the em dash (U+2014), use "-" instead. Only
+# lines this range adds are checked, so em dashes already on the default branch
+# stay as they are. Generated files are excluded because nobody edits them.
+printf 'Checking added lines for em dashes in %s\n' "$range_spec"
+em_dash=$'\xe2\x80\x94'
+generated=(
+    ':(exclude,glob)**/CHANGELOG.md'
+    ':(exclude,glob)**/package-lock.json'
+    ':(exclude,glob)**/uv.lock'
+    ':(exclude).github/.release-please-manifest.json'
+)
+added=$(
+    git -c core.quotePath=false diff --no-color --no-ext-diff --no-textconv \
+        --unified=0 "${diff_args[@]}" -- . "${generated[@]}"
+)
+em_dash_lines=$(
+    LC_ALL=C awk -v needle="$em_dash" '
+        /^diff --git / { in_hunk = 0; next }
+        !in_hunk && /^\+\+\+ / { path = substr($0, 5); sub(/^b\//, "", path); next }
+        /^@@ / {
+            in_hunk = 1
+            split($3, start, ",")
+            line = substr(start[1], 2) + 0
+            next
+        }
+        in_hunk && /^\+/ {
+            if (index($0, needle)) printf "%s:%d: %s\n", path, line, substr($0, 2)
+            line++
+        }
+    ' <<<"$added"
+)
+if [[ -n "$em_dash_lines" ]]; then
+    printf '%s\n' "$em_dash_lines" >&2
+    count=$(wc -l <<<"$em_dash_lines" | tr -d ' ')
+    printf 'Replace the em dash (U+2014) with a plain "-" on %d added line(s) and push again.\n' "$count" >&2
+    exit 1
+fi

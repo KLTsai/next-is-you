@@ -1,7 +1,8 @@
-"""scripts/check_ci_diff.sh rejects agent co-author trailers on new commits.
+"""scripts/check_ci_diff.sh rejects agent co-author trailers and em dashes.
 
-Agents never sign commits as co-authors. The check covers only the commits a
-push or pull request adds, so older history on the default branch stays green.
+Agents never sign commits as co-authors, and nobody writes the em dash
+(U+2014). Each check covers only the commits or lines a push or pull request
+adds, so older history on the default branch stays green.
 """
 
 import subprocess
@@ -121,3 +122,85 @@ def test_pull_request_checks_only_head_side_commits(repo):
     clean_head = commit(repo, "docs: topic clean")
     result = run_pull_request(repo, main_head, clean_head)
     assert result.returncode == 0, result.stderr
+
+
+# Built from its code point so this file never adds the character it forbids.
+EM_DASH = chr(0x2014)
+
+
+def commit_files(repo: Path, files: dict[str, str]) -> str:
+    for name, content in files.items():
+        path = repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        git(repo, "add", name)
+    git(
+        repo,
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@example.com",
+        "commit",
+        "-qm",
+        "docs: edit",
+    )
+    return git(repo, "rev-parse", "HEAD")
+
+
+def test_added_em_dash_fails_with_its_location(repo):
+    before = commit_files(repo, {"docs/guide.md": "one\ntwo\n"})
+    after = commit_files(repo, {"docs/guide.md": f"one\ntwo {EM_DASH} three\n"})
+    result = run_push(repo, before, after)
+    assert result.returncode == 1
+    assert f"docs/guide.md:2: two {EM_DASH} three" in result.stderr
+    assert "U+2014" in result.stderr
+    assert "1 added line(s)" in result.stderr
+
+
+def test_em_dash_already_on_the_branch_passes(repo):
+    before = commit_files(repo, {"notes.md": f"old {EM_DASH} line\n"})
+    after = commit_files(repo, {"notes.md": f"old {EM_DASH} line\nnew - line\n"})
+    result = run_push(repo, before, after)
+    assert result.returncode == 0, result.stderr
+
+
+def test_removing_an_em_dash_passes(repo):
+    before = commit_files(repo, {"notes.md": f"old {EM_DASH} line\n"})
+    after = commit_files(repo, {"notes.md": "old - line\n"})
+    result = run_push(repo, before, after)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "generated",
+    [
+        "CHANGELOG.md",
+        "packages/app/CHANGELOG.md",
+        "package-lock.json",
+        "uv.lock",
+        ".github/.release-please-manifest.json",
+    ],
+)
+def test_em_dash_in_generated_files_passes(repo, generated):
+    before = commit_files(repo, {"README.md": "base\n"})
+    after = commit_files(repo, {generated: f"generated {EM_DASH} text\n"})
+    result = run_push(repo, before, after)
+    assert result.returncode == 0, result.stderr
+
+
+def test_pull_request_checks_only_head_side_lines(repo):
+    base_root = commit_files(repo, {"README.md": "base\n"})
+    git(repo, "checkout", "-qb", "topic")
+    clean_head = commit_files(repo, {"docs/a.md": "topic - text\n"})
+    git(repo, "checkout", "-q", "main")
+    main_head = commit_files(repo, {"docs/b.md": f"main {EM_DASH} moves\n"})
+    result = run_pull_request(repo, main_head, clean_head)
+    assert result.returncode == 0, result.stderr
+
+    git(repo, "checkout", "-q", "topic")
+    git(repo, "reset", "-q", "--hard", base_root)
+    dirty_head = commit_files(repo, {"docs/a.md": f"topic {EM_DASH} text\n"})
+    result = run_pull_request(repo, main_head, dirty_head)
+    assert result.returncode == 1
+    assert "docs/a.md:1:" in result.stderr
+    assert "docs/b.md" not in result.stderr

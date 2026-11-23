@@ -107,7 +107,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Check pushed or pull request diff whitespace and commit trailers
+      - name: Check pushed or pull request diff whitespace, em dashes and commit trailers
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}

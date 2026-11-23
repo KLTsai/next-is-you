@@ -514,7 +514,12 @@ function restoreFieldFocus(focus: FieldFocus | null): void {
   if (!field) return;
   // preventScroll: a repaint while the organizer scrolls must not drag the
   // page back to this field.
+  const { scrollX, scrollY } = window;
   field.focus({ preventScroll: true });
+  // Chrome ignores preventScroll on a date field, so put the page back if it moved.
+  if (field.type === "date" && (window.scrollX !== scrollX || window.scrollY !== scrollY)) {
+    window.scrollTo({ left: scrollX, top: scrollY, behavior: "instant" });
+  }
   if (field instanceof HTMLInputElement && focus.start !== null && focus.end !== null) {
     field.setSelectionRange(focus.start, focus.end);
   }

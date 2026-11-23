@@ -15,6 +15,14 @@ Commands below match the installed `gh-axi issue --help`. Pass `-R KLTsai/next-i
 
 Record concrete scope, observable acceptance, dependencies, and non-goals before implementation. Preserve adopted decisions and link historical evidence. Do not bulk-create new issues for every retired local ticket.
 
+## Ticking acceptance boxes
+
+Tick boxes with `scripts/tick_acceptance.py`, never by rewriting the body with `issue edit --body-file` by hand. It names the box by `--index N` or exact `--box "text"`, requires `--label` (fixture/mock, local integration, live provider) and `--evidence` (a test name, a PR, a run link), and appends ` Evidence (<label>): <evidence>` to the criterion. It dry-runs and prints the diff by default; rerun with `--apply` to write. It refuses an empty fetched body, a shorter body, or any change outside the targeted boxes, then re-reads the issue to verify. Tick the boxes before saying a PR is ready to merge.
+
+```sh
+python3 scripts/tick_acceptance.py <issue> --index 2 --label 'local integration' --evidence '#<pr>, `test_name`'
+```
+
 ## Labels
 
 Every open issue carries exactly one state label and at least one `area:*` label.

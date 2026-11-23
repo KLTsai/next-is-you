@@ -6,8 +6,14 @@
   "scripts": {
     "build": "vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "status": "uv run python scripts/delivery_state.py status",
+    "lint": "uv run ruff format --check src tests scripts && uv run ruff check src tests scripts",
+    "test": "uv run pytest -q -m \"not browser\" && npm run test:ui",
+    "test:all": "uv run pytest -q",
     "test:ui": "node --test frontend/test/*.test.js",
+    "check:migrations": "uv run python scripts/check_migrations.py",
+    "check:diff": "git diff --check HEAD && GITHUB_EVENT_NAME=pull_request PR_BASE_SHA=$(git merge-base origin/main HEAD) PR_HEAD_SHA=$(git rev-parse HEAD) bash scripts/check_ci_diff.sh",
+    "check": "npm run lint && npm run typecheck && npm run test:ui && npm run build && npm run check:migrations && npm run check:diff && npm run test:all",
+    "status": "uv run python scripts/delivery_state.py status",
     "dev:local": "npm run build && uv run python src/local_runtime.py",
     "dev:ui": "vite --host 127.0.0.1",
     "dev:rehearsal": "sh scripts/manual-rehearsal.sh"

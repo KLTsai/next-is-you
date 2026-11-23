@@ -126,19 +126,15 @@ Local entrypoints:
 - **Complete local service rehearsal:** `npm run dev:rehearsal`, then open <http://127.0.0.1:8787>. Real local D1 and SQLite Durable Object bindings, synthetic login, fake providers. Needs no credentials. Follow the [complete rehearsal guide](docs/LOCAL-REHEARSAL.md) for the first synthetic setup, draft, Start/Stop, fake send, duplicate tick, and restart journey.
 - **Lightweight shell smoke:** `npm run dev:local`, then open <http://127.0.0.1:8787>. UI build plus the Python ASGI app on loopback, no Cloudflare bindings. With the blank template, `curl -i http://127.0.0.1:8787/auth/line` returns `503`. Does not exercise database features or reminder sends.
 
-CI-equivalent deterministic checks:
+Checks (install Chromium once with `uv run playwright install chromium`):
 
-```sh
-uv run playwright install chromium
-uv run ruff format --check src tests scripts
-uv run ruff check src tests scripts
-npm run typecheck
-npm run test:ui
-npm run build
-uv run python scripts/check_migrations.py
-uv run pytest -q
-git diff --check
-```
+| Command | Runs | When |
+| --- | --- | --- |
+| `npm test` | pytest without the `browser` tests, then `npm run test:ui` | Inner loop while editing |
+| `npm run test:all` | The full pytest suite, browser tests included | Before pushing a change to UI or Worker behavior |
+| `npm run check` | Every CI gate in order: `lint`, `typecheck`, `test:ui`, `build`, `check:migrations`, `check:diff`, `test:all` | Before pushing; green here means the CI gates should be green |
+
+Each gate is also its own script (`npm run lint`, `npm run typecheck`, and so on). The `browser` marker is assigned in `tests/conftest.py` to every test in a module that drives Chromium or starts a local Worker; `uv run pytest -m browser` runs only those. `check:diff` runs `scripts/check_ci_diff.sh` on the commits since `origin/main` and `git diff --check` on uncommitted changes.
 
 These are fixture/mock and local automated evidence; they do not contact a live hospital or LINE, deploy, or prove handset delivery. See the [CI workflow](.github/workflows/ci.yml): each pull request push or push to `main` is one run with seven named gates (formatting and lint, type check, frontend tests, build, migration check, backend and browser tests, diff hygiene) and a summary of each outcome; on `main`, Release Please follows the gates. Tag pushes start no run. [docs/CI-CD.md](docs/CI-CD.md#one-change-one-run) describes it.
 

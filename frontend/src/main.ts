@@ -525,8 +525,35 @@ function restoreFieldFocus(focus: FieldFocus | null): void {
   }
 }
 
+// While an input method is composing a word (Chinese, Japanese, Korean), a
+// repaint would replace the field and end the composition: the sounds typed so
+// far land in the field as plain text and the candidates cannot be picked.
+// The repaint waits until the word is committed.
+let composing = false;
+let repaintAfterComposition = false;
+
+document.addEventListener("compositionstart", () => {
+  composing = true;
+});
+function endComposition(): void {
+  composing = false;
+  if (!repaintAfterComposition) return;
+  repaintAfterComposition = false;
+  // After the committed text has reached the field.
+  window.setTimeout(() => renderDashboard(), 0);
+}
+
+document.addEventListener("compositionend", endComposition);
+// A field that loses focus ends its composition; never wait for an end that
+// does not come.
+document.addEventListener("focusout", endComposition);
+
 function renderDashboard(preserveCurrentForm = true): void {
   if (!app) return;
+  if (composing && authorized) {
+    repaintAfterComposition = true;
+    return;
+  }
   if (preserveCurrentForm && !discardFormOnNextRender) rememberFormValues();
   discardFormOnNextRender = false;
   if (!authorized) {

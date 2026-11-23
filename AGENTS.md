@@ -21,7 +21,8 @@ Keep this file to durable, repository-wide guidance. Put active scope and status
 
 ## Working on main
 
-- Documentation-only changes may go straight to `main`. Changes to code, migrations, workflows, or deployment configuration go through a pull request the captain merges. An agent without the captain's direct instruction always uses a pull request.
+- Each session works in its own git worktree, never in the main checkout, and stages files by name. Setup is in `README.md` under `## Worktrees`.
+- Documentation-only changes may go straight to `main`. Changes to code, migrations, workflows, or deployment configuration go through a pull request. The captain merges it, or an agent squash-merges a non-release pull request the captain names in the current session once CI is green and its acceptance boxes are ticked with evidence. An agent without the captain's direct instruction always uses a pull request.
 - Reserve `feat`, `fix`, and `perf` commit types for changes a user of the product can notice. Use `ci`, `chore`, `test`, `build`, `refactor`, `style`, or `docs` for everything else.
 - Only the captain, in person, merges the release PR and runs Promote. Never do either, even when asked.
 

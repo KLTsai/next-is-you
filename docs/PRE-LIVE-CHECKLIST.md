@@ -67,12 +67,15 @@ Staging is used by the captain alone. No family member is invited to it.
   every second while the visit is stopping. A send can settle within seconds:
   repeat until every step was done while a visit was stopping. On each device:
   1. type in the member label and in every visit form field, with the on-screen
-     keyboard open on the phones: no character or cursor position is lost, apart
-     from the half-typed date under Known limitations;
+     keyboard open on the phones: no character or cursor position is lost, and a
+     date typed to the end comes out whole;
   2. scroll slowly, by wheel on desktop and by touch on the phones, with each
      field focused: the page is never pulled back;
   3. scroll until the focused field is off screen and wait 3 seconds: the page
-     does not move.
+     does not move;
+  4. open the date calendar and a dropdown, and wait 5 seconds: each stays open;
+  5. on a phone, type Chinese with the input method in use (bopomofo): another
+     candidate can still be picked after 5 seconds.
 
   Record for each: browser and version, device and OS version, date.
 - [ ] Only NTUH Main (`ntuh-main`) is offered.
@@ -152,6 +155,8 @@ Staging is used by the captain alone. No family member is invited to it.
 - There is no backup outside Cloudflare. D1 Time Travel (7 days) is the only
   restore path, and it does not roll back the send gate Durable Object, so any
   restore is followed by a send interruption.
-- The browser tests (`tests/test_organizer_page.py`) cannot catch two things the
-  organizer page does while it repaints: an open native dropdown closes, and a
-  date field keeps focus but not the half-typed segment.
+- The browser tests (`tests/test_organizer_page.py`, `tests/test_background_repaint.py`)
+  run in Chromium and cannot show how a real phone behaves. The page waits for an
+  open calendar or dropdown only where the browser reports it open (`:open`), and
+  an input method is simulated, not real: both are checked by hand in the
+  walkthrough above.

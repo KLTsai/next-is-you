@@ -598,7 +598,9 @@ function repaintInBackground(): void {
 function renderDashboard(preserveCurrentForm = true): void {
   if (!app) return;
   // First, so that nothing is marked as painted while the repaint waits.
-  if (composing && authorized) {
+  // A login page has no field to compose in, and the composition cannot end.
+  if (!authorized) composing = false;
+  if (composing) {
     repaintAfterComposition = true;
     return;
   }

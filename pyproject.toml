@@ -23,7 +23,10 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra --strict-markers"
+markers = [
+    "browser: drives Chromium or starts a local Worker; needs dist/, Node and Playwright. Assigned by tests/conftest.py.",
+]
 
 [tool.ruff]
 target-version = "py313"

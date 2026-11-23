@@ -127,19 +127,15 @@ uv sync --group dev --locked
 - **完整本地服務 rehearsal：** 執行 `npm run dev:rehearsal`，開啟 <http://127.0.0.1:8787>。使用真實的本地 D1 與 SQLite Durable Object bindings、synthetic login、fake providers，不需要憑證。首次的 synthetic setup、建立草稿、Start/Stop、fake 發送、重複 tick 與重啟歷程，請依 [complete rehearsal guide](docs/LOCAL-REHEARSAL.md) 走過一遍。
 - **輕量 shell smoke：** 執行 `npm run dev:local`，開啟 <http://127.0.0.1:8787>。只建置 UI 並在 loopback 上跑 Python ASGI app，沒有 Cloudflare bindings。使用空白範本時，`curl -i http://127.0.0.1:8787/auth/line` 回 `503`。不會驗證資料庫功能或提醒發送。
 
-與 CI 等價的 deterministic 檢查：
+檢查（先執行一次 `uv run playwright install chromium` 安裝 Chromium）：
 
-```sh
-uv run playwright install chromium
-uv run ruff format --check src tests scripts
-uv run ruff check src tests scripts
-npm run typecheck
-npm run test:ui
-npm run build
-uv run python scripts/check_migrations.py
-uv run pytest -q
-git diff --check
-```
+| 命令 | 執行內容 | 時機 |
+| --- | --- | --- |
+| `npm test` | 不含 `browser` 測試的 pytest，接著 `npm run test:ui` | 編輯時的快速迴圈 |
+| `npm run test:all` | 完整 pytest，包含瀏覽器測試 | push 改動 UI 或 Worker 行為之前 |
+| `npm run check` | 依序跑所有 CI gate：`lint`、`typecheck`、`test:ui`、`build`、`check:migrations`、`check:diff`、`test:all` | push 之前；這裡全綠代表 CI gate 應該也會全綠 |
+
+每個 gate 也有自己的 script（`npm run lint`、`npm run typecheck` 等）。`tests/conftest.py` 會替每個驅動 Chromium 或啟動本地 Worker 的模組內所有測試加上 `browser` marker；`uv run pytest -m browser` 只跑這些。`check:diff` 對 `origin/main` 之後的 commit 執行 `scripts/check_ci_diff.sh`，並對未提交的修改執行 `git diff --check`。
 
 這些是 fixture/mock 與本地自動化證據；不會連到真實醫院或 LINE、不會部署、也不證明手機端送達。請見 [CI workflow](.github/workflows/ci.yml)：每次 pull request push 或 push 到 `main` 都只有一次 run，內含七個具名 gate（格式與 lint、型別檢查、前端測試、build、migration 檢查、後端與瀏覽器測試、diff hygiene）以及每個 gate 結果的摘要；在 `main` 上，Release Please 在這些 gate 之後執行。推送 tag 不會觸發任何 run。[docs/CI-CD.md](docs/CI-CD.md#one-change-one-run) 有完整說明。
 

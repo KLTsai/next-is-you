@@ -86,7 +86,8 @@ class FakeBackend:
     def close(self) -> None:
         pass
 
-    def answer(self, route) -> None:
+    def answer(self, route, edit=None) -> None:
+        """Answer the request; `edit` may change a JSON answer before it is sent."""
         request = route.request
         path = urlsplit(request.url).path
         if not path.startswith("/api/"):
@@ -99,6 +100,8 @@ class FakeBackend:
             return
         body = request.post_data_json if request.post_data else None
         status, payload = self._answer_api(request.method, path, body)
+        if edit:
+            edit(payload)
         route.fulfill(
             status=status, content_type="application/json", body=json.dumps(payload)
         )
@@ -239,11 +242,19 @@ class RehearsalBackend:
             if visit["state"] == "active":
                 assert self._stop(visit["id"]) == "stopped"
 
-    def answer(self, route) -> None:
-        if route.request.url.startswith(self.origin + "/"):
-            route.continue_()
-        else:
+    def answer(self, route, edit=None) -> None:
+        if not route.request.url.startswith(self.origin + "/"):
             route.abort()
+        elif edit:
+            response = route.fetch()
+            if not response.ok:
+                route.fulfill(response=response)
+                return
+            payload = response.json()
+            edit(payload)
+            route.fulfill(response=response, body=json.dumps(payload))
+        else:
+            route.continue_()
 
     def _call(self, method: str, path: str, body=None):
         return self.page.evaluate(
@@ -330,6 +341,7 @@ class OrganizerPage:
         self.backend = backend
         self.touch = touch
         self.sent: list[tuple[str, str]] = []
+        self._poll_number = 0
         self._failing: set[tuple[str, str]] = set()
         self._held: dict[tuple[str, str], list] = {}
         self._published_day = False
@@ -367,7 +379,17 @@ class OrganizerPage:
                 body=json.dumps(PUBLISHED_DAY),
             )
             return
-        self.backend.answer(route)
+        if (method, path) == ("GET", "/api/organizer/visits"):
+            self.backend.answer(route, self._stamp_poll)
+        else:
+            self.backend.answer(route)
+
+    def _stamp_poll(self, payload: dict) -> None:
+        """The page skips a repaint when a poll shows nothing new (#190), and
+        these tests need every poll to repaint: each brings a change."""
+        self._poll_number += 1
+        for visit in payload["visits"]:
+            visit["poll"] = self._poll_number
 
     @contextmanager
     def failing(self, method: str, path: str):

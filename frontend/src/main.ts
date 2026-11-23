@@ -83,6 +83,9 @@ const pendingStarts = new Set<string>();
 const startFailures = new Map<string, { text: string; code: string }>();
 const pendingRecipientRemovals = new Set<string>();
 let stoppingRefreshTimer: number | null = null;
+let backgroundRepaintTimer: number | null = null;
+let paintedServerState = "";
+let lastDateKeyAt = Number.NEGATIVE_INFINITY;
 let draftsCollapsed = true;
 let invitationUrl: string | null = null;
 let invitationCreating = false;
@@ -548,12 +551,64 @@ document.addEventListener("compositionend", endComposition);
 // does not come.
 document.addEventListener("focusout", endComposition);
 
+// Everything a refresh can change on the page.
+function serverState(): string {
+  return JSON.stringify([
+    authorized, loading, localTestMode, message, refreshWarning,
+    recipients, visits, sendingInterrupted, hospitals,
+  ]);
+}
+
+// Whether the organizer has a native calendar or dropdown open. A repaint
+// replaces its field, which closes it. Browsers without :open answer false.
+function nativePickerIsOpen(): boolean {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLInputElement || active instanceof HTMLSelectElement)) return false;
+  try {
+    return active.matches(":open");
+  } catch {
+    return false;
+  }
+}
+
+// A date field reports a change after the first digit that makes a whole date,
+// so the rest of that day or year is still to come.
+const DATE_TYPING_PAUSE_MS = 1000;
+
+function dateIsBeingTyped(): boolean {
+  const active = document.activeElement;
+  return active instanceof HTMLInputElement && active.type === "date"
+    && performance.now() - lastDateKeyAt < DATE_TYPING_PAUSE_MS;
+}
+
+// A repaint the organizer did not ask for: it waits for an open calendar or
+// dropdown to close and for a date to be typed, and never drops what is in the
+// form.
+function repaintInBackground(): void {
+  if (!nativePickerIsOpen() && !dateIsBeingTyped()) {
+    renderDashboard();
+    return;
+  }
+  backgroundRepaintTimer ??= window.setTimeout(() => {
+    backgroundRepaintTimer = null;
+    repaintInBackground();
+  }, 250);
+}
+
 function renderDashboard(preserveCurrentForm = true): void {
   if (!app) return;
-  if (composing && authorized) {
+  // First, so that nothing is marked as painted while the repaint waits.
+  // A login page has no field to compose in, and the composition cannot end.
+  if (!authorized) composing = false;
+  if (composing) {
     repaintAfterComposition = true;
     return;
   }
+  if (backgroundRepaintTimer !== null) {
+    window.clearTimeout(backgroundRepaintTimer);
+    backgroundRepaintTimer = null;
+  }
+  paintedServerState = serverState();
   if (preserveCurrentForm && !discardFormOnNextRender) rememberFormValues();
   discardFormOnNextRender = false;
   if (!authorized) {
@@ -582,7 +637,7 @@ function scheduleStoppingRefresh(): void {
   if (!authorized || !visits.some((visit) => visit.state === "stopping")) return;
   stoppingRefreshTimer = window.setTimeout(() => {
     stoppingRefreshTimer = null;
-    void loadDashboard();
+    void loadDashboard(false, true);
   }, 1000);
 }
 
@@ -607,10 +662,10 @@ async function maybeFetchRoster(): Promise<void> {
   }
   rosterKey = key;
   rosterLoading = false;
-  renderDashboard(false);
+  repaintInBackground();
 }
 
-async function loadDashboard(preserveSaveConfirmation = false): Promise<void> {
+async function loadDashboard(preserveSaveConfirmation = false, background = false): Promise<void> {
   if (!serviceStatus) return;
   loading = true;
   try {
@@ -649,7 +704,8 @@ async function loadDashboard(preserveSaveConfirmation = false): Promise<void> {
     }
   } finally {
     loading = false;
-    renderDashboard();
+    if (!background) renderDashboard();
+    else if (serverState() !== paintedServerState) repaintInBackground();
     scheduleStoppingRefresh();
   }
 }
@@ -739,7 +795,7 @@ function bindActions(): void {
     renderDashboard();
     window.setTimeout(() => {
       copyFeedback = "";
-      renderDashboard();
+      repaintInBackground();
     }, 2000);
   });
   document.querySelectorAll<HTMLButtonElement>("[data-withdraw-member]").forEach((button) => button.addEventListener("click", async () => {
@@ -784,10 +840,14 @@ function bindActions(): void {
       element.addEventListener("change", () => {
         rememberFormValues();
         formErrors = {};
-        renderDashboard(false);
+        if (dateIsBeingTyped()) repaintInBackground();
+        else renderDashboard(false);
       });
     });
   };
+  document.querySelector<HTMLInputElement>('#visit-form input[name="date"]')?.addEventListener("keydown", () => {
+    lastDateKeyAt = performance.now();
+  });
   rerenderOnChange('#visit-form [name="hospital"]');
   rerenderOnChange('#visit-form select[name="department_code"]');
   rerenderOnChange('#visit-form input[name="date"]');

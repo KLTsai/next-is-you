@@ -15,7 +15,7 @@ Conversation with the captain may mix Traditional Chinese and English when it ha
 
 - Label validation as fixture/mock, local integration, or live provider. Use `README.md` for local setup, test modes, and migrations; `docs/PRE-LIVE-CHECKLIST.md` for live gates; and the relevant ticket for behavior and acceptance.
 - Lifecycle UI changes define clear success, pending, failure, cancellation/stop, and recovery outcomes.
-- Use synthetic local data. Follow `README.md` for secrets; never put credentials or patient data in repository artifacts.
+- Use synthetic local data for people (organizers, recipients, patients). Pages captured from a hospital's public site may be committed as test fixtures ([ADR 0006](docs/adr/0006-real-hospital-captures-are-test-fixtures.md)). Follow `README.md` for secrets; never put credentials or patient data in repository artifacts.
 
 Keep this file to durable, repository-wide guidance. Put active scope and status in the configured issue tracker and task-specific procedures in their owning docs.
 

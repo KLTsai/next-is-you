@@ -15,8 +15,11 @@ provider).
 
 Staging is used by the captain alone. No family member is invited to it.
 
-- [ ] #134: an invitee who does not confirm within a minute is no longer deleted.
-- [ ] #135: a visit started before its day sends on the visit day.
+- [x] #134: an invitee who does not confirm within a minute is no longer deleted.
+  Evidence: PR #161; live provider on Staging, 2026-11-22 (#134).
+- [x] #135: a visit started before its day sends on the visit day. Evidence: PR
+  #158, fixture/mock; migration 0008 rehearsed on Staging, deployed, 2026-11-21
+  (#135). Its organizer-page criterion moved to #154.
 - [ ] #136: the new reminder rules, with the clinic and patient number in every
   message. Its first step, the CPU measurements, is done (#162, #170).
 - [ ] The held tick's CPU on Staging, measured again after #163 is deployed (it adds
@@ -24,9 +27,12 @@ Staging is used by the captain alone. No family member is invited to it.
   at or below 10 ms under `wrangler tail`. Last measured 5 to 9 ms. Evidence label
   deployed.
 - [ ] #179: a refusal stops the whole hospital, and Start and the picker follow it.
-- [ ] #181: scheduled reads begin one hour before the session's published start.
+- [x] #181: scheduled reads begin one hour before the session's published start.
+  Evidence: PR #194, fixture/mock (#181).
 - [ ] #188: a clinic schedule read stays within the Free plan's 10 ms and the reader's
   size limit, for the picker, Start and the daily recheck.
+- [ ] #192: an open organizer page stays within the Free plan's daily limits
+  around the clock, for Staging and Production together.
 - [ ] #163's CPU condition ([HTTPS-SERVICE.md](HTTPS-SERVICE.md), #170 verdict),
   evidence label live provider: before Staging's reading is turned on for use, one
   synthetic visit reads a real NTUH detail page under `wrangler tail`, and every
@@ -40,11 +46,14 @@ Staging is used by the captain alone. No family member is invited to it.
 - [ ] #138: a visit ends when its clinic ends.
 - [ ] #130: the real reason a Start or daily recheck fails (built through #144
   and its slices).
+- [ ] #139: the agreed words on screen. Here because #160, and through it #142,
+  builds on its texts.
 - [ ] #142: the live switch, captain-only interrupt and resume (the banner's
   恢復發送 LINE 通知 button), the interruption alert and the last tick time.
-- [ ] Hospital access rules are written in
+- [x] Hospital access rules are written in
   [ADDING-A-HOSPITAL.md](ADDING-A-HOSPITAL.md#source-access-rules). The
-  hospital is not contacted.
+  hospital is not contacted. Evidence: that section, as amended by #181
+  (2026-11-23); what the rules require of the reader is built by #179.
 - [ ] Staging has its own LINE provider, Official Account, Login channel (in
   Developing mode, with the captain as a tester) and Messaging API channel
   ([ADR 0004](adr/0004-staging-has-its-own-line-provider.md)). Its organizer
@@ -105,18 +114,20 @@ Staging is used by the captain alone. No family member is invited to it.
     (#172), so the 3 visits go one after another: stop each before starting the
     next, and record CPU and request headroom for each run.
   - At least one visit uses a real appointment (the captain's, or a consenting
-    relative's with the captain as the only recipient), so the "about 8" and "about 5 people ahead" reminders are seen.
+    relative's with the captain as the only recipient), so the "about 8" and
+    "about 5 people ahead" reminders are seen. The captain chose an
+    ophthalmology appointment with a different doctor (#180, 2026-11-23).
   - At the real appointment, the page's current light is compared with the room's
     light at least once, with the result recorded and no number kept.
   - If a detail link stops working, what it answered (status, and for a redirect
     whether it stays on the same host and path) is recorded before its rule changes.
-  - At least one visit is in a department whose calls follow number order
-    (#180), because ophthalmology calls too far out of order to show every reminder.
+  - If the real appointment does not show both reminders, #22 is verified again
+    on an appointment in 內科 `MED` or 骨科 `ORTH` (#180), because ophthalmology
+    can call too far out of number order to show them.
   - Edge cases (passed, check-in order, unavailable source, number gone from the
     list) are covered by fixtures.
 - [ ] #131: the security baseline, grilled after #22 passes and finished before
   Production goes live, because release day invites family members.
-- [ ] #139: the agreed words on screen.
 - [ ] Production's LINE setup: its Official Account and Messaging API channel
   under the same provider as its Login channel, the Login channel Published, and
   Staging's callback removed from it.

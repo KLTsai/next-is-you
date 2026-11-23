@@ -28,10 +28,8 @@ Honest status as of today. The GitHub tracker is the authoritative source. Nothi
 
 **In progress**
 
-- [ ] Organizer-managed LINE enrollment and removal UI: merged and verified locally; a live walkthrough with a real family LINE account is still open - [#19](https://github.com/KLTsai/next-is-you/issues/19)
-- [ ] NTU ophthalmology reader: fixture and local integration evidence in place; the source's request contract and markup were captured by hand, but the reader's own live behavior is unverified - [#20](https://github.com/KLTsai/next-is-you/issues/20)
-- [ ] Private storage recovery and operator readiness - [#21](https://github.com/KLTsai/next-is-you/issues/21)
-- [ ] Owner's handset pilot (first real reminder) - [#22](https://github.com/KLTsai/next-is-you/issues/22)
+- [ ] Making Staging, then Production, live: the gates in [docs/PRE-LIVE-CHECKLIST.md](docs/PRE-LIVE-CHECKLIST.md) - [#129](https://github.com/KLTsai/next-is-you/issues/129)
+- [ ] Owner's handset pilot (first real reminder). It also owns the live checks left by the closed [#19](https://github.com/KLTsai/next-is-you/issues/19) (own-account LINE walkthrough) and [#20](https://github.com/KLTsai/next-is-you/issues/20) (first genuine read compared with the room), and replaces [#21](https://github.com/KLTsai/next-is-you/issues/21) - [#22](https://github.com/KLTsai/next-is-you/issues/22)
 
 **Future direction** (planned, not committed)
 

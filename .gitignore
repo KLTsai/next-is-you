@@ -20,6 +20,7 @@ __pycache__/
 .playwright-mcp/
 .treehouse/
 
-.claude/
+.claude/*
+!.claude/settings.json
 .agents/
 .lavish/

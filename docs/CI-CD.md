@@ -83,7 +83,7 @@ gates still report their own result:
 | Build | `npm run build` |
 | Migration check | `scripts/check_migrations.py` |
 | Backend and browser tests | `npm run build`, Playwright Chromium, then `pytest -q` |
-| Diff hygiene | `scripts/check_ci_diff.sh` |
+| Diff hygiene | `scripts/check_ci_diff.sh`: whitespace errors, and agent `Co-authored-by` trailers on new commits |
 
 After the gates, a Summary job lists each gate and its outcome on the run page,
 and fails the run if any gate did not succeed. On `main` only, the Release

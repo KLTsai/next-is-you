@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 from playwright.sync_api import expect, sync_playwright
 import uvicorn
@@ -21,6 +22,9 @@ from next_is_you.identity import IdentityRepository
 from next_is_you.persistence import Statement, VisitRepository
 from next_is_you.send_gate import SystemSendGate
 from worker import create_app
+
+# These journeys serve the built UI from dist/ through create_app.
+pytestmark = pytest.mark.usefixtures("built_ui")
 
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -15,6 +15,7 @@ from playwright.sync_api import expect, sync_playwright
 
 from next_is_you.auth import SESSION_COOKIE_NAME, issue_session
 from test_worker_startup import ROOT, _free_loopback_port, _process_output
+from worktree_bootstrap import require_frontend_toolchain
 
 
 CONFIG = ROOT / "wrangler.production.example.jsonc"
@@ -115,6 +116,7 @@ def test_held_native_configuration_and_recovery_hold_persist_across_restart(tmp_
         "CI": "1",
         "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV": "false",
     }
+    require_frontend_toolchain()
     subprocess.run(
         ["npm", "run", "build"],
         cwd=ROOT,

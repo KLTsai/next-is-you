@@ -41,6 +41,9 @@ from test_local_acceptance import (
 )
 from worker import create_app
 
+# These journeys serve the built UI from dist/ through create_app.
+pytestmark = pytest.mark.usefixtures("built_ui")
+
 
 class RegistryReaderBindingApp(LocalTestBindingApp):
     """Local test binding that also routes reads through the hospital registry."""

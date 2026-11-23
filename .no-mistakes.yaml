@@ -1,0 +1,18 @@
+# Repository settings for the no-mistakes gate.
+# no-mistakes reads `commands` and `test.prepare` only from the default branch,
+# so edits here take effect after they merge to main.
+
+commands:
+  # Pipeline run worktrees start with tracked files only. Install the locked
+  # Node and Python dependencies before Lint, Format and Test, so Lint runs the
+  # real TypeScript check instead of skipping it for a missing tsc. See the
+  # Worktrees section of README.md.
+  prepare: "npm ci --prefer-offline && uv sync --group dev --locked"
+  # The CI "Formatting and lint" and "Type check" gates.
+  lint: "uv run ruff format --check src tests scripts && uv run ruff check src tests scripts && npm run typecheck"
+  format: "uv run ruff format src tests scripts"
+
+test:
+  # Test stays agent-driven; install the dependencies before its first turn
+  # so browser tests can build the UI.
+  prepare: true

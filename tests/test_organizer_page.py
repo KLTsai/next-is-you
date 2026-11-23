@@ -27,6 +27,7 @@ from organizer_page import (
     visit_day,
 )
 from test_rehearsal import rehearsal
+from worktree_bootstrap import require_frontend_toolchain
 
 REQUEST_FAILED_TEXT = "操作未完成，請重新載入後再試。"
 INVITATION_LINK = re.compile(r"/auth/line\?invite=.+")
@@ -56,6 +57,7 @@ def organizer_service(request, tmp_path_factory, organizer_browser):
     work = tmp_path_factory.mktemp(request.param)
     if request.param == "fake":
         # Built here, so the suite never judges a stale dist/.
+        require_frontend_toolchain()
         dist = work / "dist"
         subprocess.run(
             ["npx", "vite", "build", "--outDir", str(dist), "--emptyOutDir"],

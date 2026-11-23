@@ -12,6 +12,7 @@ import threading
 import time
 from datetime import date, timedelta
 
+import pytest
 import uvicorn
 from playwright.sync_api import sync_playwright
 
@@ -29,6 +30,9 @@ from test_local_acceptance import (
     SQLiteStore,
 )
 from worker import create_app
+
+# These journeys serve the built UI from dist/ through create_app.
+pytestmark = pytest.mark.usefixtures("built_ui")
 
 
 def test_current_number_only_hospital_goes_straight_to_manual_entry(

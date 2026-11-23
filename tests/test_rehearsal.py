@@ -18,12 +18,15 @@ from zoneinfo import ZoneInfo
 import pytest
 from playwright.sync_api import expect, sync_playwright
 
+from worktree_bootstrap import require_frontend_toolchain
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 @contextmanager
 def rehearsal(tmp_path, port):
+    require_frontend_toolchain()
     environment = {
         **os.environ,
         "NIY_REHEARSAL_STATE": str(tmp_path / "state"),

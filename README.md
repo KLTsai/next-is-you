@@ -160,6 +160,19 @@ Linked procedures:
 
 Active work is tracked in [GitHub Issues](https://github.com/KLTsai/next-is-you/issues).
 
+## Worktrees
+
+Each session (an agent, a terminal, treehouse, or the no-mistakes pipeline) works in its own git worktree, never in a checkout another session is using. A new worktree has tracked files only: no `node_modules/`, `.venv/` or `dist/`. Bootstrap it once before running any check:
+
+```sh
+npm ci && uv sync --group dev --locked && npm run build
+```
+
+- Rerun `npm ci` or `uv sync --group dev --locked` when `package-lock.json` or `uv.lock` changes.
+- `npm run dev:local`, `npm run dev:rehearsal` and the browser tests build the UI themselves. Rerun `npm run build` after changing `frontend/` when you serve `dist/` any other way, such as `pywrangler dev` or the Python app directly.
+- Without `node_modules/`, `npm run typecheck` cannot find `tsc`, and every browser test that builds the UI fails at once with "This worktree is not bootstrapped".
+- A worktree nested inside the main checkout, such as `.claude/worktrees/`, silently uses the main checkout's `node_modules/`, which may not match its own lockfile. Bootstrap it too.
+
 ## Scope and non-goals
 
 Next is you is a private family tool. It will not:

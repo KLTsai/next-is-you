@@ -15,6 +15,8 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from playwright.sync_api import expect, sync_playwright
 
+from worktree_bootstrap import require_frontend_toolchain
+
 ROOT = Path(__file__).resolve().parents[1]
 ORIGIN = "http://organizer.test"
 DATE = '#visit-form input[name="date"]'
@@ -25,6 +27,7 @@ CALENDAR_BUTTON_INSET = 22
 
 @pytest.fixture(scope="module")
 def dist(tmp_path_factory) -> Path:
+    require_frontend_toolchain()
     out = tmp_path_factory.mktemp("dist")
     subprocess.run(
         ["npx", "vite", "build", "--outDir", str(out), "--emptyOutDir"],

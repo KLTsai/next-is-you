@@ -161,6 +161,19 @@ git diff --check
 
 目前的工作追蹤在 [GitHub Issues](https://github.com/KLTsai/next-is-you/issues)。
 
+## Worktrees
+
+每個 session（agent、終端機、treehouse 或 no-mistakes pipeline）都在自己的 git worktree 裡工作，不要用別的 session 正在用的 checkout。新的 worktree 只有被 git 追蹤的檔案：沒有 `node_modules/`、`.venv/` 與 `dist/`。執行任何檢查前先 bootstrap 一次：
+
+```sh
+npm ci && uv sync --group dev --locked && npm run build
+```
+
+- `package-lock.json` 或 `uv.lock` 有變動時，重跑 `npm ci` 或 `uv sync --group dev --locked`。
+- `npm run dev:local`、`npm run dev:rehearsal` 與瀏覽器測試會自己建置 UI。改了 `frontend/` 之後若用其他方式提供 `dist/`（例如直接跑 `pywrangler dev` 或 Python app），要重跑 `npm run build`。
+- 沒有 `node_modules/` 時，`npm run typecheck` 找不到 `tsc`，每個需要建置 UI 的瀏覽器測試會立刻以 "This worktree is not bootstrapped" 失敗。
+- 位在主 checkout 裡面的 worktree（例如 `.claude/worktrees/`）會默默用到主 checkout 的 `node_modules/`，不一定符合它自己的 lockfile；這種 worktree 也要 bootstrap。
+
 ## 範圍與非目標
 
 Next is you 是一個私人家庭工具。它不會：

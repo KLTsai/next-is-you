@@ -433,11 +433,17 @@ async def test_unsupported_scope_is_rejected_without_a_request(bad) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "session",
-    [ClinicSession.MORNING, ClinicSession.AFTERNOON, ClinicSession.EVENING],
+    ("session", "hour"),
+    [
+        (ClinicSession.MORNING, 8),
+        (ClinicSession.MORNING, 15),
+        (ClinicSession.MORNING, 20),
+        (ClinicSession.AFTERNOON, 15),
+        (ClinicSession.AFTERNOON, 20),
+        (ClinicSession.EVENING, 20),
+    ],
 )
-@pytest.mark.parametrize("hour", [9, 15, 20])
-async def test_every_session_is_read_at_any_hour_of_the_entered_day(session, hour):
+async def test_every_session_is_read_at_any_hour_once_its_reads_began(session, hour):
     source = FakeSource(PAGE)
     observation = await reader(source).observe(scope(session=session), taipei(hour, 0))
     if session == ClinicSession.EVENING:
@@ -453,11 +459,11 @@ async def test_every_session_is_read_at_any_hour_of_the_entered_day(session, hou
 
 
 @pytest.mark.asyncio
-async def test_no_wall_clock_session_boundary_exists() -> None:
+async def test_no_wall_clock_session_boundary_exists_once_reads_began() -> None:
     source = FakeSource(PAGE)
     r = reader(source)
     # The old reader refused 13:19 and 16:40; both are ordinary reads now.
-    for hour, minute in ((0, 1), (13, 19), (16, 40), (23, 58)):
+    for hour, minute in ((12, 30), (13, 19), (16, 40), (23, 58)):
         assert isinstance(
             await r.observe(scope(), taipei(hour, minute)), QueueObservation
         )
@@ -729,15 +735,15 @@ async def test_a_number_returning_clears_the_blank_run() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_clinic_that_never_called_is_checked_sparsely_and_never_ends() -> None:
+async def test_a_clinic_that_never_called_is_checked_sparsely() -> None:
     # The list alone is read sparsely until the card's detail page is found.
     source = FakeSource(page_with(""), links=False)
     r = reader(source)
     not_started = ReadSkipped("clinic_not_started")
-    assert await r.observe(scope(), taipei(9, 0)) == not_started
-    assert await r.observe(scope(), taipei(9, 2)) == ReadSkipped("not_due")
-    assert await r.observe(scope(), taipei(9, 4, 59)) == ReadSkipped("not_due")
-    assert await r.observe(scope(), taipei(9, 5)) == not_started
+    assert await r.observe(scope(), taipei(13, 0)) == not_started
+    assert await r.observe(scope(), taipei(13, 2)) == ReadSkipped("not_due")
+    assert await r.observe(scope(), taipei(13, 4, 59)) == ReadSkipped("not_due")
+    assert await r.observe(scope(), taipei(13, 5)) == not_started
     assert len(source.urls) == 2
 
 
@@ -745,13 +751,13 @@ async def test_a_clinic_that_never_called_is_checked_sparsely_and_never_ends() -
 async def test_the_first_number_switches_the_watch_to_the_dense_cadence() -> None:
     source = FakeSource(page_with(""), PAGE, links=False)
     r = reader(source)
-    assert await r.observe(scope(), taipei(9, 0)) == ReadSkipped("clinic_not_started")
+    assert await r.observe(scope(), taipei(13, 0)) == ReadSkipped("clinic_not_started")
     # Sparse until it starts.
-    assert await r.observe(scope(), taipei(9, 3)) == ReadSkipped("not_due")
-    assert isinstance(await r.observe(scope(), taipei(9, 5)), QueueObservation)
+    assert await r.observe(scope(), taipei(13, 3)) == ReadSkipped("not_due")
+    assert isinstance(await r.observe(scope(), taipei(13, 5)), QueueObservation)
     # Dense from the read that saw the number, not five minutes after it.
-    assert await r.observe(scope(), taipei(9, 6)) == ReadSkipped("not_due")
-    assert isinstance(await r.observe(scope(), taipei(9, 7)), QueueObservation)
+    assert await r.observe(scope(), taipei(13, 6)) == ReadSkipped("not_due")
+    assert isinstance(await r.observe(scope(), taipei(13, 7)), QueueObservation)
 
 
 # Roster listing for the setup picker
@@ -1628,7 +1634,7 @@ async def test_a_substitute_card_in_the_room_is_the_visits_card_marked_as_such()
 async def test_a_substitute_card_that_has_not_called_yet_is_still_marked() -> None:
     page = (PAGE.replace("合成醫師丙", "住院醫師(代)")).replace("025", "")
     result = await reader(FakeSource(page)).observe(
-        scope(SCHEDULE_FORM_CLINIC), taipei(8, 0)
+        scope(SCHEDULE_FORM_CLINIC), taipei(13, 0)
     )
     assert result == ReadSkipped("clinic_not_started", substitute_doctor=True)
     assert result.source_read == ("unavailable", "substitute_doctor")

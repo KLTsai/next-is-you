@@ -79,10 +79,12 @@ async def test_the_visit_runs_once_numbers_appear_after_an_early_start() -> None
     await seed_ntuh_at(database, gate, "v", DAY, clinic_code=SCHEDULE_FORM)
     assert await gate.start_visit("v", taipei(9, 0).isoformat()) == {"state": "active"}
 
-    first = await gate.scheduled_tick(taipei(9, 6).isoformat())
-    assert first["events_created"] == 0
+    # The list when the reads begin, then the clinic's own page, still blank.
+    for minute in (30, 32):
+        waiting = await gate.scheduled_tick(taipei(12, minute).isoformat())
+        assert waiting["events_created"] == 0
     source.page = PAGE
-    called = await gate.scheduled_tick(taipei(9, 12).isoformat())
+    called = await gate.scheduled_tick(taipei(12, 34).isoformat())
     assert called["events_created"] == 1
     assert counts(database, "v")[:2] == ("usable", "none")
 
@@ -141,7 +143,7 @@ async def test_a_doctor_absent_on_the_day_needs_attention_with_the_reason() -> N
     )
     database, gate = await started_three_days_ahead(source)
 
-    tick = await gate.scheduled_tick(at(VISIT_DAY, 0, 40).isoformat())
+    tick = await gate.scheduled_tick(at(VISIT_DAY, 8, 0).isoformat())
 
     assert tick["events_created"] == 0
     assert counts(database, "v")[:2] == ("unavailable", "card_not_found")
@@ -158,11 +160,9 @@ async def tick_every_minute(gate, start: datetime, end: datetime) -> int:
 
 
 @pytest.mark.asyncio
-async def test_an_unlisted_card_sends_nothing_overnight_before_the_session_start() -> (
-    None
-):
-    # NTUH lists the day's cards from midnight; a card it has not listed yet is
-    # not a failed read. The family must not get a LINE message in the night.
+async def test_an_unlisted_card_sends_nothing_before_the_session_start() -> None:
+    # A card that is not listed when the reads begin at 08:00 is not a failed read
+    # until the published start. The family must not get a LINE message before it.
     source = SwitchableSource(
         card_page(_card("05 診", "合成醫師己", "普通門診", "")),
         schedule=SCHEDULE_FIXTURE,
@@ -218,7 +218,7 @@ async def test_a_substitute_card_before_the_first_number_is_marked_not_silent() 
     )
     database, gate = await started_three_days_ahead(source)
 
-    tick = await gate.scheduled_tick(at(VISIT_DAY, 0, 40).isoformat())
+    tick = await gate.scheduled_tick(at(VISIT_DAY, 8, 0).isoformat())
 
     assert tick["events_created"] == 0
     assert counts(database, "v")[:2] == ("unavailable", "substitute_doctor")

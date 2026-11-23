@@ -164,10 +164,12 @@ Also (decided in #129, 2026-11-20):
 
 - Read a clinic's progress pages only while a visit on that clinic is running,
   at the cadence its reader states (NTUH: every 2 minutes,
-  `docs/NTUH-READER.md`). Read the clinic schedule once a Taipei day for the
-  clinics of drafts and running visits whose day has not come (the daily
-  recheck, `GLOSSARY.md`), and while an organizer picks a clinic. Count the
-  rate across every live environment together, not per environment.
+  `docs/NTUH-READER.md`). On the visit day, scheduled reads of a clinic begin one
+  hour before its session's published start; Start on the visit day still reads
+  whatever the hour (captain, 2026-11-22, #181). Read the clinic schedule once a
+  Taipei day for the clinics of drafts and running visits whose day has not come
+  (the daily recheck, `GLOSSARY.md`), and while an organizer picks a clinic. Count
+  the rate across every live environment together, not per environment.
   (Captain decision, 2026-11-21. The scheduler rechecks drafts today; running
   visits join the recheck with #130.)
 - On a challenge, block or error page, stop reading that hospital and do not

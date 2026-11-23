@@ -19,6 +19,9 @@ uv sync --group dev --locked
 ```
 
 For automated browser regressions only, also run `uv run playwright install chromium`.
+`uv run pytest tests/test_organizer_page.py -k rehearsal` runs the organizer page
+browser tests against this rehearsal, on a dataset of its own; `-k fake` runs the
+same tests against a fake API.
 No real credentials or environment template are needed for this journey.
 `workers-py` 1.17.4 supplies `pywrangler`; `workers-runtime-sdk` 1.9.0 provides
 the Worker runtime support. Worker commands prepare generated compatibility

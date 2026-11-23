@@ -517,11 +517,39 @@ function restoreFieldFocus(focus: FieldFocus | null): void {
   if (!field) return;
   // preventScroll: a repaint while the organizer scrolls must not drag the
   // page back to this field.
+  const { scrollX, scrollY } = window;
   field.focus({ preventScroll: true });
+  // Chrome ignores preventScroll on a date field, so put the page back if it moved.
+  if (field.type === "date" && (window.scrollX !== scrollX || window.scrollY !== scrollY)) {
+    window.scrollTo({ left: scrollX, top: scrollY, behavior: "instant" });
+  }
   if (field instanceof HTMLInputElement && focus.start !== null && focus.end !== null) {
     field.setSelectionRange(focus.start, focus.end);
   }
 }
+
+// While an input method is composing a word (Chinese, Japanese, Korean), a
+// repaint would replace the field and end the composition: the sounds typed so
+// far land in the field as plain text and the candidates cannot be picked.
+// The repaint waits until the word is committed.
+let composing = false;
+let repaintAfterComposition = false;
+
+document.addEventListener("compositionstart", () => {
+  composing = true;
+});
+function endComposition(): void {
+  composing = false;
+  if (!repaintAfterComposition) return;
+  repaintAfterComposition = false;
+  // After the committed text has reached the field.
+  window.setTimeout(() => renderDashboard(), 0);
+}
+
+document.addEventListener("compositionend", endComposition);
+// A field that loses focus ends its composition; never wait for an end that
+// does not come.
+document.addEventListener("focusout", endComposition);
 
 // Everything a refresh can change on the page.
 function serverState(): string {
@@ -569,6 +597,11 @@ function repaintInBackground(): void {
 
 function renderDashboard(preserveCurrentForm = true): void {
   if (!app) return;
+  // First, so that nothing is marked as painted while the repaint waits.
+  if (composing && authorized) {
+    repaintAfterComposition = true;
+    return;
+  }
   if (backgroundRepaintTimer !== null) {
     window.clearTimeout(backgroundRepaintTimer);
     backgroundRepaintTimer = null;

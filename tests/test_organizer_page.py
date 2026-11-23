@@ -184,6 +184,31 @@ def test_typing_across_repaints_keeps_every_character_and_the_caret(organizer, n
     expect(field).to_be_focused()
 
 
+@pytest.mark.parametrize("name", ["member_label", "clinic_code"])
+def test_a_word_being_composed_keeps_its_candidates_across_polls(organizer, name):
+    """With an input method (Chinese, Japanese, Korean), the typed sounds stay
+    open for a pick of the word until it is committed; a repaint ends that."""
+    field = open_with_field(organizer, name)
+    organizer.press(field)
+    field.evaluate("field => { field.sameElement = true; }")
+    ime = organizer.page.context.new_cdp_session(organizer.page)
+    ime.send(
+        "Input.imeSetComposition",
+        {"text": "ㄇㄚ", "selectionStart": 2, "selectionEnd": 2},
+    )
+    organizer.wait_for_polls(3)
+    # Still the same field, still composing: the candidates can be picked from.
+    assert field.evaluate("field => field.sameElement === true")
+    expect(field).to_be_focused()
+    expect(field).to_have_value("ㄇㄚ")
+
+    ime.send("Input.insertText", {"text": "媽"})
+    expect(field).to_have_value("媽")
+    organizer.wait_for_repaints(1)
+    expect(field).to_have_value("媽")
+    expect(field).to_be_focused()
+
+
 def test_choices_survive_repaints(organizer):
     organizer.open("stopping")
     entered = organizer.enter_everything()

@@ -420,6 +420,16 @@ class OrganizerPage:
                 # Fires the page's own polling timer now, not a second from now.
                 self.page.clock.fast_forward(1000)
 
+    def wait_for_polls(self, count: int) -> None:
+        """Wait until the page has asked for the visits `count` more times."""
+        target = self.count_sent("GET", "/api/organizer/visits") + count
+        for _ in range(500):
+            if self.count_sent("GET", "/api/organizer/visits") >= target:
+                return
+            self.page.clock.fast_forward(1000)
+            self.page.wait_for_timeout(20)
+        raise AssertionError("The page stopped polling")
+
     @contextmanager
     def repainting(self):
         """The page repaints because of what happens inside the block."""

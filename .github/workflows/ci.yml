@@ -28,6 +28,23 @@ jobs:
       - run: uv sync --group dev --locked
       - run: uv run ruff format --check src tests scripts
       - run: uv run ruff check src tests scripts
+      # Workflow lint. promote.yml runs only when the captain promotes, so no
+      # pull request run exercises its bash and expressions; actionlint checks
+      # them here. It runs shellcheck on run: scripts with the runner's
+      # shellcheck. A step, not a gate job: scripts/delivery_state.py GATES
+      # names exactly seven gates.
+      - name: Lint workflows (actionlint)
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
+          ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+        run: |
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/$archive"
+          echo "$ACTIONLINT_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -version
+          "$RUNNER_TEMP/actionlint" -color
 
   typecheck:
     name: Type check

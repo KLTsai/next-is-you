@@ -66,7 +66,8 @@ place.
 
 ## One change, one run
 
-`.github/workflows/ci.yml` is the only automatic workflow. A push to a pull
+`.github/workflows/ci.yml` is the only automatic workflow that runs the gates
+(`pr-title.yml` only checks the pull request title). A push to a pull
 request branch starts exactly one run, a push to `main` starts exactly one run,
 and a tag push starts none. A branch without a pull request has no run until one
 is opened, because running on both branch pushes and pull requests is what made

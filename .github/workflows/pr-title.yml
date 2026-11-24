@@ -30,4 +30,6 @@ jobs:
           TITLE: ${{ github.event.pull_request.title }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: git diff --name-only --no-renames "$PR_BASE_SHA...$PR_HEAD_SHA" | python3 scripts/pr_title_gate.py
+        run: |
+          set -o pipefail
+          git diff --name-only --no-renames "$PR_BASE_SHA...$PR_HEAD_SHA" | python3 scripts/pr_title_gate.py

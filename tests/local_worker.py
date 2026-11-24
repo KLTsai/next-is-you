@@ -102,7 +102,10 @@ def local_worker(
             process = subprocess.Popen(
                 list(command),
                 cwd=ROOT,
-                env=env,
+                # On a cold npm cache `npx wrangler --version` first prints
+                # npm's deprecation warnings, and pywrangler reads the first
+                # version there (`node-domexception@1.0.0`) as wrangler's.
+                env={**env, "npm_config_loglevel": "error"},
                 stdin=terminal,
                 stdout=terminal,
                 stderr=terminal,

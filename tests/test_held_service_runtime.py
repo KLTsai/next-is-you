@@ -2,19 +2,18 @@
 
 import json
 import os
-import signal
 import ssl
 import subprocess
 import sys
 import time
-from contextlib import contextmanager
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from playwright.sync_api import expect, sync_playwright
 
+from local_worker import ROOT, local_worker, local_worker_on_known_port
 from next_is_you.auth import SESSION_COOKIE_NAME, issue_session
-from test_worker_startup import ROOT, _free_loopback_port, _process_output
 from worktree_bootstrap import require_frontend_toolchain
 
 
@@ -49,21 +48,24 @@ def request(origin, path, *, session=None, body=None, method="GET"):
         return error.code, error.read()
 
 
-@contextmanager
-def held_worker(port, persist, environment):
-    process = subprocess.Popen(
-        [
+def held_command(persist):
+    def command(port):
+        return [
             sys.executable,
             "-m",
             "pywrangler",
             "dev",
             "--local",
+            "--ip",
+            "127.0.0.1",
             "--config",
             str(CONFIG),
             "--persist-to",
             str(persist),
             "--port",
             str(port),
+            "--inspector-port",
+            "0",
             "--local-protocol",
             "https",
             "--show-interactive-dev-session=false",
@@ -72,42 +74,15 @@ def held_worker(port, persist, environment):
             "--var",
             "LINE_LOGIN_CHANNEL_SECRET:fixture-channel-secret",
             "--var",
+            # The Worker only trusts a callback on the origin it serves.
             f"LINE_LOGIN_REDIRECT_URI:https://127.0.0.1:{port}/auth/line/callback",
             "--var",
             f"SESSION_SIGNING_SECRET:{SECRET}",
             "--var",
             "ORGANIZER_LINE_SUBJECTS:fixture-organizer",
-        ],
-        cwd=ROOT,
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        start_new_session=True,
-    )
-    origin = f"https://127.0.0.1:{port}"
-    try:
-        deadline = time.monotonic() + 90
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                raise AssertionError(_process_output(process))
-            try:
-                if request(origin, "/api/healthz")[0] == 200:
-                    break
-            except (OSError, URLError):
-                pass
-            time.sleep(0.25)
-        else:
-            raise AssertionError("Held local Worker startup timed out")
-        yield origin
-    finally:
-        if process.poll() is None:
-            os.killpg(process.pid, signal.SIGTERM)
-        try:
-            _process_output(process)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.communicate(timeout=10)
+        ]
+
+    return command
 
 
 def test_held_native_configuration_and_recovery_hold_persist_across_restart(tmp_path):
@@ -146,11 +121,11 @@ def test_held_native_configuration_and_recovery_hold_persist_across_restart(tmp_
         text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    port = _free_loopback_port()
     session = issue_session(
         "fixture-organizer", "organizer", SECRET, now=int(time.time())
     )
-    with held_worker(port, persist, environment) as origin:
+    command = held_command(persist)
+    with local_worker_on_known_port(command, env=environment) as origin:
         assert json.loads(request(origin, "/api/healthz")[1])["mode"] == "held-service"
         assert request(origin, "/api/organizer/scheduler/status")[0] == 401
         assert (
@@ -215,7 +190,8 @@ def test_held_native_configuration_and_recovery_hold_persist_across_restart(tmp_
             expect(page.locator("#service-status")).to_have_text("服務正常")
             context.close()
             browser.close()
-    with held_worker(port, persist, environment) as origin:
+    # The restart keeps the origin the session and callback were issued for.
+    with local_worker(command(urlsplit(origin).port), env=environment) as origin:
         status, after = request(
             origin, "/api/organizer/scheduler/status", session=session
         )

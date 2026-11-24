@@ -11,16 +11,24 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
+from itertools import chain
 from urllib.request import urlopen
 
 import pytest
 
-from local_worker import ROOT, WRANGLER_PICKS_PORTS, local_worker
+from local_worker import (
+    ROOT,
+    WRANGLER_PICKS_PORTS,
+    local_worker,
+    local_worker_on_known_port,
+    loopback_listener,
+    unused_loopback_port,
+)
 
 WRANGLER_CONFIG = ROOT / "wrangler.niy006.test.jsonc"
 
 
-def _wrangler_dev(config, persist_to):
+def _wrangler_dev(config, persist_to, ports=WRANGLER_PICKS_PORTS):
     return [
         sys.executable,
         "-m",
@@ -34,7 +42,7 @@ def _wrangler_dev(config, persist_to):
         "--persist-to",
         str(persist_to),
         "--show-interactive-dev-session=false",
-        *WRANGLER_PICKS_PORTS,
+        *ports,
     ]
 
 
@@ -77,3 +85,31 @@ def test_local_worker_startup_failure_fails_at_once_with_wrangler_output(tmp_pat
     message = str(failure.value)
     assert message.startswith("Local Worker exited before serving:")
     assert "The `python_workers` compatibility flag is required" in message
+
+
+def test_local_worker_on_known_port_moves_on_when_that_port_is_taken(tmp_path):
+    # A Worker that must know its port before it starts (an HTTPS callback
+    # URL, say) gets a new port when another process took the chosen one.
+    with loopback_listener() as (taken, _):
+        held = taken.getsockname()[1]
+        offered = chain([held], iter(unused_loopback_port, None))
+        chosen = []
+
+        def command(port):
+            chosen.append(port)
+            return _wrangler_dev(
+                WRANGLER_CONFIG,
+                tmp_path / "state",
+                ("--port", str(port), "--inspector-port", "0"),
+            )
+
+        with local_worker_on_known_port(
+            command,
+            env={**os.environ, "CI": "1"},
+            pick_port=lambda: next(offered),
+        ) as origin:
+            with urlopen(origin + "/api/healthz", timeout=10) as response:
+                assert response.status == 200
+    assert chosen[0] == held
+    assert len(chosen) == 2
+    assert origin == f"http://127.0.0.1:{chosen[1]}"

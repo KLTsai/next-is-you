@@ -8,8 +8,10 @@ two `wrangler dev` started together pick the same one and the second dies with
 `Address already in use (socket "direct:1:default")` (#225).
 
 So a local Worker is started with both ports set to 0, the OS assigns them at
-bind time, and the origin is read back from wrangler's "Ready on" line. An
-in-process server keeps the listening socket it was given.
+bind time, and the origin is read back from wrangler's "Ready on" line. A
+Worker that must know its port before it starts (its HTTPS callback URL names
+it) moves to a new port when wrangler reports that one taken. An in-process
+server keeps the listening socket it was given.
 """
 
 from __future__ import annotations
@@ -19,11 +21,12 @@ import pty
 import re
 import signal
 import socket
+import ssl
 import subprocess
 import threading
 import time
-from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
@@ -33,8 +36,11 @@ ROOT = Path(__file__).resolve().parents[1]
 # Arguments for `wrangler dev` that let the OS assign both of its ports.
 WRANGLER_PICKS_PORTS = ("--port", "0", "--inspector-port", "0")
 
-_READY = re.compile(r"Ready on (http://127\.0\.0\.1:\d+)")
+_READY = re.compile(r"Ready on (https?://127\.0\.0\.1:\d+)")
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+# `--local-protocol https` serves a self-signed certificate. Only ever used
+# for 127.0.0.1, which `_READY` guarantees.
+_LOOPBACK_TLS = ssl._create_unverified_context()
 
 
 @contextmanager
@@ -111,13 +117,54 @@ def _wait_until_healthy(
             origin = ready.group(1)
         if origin is not None:
             try:
-                with urlopen(origin + "/api/healthz", timeout=1) as response:
+                with urlopen(
+                    origin + "/api/healthz", timeout=1, context=_LOOPBACK_TLS
+                ) as response:
                     if response.status == 200:
                         return origin
             except (OSError, URLError):
                 pass
         time.sleep(0.25)
     raise AssertionError("Local Worker startup timed out:\n" + "".join(output))
+
+
+def unused_loopback_port() -> int:
+    """A loopback port the OS just assigned and released. Another process may
+    take it before it is used; `local_worker_on_known_port` handles that."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+@contextmanager
+def local_worker_on_known_port(
+    command: Callable[[int], Sequence[str]],
+    *,
+    env: dict[str, str],
+    log_path: Path | None = None,
+    pick_port: Callable[[], int] = unused_loopback_port,
+    attempts: int = 3,
+) -> Iterator[str]:
+    """Like `local_worker`, for a Worker whose command must name its port.
+
+    `command(port)` must pass `--port port` and `--inspector-port 0`. Only
+    wrangler's "Address already in use" for that port starts another attempt;
+    any other failure fails at once.
+    """
+    for attempt in range(1, attempts + 1):
+        port = pick_port()
+        with ExitStack() as stack:
+            try:
+                origin = stack.enter_context(
+                    local_worker(command(port), env=env, log_path=log_path)
+                )
+            except AssertionError as error:
+                taken = f"Address already in use (127.0.0.1:{port})" in str(error)
+                if taken and attempt < attempts:
+                    continue
+                raise
+            yield origin
+            return
 
 
 @contextmanager

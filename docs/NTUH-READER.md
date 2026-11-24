@@ -63,7 +63,7 @@ A card looks like this, and the reader reads `room-number`, `clinic-doc-name`, `
 
 ## Source evidence and known gaps
 
-The request contract and the card markup above were captured on 2026-10-29 with two plain requests against the owner's host, and the parser reads that captured page correctly (`research/private/source-evidence/ntuh-oph-clinic-end-2026-10-29.md`). What remains unverified is the reader's own behavior against the live source: no test, CI run or deployment has issued these requests from the Worker, and the fixtures below are synthetic pages shaped from the captured markup. Markup that does not produce a complete card fails closed as `schema_drift`. Accuracy against the room's physical indicator is unproven.
+The request contract and the card markup above were captured on 2026-10-29 with two plain requests against the owner's host, and the parser reads that captured page correctly (`research/private/source-evidence/ntuh-oph-clinic-end-2026-10-29.md`). What remains unverified is the reader's own behavior against the live source: no test, CI run or deployment has issued these requests from the Worker. Replay tests read real list and detail pages captured on 2026-11-20 and 2026-11-23 (`tests/fixtures/hospitals/ntuh_captures/`, ADR 0006, #205); the other NTUH fixtures are synthetic pages shaped from the captured markup. Markup that does not produce a complete card fails closed as `schema_drift`. Accuracy against the room's physical indicator is unproven.
 
 The same evidence rules out two things the reader must not start doing:
 

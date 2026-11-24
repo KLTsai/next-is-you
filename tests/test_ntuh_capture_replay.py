@@ -1,6 +1,6 @@
 """Replay real NTUH pages through the reader (#205, ADR 0006).
 
-Fixture/mock evidence over live provider captures: every page under
+Fixture/mock evidence. Every page under
 `fixtures/hospitals/ntuh_captures/` is a public NTUH page committed as the
 hospital served it, with one leading comment naming its capture. Expected values
 are read off the page as a person sees it, and checked against
@@ -55,9 +55,9 @@ def test_every_capture_names_its_capture_and_holds_only_the_page() -> None:
     names = sorted(path.name for path in CAPTURES.glob("*.html"))
     assert len(names) == 11
     for name in names:
-        first_line, page = capture(name).split("\n", 1)
-        assert _NAMED_CAPTURE.fullmatch(first_line.rstrip("\r")), name
-        assert _REQUEST_TEXT.search(page) is None, name
+        text = capture(name)
+        assert _NAMED_CAPTURE.fullmatch(text.split("\n", 1)[0].rstrip("\r")), name
+        assert _REQUEST_TEXT.search(text) is None, name
 
 
 def capture(name: str) -> str:
@@ -66,6 +66,9 @@ def capture(name: str) -> str:
 
 def numbers_as_shown(listing: str) -> tuple[NumberStatus, ...]:
     """The 所有燈號狀態 list written the way the page shows it.
+
+    It maps the page's visible words, while the parser reads the tag classes, so
+    the two disagree when the parser misreads a tag.
 
     "2 未報到 14 報到10" is number 2 not checked in and number 14 checked in as the
     tenth to check in.
@@ -313,7 +316,9 @@ def test_a_card_links_to_the_detail_page_showing_the_same_light() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reader_finds_the_card_on_a_real_list_and_reads_its_real_detail_page():
+async def test_reader_finds_the_card_on_a_real_list_and_reads_its_real_detail_page() -> (
+    None
+):
     # The visit-day read of 眼科 02診 薛琴, morning of 2026-11-20: the first read
     # finds the card on the 11:30:48 list, the next one reads the card's detail
     # page captured at 11:30:51.

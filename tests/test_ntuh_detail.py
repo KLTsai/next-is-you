@@ -7,20 +7,13 @@ page the hospital has not served yet. Nothing in this file reaches the network.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from next_is_you.ntuh_detail import ProgressObservation, parse_detail_page
+from test_ntuh_capture_replay import capture
 
 # 骨科部 02診 at 10:30:17 on 2026-11-23, with a 初診 number.
-PAGE = (
-    Path(__file__).parent
-    / "fixtures"
-    / "hospitals"
-    / "ntuh_captures"
-    / "detail_orth02_2026-11-23_1030.html"
-).read_text(encoding="utf-8")
+PAGE = capture("detail_orth02_2026-11-23_1030.html")
 
 
 def _observation(html: str) -> ProgressObservation:

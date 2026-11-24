@@ -352,6 +352,17 @@ class OrganizerPage:
         )
         page.context.route("**/*", self._route)
 
+    def close(self) -> None:
+        """Close the page once no request is still inside the route handler.
+
+        The handler fetches a real answer, then reads its body. A close between
+        the two disposes that answer, and Playwright raises the handler's
+        "Response has been disposed" at whatever call comes next, often in
+        another test's fixture. Waiting lets the handler finish first.
+        """
+        self.page.context.unroute_all(behavior="wait")
+        self.page.context.close()
+
     # Requests
 
     @staticmethod

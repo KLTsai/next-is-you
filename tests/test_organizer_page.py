@@ -11,9 +11,13 @@ visits they added and never count all of them.
 
 from __future__ import annotations
 
+import json
 import re
 import socket
 import subprocess
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -84,11 +88,66 @@ def organizer(request, organizer_browser, organizer_service):
     context = browser.new_context(**SCREENS[request.param])
     page = context.new_page()
     page.set_default_timeout(15_000)
+    organizer = OrganizerPage(page, backend, touch=request.param == "phone")
     try:
-        yield OrganizerPage(page, backend, touch=request.param == "phone")
+        yield organizer
         backend.close()
     finally:
-        context.close()
+        organizer.close()
+
+
+def test_closing_a_page_while_a_poll_is_answered_leaves_playwright_usable(
+    organizer_browser,
+):
+    # A repaint poll goes through the route handler, which fetches the real
+    # answer and then reads its body. Closing the page between the two used to
+    # leave Playwright holding the handler's "Response has been disposed", which
+    # it raised at the next call: the module's controls.dispose() in CI.
+    polled, answer = threading.Event(), threading.Event()
+
+    class Worker(BaseHTTPRequestHandler):
+        def log_message(self, *args) -> None:
+            pass
+
+        def do_GET(self) -> None:
+            if self.path == "/api/organizer/visits":
+                polled.set()
+                answer.wait(5)
+                kind, body = "application/json", json.dumps({"visits": []})
+            else:
+                kind, body = (
+                    "text/html",
+                    "<script>fetch('/api/organizer/visits')</script>",
+                )
+            self.send_response(200)
+            self.send_header("Content-Type", kind)
+            self.send_header("Content-Length", str(len(body.encode())))
+            self.end_headers()
+            self.wfile.write(body.encode())
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Worker)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    playwright, browser = organizer_browser
+    controls = playwright.request.new_context()
+    try:
+        origin = f"http://127.0.0.1:{server.server_port}"
+        page = browser.new_context().new_page()
+        organizer = OrganizerPage(page, RehearsalBackend(origin, controls), touch=False)
+        page.goto(origin)
+        for _ in range(100):
+            if polled.is_set():
+                break
+            page.wait_for_timeout(50)
+        assert polled.is_set(), "the page never polled"
+        answer.set()
+        # Blocks Playwright's dispatcher: the fetch finishes, but the handler
+        # reads the body only once the close below is under way.
+        time.sleep(0.5)
+        organizer.close()
+    finally:
+        controls.dispose()
+        server.shutdown()
+        server.server_close()
 
 
 FIELDS = [

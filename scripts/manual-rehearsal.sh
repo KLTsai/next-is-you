@@ -9,7 +9,14 @@ npm run build
 CI=1 uv run pywrangler d1 migrations apply next-is-you-niy006-local-test \
   --local --config wrangler.niy006.test.jsonc --persist-to "$state"
 
-printf '\nLocal rehearsal: http://127.0.0.1:%s\nState: %s\nUI Stop closes a reminder; Ctrl-C stops this local process.\n\n' "$port" "$state"
+if [ "$port" = 0 ]; then
+  address='the "Ready on" address below'
+else
+  address="http://127.0.0.1:$port"
+fi
+printf '\nLocal rehearsal: %s\nState: %s\nUI Stop closes a reminder; Ctrl-C stops this local process.\n\n' "$address" "$state"
+# Tests set both ports to 0 so the OS assigns them (#225).
 exec uv run pywrangler dev --local --ip 127.0.0.1 \
   --config wrangler.niy006.test.jsonc --persist-to "$state" --port "$port" \
+  ${NIY_REHEARSAL_INSPECTOR_PORT:+--inspector-port "$NIY_REHEARSAL_INSPECTOR_PORT"} \
   --show-interactive-dev-session=false

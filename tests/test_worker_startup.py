@@ -2,31 +2,19 @@ from __future__ import annotations
 
 import json
 import os
-import signal
-import socket
 import subprocess
 import sys
-import time
 from pathlib import Path
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
 
+from local_worker import WRANGLER_PICKS_PORTS, local_worker
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WRANGLER_CONFIG = ROOT / "wrangler.niy006.test.jsonc"
-
-
-def _free_loopback_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-        listener.bind(("127.0.0.1", 0))
-        return int(listener.getsockname()[1])
-
-
-def _process_output(process: subprocess.Popen[str]) -> str:
-    output, _ = process.communicate(timeout=10)
-    return output or ""
 
 
 @pytest.mark.parametrize("production", [False, True])
@@ -37,7 +25,6 @@ def test_wrangler_worker_starts_and_serves_health_endpoint(
     assets.mkdir()
     (assets / "index.html").write_text("<!doctype html>", encoding="utf-8")
     persist_to = tmp_path / "wrangler-state"
-    port = _free_loopback_port()
     environment = os.environ.copy()
     environment["CI"] = "1"
     migrations = subprocess.run(
@@ -62,57 +49,29 @@ def test_wrangler_worker_starts_and_serves_health_endpoint(
         check=False,
     )
     assert migrations.returncode == 0, migrations.stdout + migrations.stderr
-    process = subprocess.Popen(
+    with local_worker(
         [
             sys.executable,
             "-m",
             "pywrangler",
             "dev",
             "--local",
+            "--ip",
+            "127.0.0.1",
             "--config",
             str(WRANGLER_CONFIG),
             "--persist-to",
             str(persist_to),
             "--assets",
             str(assets),
-            "--port",
-            str(port),
             "--show-interactive-dev-session=false",
+            *WRANGLER_PICKS_PORTS,
             *(["--var", "NIY_ENVIRONMENT:production"] if production else []),
         ],
-        cwd=ROOT,
         env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        start_new_session=True,
-    )
-
-    try:
-        deadline = time.monotonic() + 90
-        response_body = None
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                output = _process_output(process)
-                raise AssertionError(
-                    "Wrangler exited before serving the Worker:\n" + output
-                )
-            try:
-                with urlopen(
-                    f"http://127.0.0.1:{port}/api/healthz", timeout=1
-                ) as response:
-                    if response.status == 200:
-                        response_body = response.read()
-                        break
-            except (OSError, URLError):
-                pass
-            time.sleep(0.25)
-        else:
-            output = _process_output(process)
-            raise AssertionError(
-                "Wrangler did not serve the Worker before the timeout:\n" + output
-            )
-
+    ) as origin:
+        with urlopen(origin + "/api/healthz", timeout=10) as response:
+            response_body = response.read()
         assert json.loads(response_body) == {
             "status": "ok",
             "mode": "held-service" if production else "local-test",
@@ -123,7 +82,7 @@ def test_wrangler_worker_starts_and_serves_health_endpoint(
                 with pytest.raises(HTTPError) as denied:
                     urlopen(
                         Request(
-                            f"http://127.0.0.1:{port}/__niy006_test/{operation}",
+                            f"{origin}/__niy006_test/{operation}",
                             data=b"{}",
                             headers={"content-type": "application/json"},
                             method="POST",
@@ -132,19 +91,17 @@ def test_wrangler_worker_starts_and_serves_health_endpoint(
                     )
                 assert denied.value.code == 404
             with pytest.raises(HTTPError) as unavailable:
-                urlopen(f"http://127.0.0.1:{port}/auth/line", timeout=10)
+                urlopen(f"{origin}/auth/line", timeout=10)
             assert unavailable.value.code == 503
-            with urlopen(f"http://127.0.0.1:{port}/", timeout=10) as response:
+            with urlopen(f"{origin}/", timeout=10) as response:
                 assert response.read() == b"<!doctype html>"
-            with urlopen(
-                f"http://127.0.0.1:{port}/cdn-cgi/local/scheduled", timeout=10
-            ) as response:
+            with urlopen(f"{origin}/cdn-cgi/local/scheduled", timeout=10) as response:
                 assert response.status == 200
             return
 
         with urlopen(
             Request(
-                f"http://127.0.0.1:{port}/__niy006_test/snapshot",
+                f"{origin}/__niy006_test/snapshot",
                 data=b"{}",
                 headers={"content-type": "application/json"},
                 method="POST",
@@ -156,15 +113,5 @@ def test_wrangler_worker_starts_and_serves_health_endpoint(
         assert snapshot["events"] == []
         assert snapshot["line_requests"] == []
 
-        with urlopen(
-            f"http://127.0.0.1:{port}/cdn-cgi/local/scheduled", timeout=10
-        ) as response:
+        with urlopen(f"{origin}/cdn-cgi/local/scheduled", timeout=10) as response:
             assert response.status == 200
-    finally:
-        if process.poll() is None:
-            os.killpg(process.pid, signal.SIGTERM)
-        try:
-            _process_output(process)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.communicate(timeout=10)

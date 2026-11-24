@@ -59,7 +59,9 @@ NIY_REHEARSAL_STATE=.wrangler/my-rehearsal NIY_REHEARSAL_PORT=8788 npm run dev:r
 ```
 
 Keep the same state location and port when restarting that journey. Adjust the
-URLs below if using another port. Do not point this command at a live dataset.
+URLs below if using another port. Automated tests set `NIY_REHEARSAL_PORT=0` and
+`NIY_REHEARSAL_INSPECTOR_PORT=0`, so the OS assigns both ports and wrangler's
+"Ready on" line names the address. Do not point this command at a live dataset.
 The send gate's alarm drives each tick ([ADR 0005](adr/0005-scheduler-tick-runs-from-a-durable-object-alarm.md)).
 Locally it fires on its own timer, as it does when deployed: every minute while a
 visit is active or stopping, every 5 minutes otherwise. Wrangler does not run Cron

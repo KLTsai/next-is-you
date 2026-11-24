@@ -7,7 +7,6 @@ and it is registered only for the duration of this test.
 
 from __future__ import annotations
 
-import socket
 import threading
 import time
 from datetime import date, timedelta
@@ -16,6 +15,7 @@ import pytest
 import uvicorn
 from playwright.sync_api import sync_playwright
 
+from local_worker import loopback_listener
 from next_is_you import hospital_registry
 from next_is_you.identity import IdentityRepository
 from next_is_you.persistence import VisitRepository
@@ -71,10 +71,7 @@ def test_current_number_only_hospital_goes_straight_to_manual_entry(
     )
 
     requested: list[str] = []
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        listener.listen()
-        port = listener.getsockname()[1]
+    with loopback_listener() as (listener, origin):
         server = uvicorn.Server(
             uvicorn.Config(LocalTestBindingApp(app), log_level="error", lifespan="off")
         )
@@ -87,7 +84,6 @@ def test_current_number_only_hospital_goes_straight_to_manual_entry(
             time.sleep(0.01)
         assert server.started, "local HTTP test server did not start"
 
-        origin = f"http://127.0.0.1:{port}"
         try:
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch()

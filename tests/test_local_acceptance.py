@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
-import socket
 import threading
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -15,6 +14,7 @@ from httpx import ASGITransport, AsyncClient
 from playwright.sync_api import expect, sync_playwright
 import uvicorn
 
+from local_worker import loopback_listener
 from next_is_you.auth import CSRF_COOKIE_NAME
 from next_is_you.domain import ClinicScope, ClinicSession
 from next_is_you.source_samples import ParseStatus, parse_ntuh_fragment
@@ -369,10 +369,7 @@ def test_local_browser_acceptance_journey() -> None:
         clock=lambda: NOW.timestamp(),
     )
 
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        listener.listen()
-        port = listener.getsockname()[1]
+    with loopback_listener() as (listener, origin):
         server = uvicorn.Server(
             uvicorn.Config(
                 LocalTestBindingApp(app),
@@ -391,7 +388,6 @@ def test_local_browser_acceptance_journey() -> None:
             time.sleep(0.01)
         assert server.started, "local HTTP test server did not start"
 
-        origin = f"http://127.0.0.1:{port}"
         try:
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch()

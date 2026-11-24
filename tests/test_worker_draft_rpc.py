@@ -2,25 +2,18 @@ from __future__ import annotations
 
 import json
 import os
-import signal
-import socket
 import subprocess
 import sys
-import time
 from http.cookies import SimpleCookie
 from pathlib import Path
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+
+from local_worker import WRANGLER_PICKS_PORTS, local_worker
 
 
 ROOT = Path(__file__).resolve().parents[1]
 WRANGLER_CONFIG = ROOT / "wrangler.niy006.test.jsonc"
-
-
-def _free_loopback_port() -> int:
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        return int(listener.getsockname()[1])
 
 
 def _request(url: str, *, method: str = "GET", body=None, headers=None):
@@ -94,56 +87,29 @@ def test_wrangler_draft_save_crosses_real_worker_durable_object_binding(tmp_path
     )
     assert seed_recipient.returncode == 0, seed_recipient.stdout + seed_recipient.stderr
 
-    port = _free_loopback_port()
-    process = subprocess.Popen(
+    with local_worker(
         [
             sys.executable,
             "-m",
             "pywrangler",
             "dev",
             "--local",
+            "--ip",
+            "127.0.0.1",
             "--config",
             str(WRANGLER_CONFIG),
             "--assets",
             str(assets),
-            "--port",
-            str(port),
             "--persist-to",
             str(persist),
             "--show-interactive-dev-session=false",
+            *WRANGLER_PICKS_PORTS,
         ],
-        cwd=ROOT,
         env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        start_new_session=True,
-    )
-    base_url = f"http://127.0.0.1:{port}"
-    try:
-        deadline = time.monotonic() + 90
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                output, _ = process.communicate(timeout=10)
-                raise AssertionError(
-                    "Wrangler exited before serving the Worker:\n" + output
-                )
-            try:
-                status, body, _ = _request(base_url + "/api/healthz")
-                if status == 200:
-                    assert json.loads(body) == {
-                        "status": "ok",
-                        "mode": "local-test",
-                    }
-                    break
-            except (OSError, URLError):
-                pass
-            time.sleep(0.25)
-        else:
-            output, _ = process.communicate(timeout=10)
-            raise AssertionError(
-                "Wrangler did not serve the Worker before timeout:\n" + output
-            )
+    ) as base_url:
+        status, body, _ = _request(base_url + "/api/healthz")
+        assert status == 200
+        assert json.loads(body) == {"status": "ok", "mode": "local-test"}
 
         status, _, login_headers = _request(
             base_url + "/__niy006_test/organizer-session",
@@ -288,12 +254,3 @@ def test_wrangler_draft_save_crosses_real_worker_durable_object_binding(tmp_path
         assert test_control(
             "observation", {**observation, "progress": {"numbers": [[85, "gone"]]}}
         ) == (400, {"configured": False})
-
-    finally:
-        if process.poll() is None:
-            os.killpg(process.pid, signal.SIGTERM)
-        try:
-            process.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.communicate(timeout=10)

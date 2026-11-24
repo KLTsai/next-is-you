@@ -99,11 +99,16 @@ def _render(path: Segments) -> str:
     )
 
 
+def _is_identifier(value: object) -> bool:
+    return isinstance(value, str)
+
+
 def _same(staging_value: object, production_value: object) -> bool:
     # Hostnames and many resource names are case-insensitive, so strings are
-    # compared without case.
-    if isinstance(staging_value, str) and isinstance(production_value, str):
-        return staging_value.casefold() == production_value.casefold()
+    # compared without case. A number names the same thing as a string with
+    # the same text, such as a channel ID written either way in `vars`.
+    if _is_identifier(staging_value) or _is_identifier(production_value):
+        return str(staging_value).casefold() == str(production_value).casefold()
     return staging_value == production_value
 
 
@@ -132,8 +137,10 @@ def shared_values(
             # A string names a resource wherever it sits, so a shared string
             # counts under any two paths. A flag or number only counts at the
             # same path, where it means the same setting.
-            if isinstance(staging_value, str) or _shape(staging_path) == _shape(
-                production_path
+            if (
+                _is_identifier(staging_value)
+                or _is_identifier(production_value)
+                or _shape(staging_path) == _shape(production_path)
             ):
                 findings.append(
                     SharedValue(
@@ -368,3 +375,12 @@ def test_rule_ignores_case_when_comparing_identifiers() -> None:
     findings = shared_values(staging, production)
 
     assert [f.staging_path for f in findings] == ["routes[0]"]
+
+
+def test_rule_matches_a_number_and_a_string_with_the_same_text() -> None:
+    staging = {"vars": {"CHANNEL": 2011753957}}
+    production = {"vars": {"CHANNEL": "2011753957"}}
+
+    findings = shared_values(staging, production)
+
+    assert [f.staging_path for f in findings] == ["vars.CHANNEL"]

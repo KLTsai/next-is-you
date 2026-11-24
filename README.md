@@ -124,13 +124,13 @@ uv sync --group dev --locked
 `npm run lint` also runs [actionlint](https://github.com/rhysd/actionlint) on `.github/workflows/` (`npm run lint:workflows`). No npm or uv package provides it, so install the binary once, at the version CI pins in the `Lint workflows (actionlint)` step of [ci.yml](.github/workflows/ci.yml) (1.7.12 today), plus [shellcheck](https://www.shellcheck.net/), which actionlint uses for `run:` scripts and silently skips when it is missing:
 
 ```sh
-brew install actionlint shellcheck   # Homebrew installs the newest release
-# or download the pinned release into the current directory, then move it onto PATH:
+# Download the pinned release into the current directory, then move it onto PATH:
 bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
 actionlint -version
+brew install shellcheck
 ```
 
-A newer local actionlint may report findings CI does not; when that happens, fix them or bump the pinned version and checksum in `ci.yml` in the same change.
+`brew install actionlint` also works but installs the newest release, which may report findings CI does not. When that happens, fix them, or bump the version and checksum in `ci.yml` and the version in this section in the same change. CI uses the runner image's shellcheck, so its version follows the image.
 
 Local entrypoints:
 

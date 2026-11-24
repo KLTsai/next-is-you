@@ -9,7 +9,7 @@ commands:
   # Worktrees section of README.md.
   prepare: "npm ci --prefer-offline && uv sync --group dev --locked"
   # The CI "Formatting and lint" and "Type check" gates.
-  lint: "uv run ruff format --check src tests scripts && uv run ruff check src tests scripts && actionlint && npm run typecheck"
+  lint: "uv run ruff format --check src tests scripts && uv run ruff check src tests scripts && npm run lint:workflows && npm run typecheck"
   format: "uv run ruff format src tests scripts"
 
 test:

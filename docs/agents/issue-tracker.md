@@ -44,6 +44,24 @@ Every open issue carries exactly one state label and at least one `area:*` label
 - A merged PR does not by itself finish an issue. Close it only when every criterion is ticked with evidence; reopen it if `Closes #N` closed it early.
 - When issues are merged into another, comment on each one first with where it went and which decisions moved, list the source issues in the new issue, then close the old ones as not planned.
 
+### What proves a change works
+
+- **Revert check** for `feat` and `fix` PRs: remove the fix, name the test that goes red and show its failing output, then restore the fix. `chore`, `refactor` and `docs` PRs are exempt.
+- **Proof by kind of change:**
+  - Reader or parser: a replay test over a real capture ([ADR 0006](../adr/0006-real-hospital-captures-are-test-fixtures.md)).
+  - Scheduling: a fixture test with a fake clock.
+  - UI: a browser test, plus a Playwright screenshot (static layout) or video (scrolling, focus, typing) taken the way a user would operate it, with synthetic data, attached to the PR.
+  - Deployment config: a test that asserts the config.
+
+### Before rerunning a failed browser test
+
+1. Read its trace or screenshot.
+2. Run it 20 times locally, with latency injection where relevant.
+3. If it reproduces, treat it as a bug and use `diagnosing-bugs`.
+4. If it does not, a rerun is allowed only with an issue holding the trace and the 20-run result.
+
+Raise a timeout only when diagnosis shows the wait is legitimately that long, and put the reason in the PR. Raising a timeout alone waits longer on a condition a race may never meet, and can turn a real race green by luck (PR #59 to #62).
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.**

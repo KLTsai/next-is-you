@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import re
-import socket
 import subprocess
 import threading
 import time
@@ -71,11 +70,8 @@ def organizer_service(request, tmp_path_factory, organizer_browser):
         )
         yield lambda: FakeBackend(dist)
         return
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = int(listener.getsockname()[1])
     playwright, _ = organizer_browser
-    with rehearsal(work, port) as origin:
+    with rehearsal(work) as origin:
         controls = playwright.request.new_context()
         yield lambda: RehearsalBackend(origin, controls)
         controls.dispose()

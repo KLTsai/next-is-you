@@ -8,7 +8,6 @@ or production. No request leaves the local test server.
 
 from __future__ import annotations
 
-import socket
 import threading
 import time
 from datetime import date, timedelta
@@ -18,6 +17,7 @@ import pytest
 import uvicorn
 from playwright.sync_api import Page, expect, sync_playwright
 
+from local_worker import loopback_listener
 from next_is_you import hospital_registry
 from next_is_you.domain import ClinicRoster
 from next_is_you.identity import IdentityRepository
@@ -117,10 +117,7 @@ def journey() -> Iterator[Journey]:
 
 
 def run_in_browser(journey: Journey, steps: Any) -> None:
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        listener.listen()
-        port = listener.getsockname()[1]
+    with loopback_listener() as (listener, origin):
         server = uvicorn.Server(
             uvicorn.Config(journey.app(), log_level="error", lifespan="off")
         )
@@ -133,7 +130,6 @@ def run_in_browser(journey: Journey, steps: Any) -> None:
             time.sleep(0.01)
         assert server.started, "local HTTP test server did not start"
 
-        origin = f"http://127.0.0.1:{port}"
         try:
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch()

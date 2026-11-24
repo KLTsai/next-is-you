@@ -2,89 +2,40 @@ from __future__ import annotations
 
 import json
 import os
-import pty
-import signal
-import socket
-import subprocess
-import threading
-import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from urllib.error import URLError
-from urllib.request import urlopen
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 import pytest
 from playwright.sync_api import expect, sync_playwright
 
+from local_worker import local_worker
 from worktree_bootstrap import require_frontend_toolchain
 
 
-ROOT = Path(__file__).resolve().parents[1]
-
-
 @contextmanager
-def rehearsal(tmp_path, port):
+def rehearsal(tmp_path, port=0):
+    """Runs `npm run dev:rehearsal` and yields its origin.
+
+    Port 0 lets the OS assign it. A restart that must keep the browser's origin
+    passes the port of the first run's origin; that reuses a port just
+    released, a smaller race no fresh port can avoid.
+    """
     require_frontend_toolchain()
     environment = {
         **os.environ,
         "NIY_REHEARSAL_STATE": str(tmp_path / "state"),
         "NIY_REHEARSAL_PORT": str(port),
+        "NIY_REHEARSAL_INSPECTOR_PORT": "0",
     }
     environment.pop("CI", None)
-    master, terminal = pty.openpty()
-    output = []
-
-    def read_terminal():
-        try:
-            while chunk := os.read(master, 65536):
-                output.append(chunk.decode(errors="replace"))
-        except OSError:
-            pass  # The terminal closes after the foreground process exits.
-
-    reader = threading.Thread(target=read_terminal)
-    try:
-        process = subprocess.Popen(
-            ["npm", "run", "dev:rehearsal"],
-            cwd=ROOT,
-            env=environment,
-            stdin=terminal,
-            stdout=terminal,
-            stderr=terminal,
-            start_new_session=True,
-        )
-        os.close(terminal)
-        reader.start()
-        origin = f"http://127.0.0.1:{port}"
-        try:
-            deadline = time.monotonic() + 90
-            while time.monotonic() < deadline:
-                if process.poll() is not None:
-                    raise AssertionError("Rehearsal exited:\n" + "".join(output))
-                try:
-                    with urlopen(origin + "/api/healthz", timeout=1) as response:
-                        if response.status == 200:
-                            break
-                except (OSError, URLError):
-                    pass
-                time.sleep(0.25)
-            else:
-                raise AssertionError("Rehearsal startup timed out:\n" + "".join(output))
-            yield origin
-        finally:
-            if process.poll() is None:
-                os.killpg(process.pid, signal.SIGINT)
-            try:
-                process.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait(timeout=10)
-    finally:
-        reader.join(timeout=10)
-        os.close(master)
-        (tmp_path / "server.log").write_text("".join(output))
-        assert not reader.is_alive(), "Rehearsal left a terminal reader running"
+    with local_worker(
+        ["npm", "run", "dev:rehearsal"],
+        env=environment,
+        log_path=tmp_path / "server.log",
+    ) as origin:
+        yield origin
 
 
 def control(page, origin, operation, data=None):
@@ -96,13 +47,9 @@ def control(page, origin, operation, data=None):
 
 
 def test_rehearsal_empty_dashboard_keeps_reminder_status_list_visible(tmp_path):
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = int(listener.getsockname()[1])
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context(viewport={"width": 1280, "height": 900})
-        origin = f"http://127.0.0.1:{port}"
         context.route(
             "**/*",
             lambda route: (
@@ -113,7 +60,7 @@ def test_rehearsal_empty_dashboard_keeps_reminder_status_list_visible(tmp_path):
         )
         page = context.new_page()
         try:
-            with rehearsal(tmp_path, port):
+            with rehearsal(tmp_path) as origin:
                 page.goto(origin)
                 page.get_by_role("button", name="本機合成測試登入").click()
                 status_list = page.get_by_role("region", name="提醒清單")
@@ -125,14 +72,10 @@ def test_rehearsal_empty_dashboard_keeps_reminder_status_list_visible(tmp_path):
 
 
 def test_rehearsal_started_reminder_keeps_its_last_recipient(tmp_path):
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = int(listener.getsockname()[1])
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context()
-        origin = f"http://127.0.0.1:{port}"
         context.route(
             "**/*",
             lambda route: (
@@ -143,7 +86,7 @@ def test_rehearsal_started_reminder_keeps_its_last_recipient(tmp_path):
         )
         page = context.new_page()
         try:
-            with rehearsal(tmp_path, port):
+            with rehearsal(tmp_path) as origin:
                 control(
                     page,
                     origin,
@@ -211,14 +154,10 @@ def test_rehearsal_started_reminder_keeps_its_last_recipient(tmp_path):
 
 
 def test_rehearsal_stop_shows_stopping_while_fake_line_request_is_in_flight(tmp_path):
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = int(listener.getsockname()[1])
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context()
-        origin = f"http://127.0.0.1:{port}"
         fail_next_visits = False
 
         def route_request(route):
@@ -243,7 +182,7 @@ def test_rehearsal_stop_shows_stopping_while_fake_line_request_is_in_flight(tmp_
         page = context.new_page()
         request_waiting = False
         try:
-            with rehearsal(tmp_path, port):
+            with rehearsal(tmp_path) as origin:
                 control(
                     page,
                     origin,
@@ -321,14 +260,10 @@ def test_rehearsal_stop_shows_stopping_while_fake_line_request_is_in_flight(tmp_
 
 
 def test_rehearsal_stopped_correction_cannot_add_recipients(tmp_path):
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = int(listener.getsockname()[1])
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context()
-        origin = f"http://127.0.0.1:{port}"
         context.route(
             "**/*",
             lambda route: (
@@ -339,7 +274,7 @@ def test_rehearsal_stopped_correction_cannot_add_recipients(tmp_path):
         )
         page = context.new_page()
         try:
-            with rehearsal(tmp_path, port):
+            with rehearsal(tmp_path) as origin:
                 control(
                     page,
                     origin,
@@ -398,9 +333,6 @@ def test_rehearsal_stopped_correction_cannot_add_recipients(tmp_path):
 def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_duplicate_alert(
     tmp_path,
 ):
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = int(listener.getsockname()[1])
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     next_day = (datetime.fromisoformat(day) + timedelta(days=1)).date().isoformat()
     expired_at = datetime.fromisoformat(day).replace(tzinfo=timezone.utc) + timedelta(
@@ -412,7 +344,6 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context()
-        origin = f"http://127.0.0.1:{port}"
         context.route(
             "**/*",
             lambda route: (
@@ -423,7 +354,7 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
         )
         page = context.new_page()
         try:
-            with rehearsal(tmp_path, port):
+            with rehearsal(tmp_path) as origin:
                 control(
                     page,
                     origin,
@@ -552,14 +483,10 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
 
 
 def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_path):
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = listener.getsockname()[1]
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context()
-        origin = f"http://127.0.0.1:{port}"
         context.route(
             "**/*",
             lambda route: (
@@ -570,7 +497,7 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
         )
         page = context.new_page()
         try:
-            with rehearsal(tmp_path, port):
+            with rehearsal(tmp_path) as origin:
                 # Native fixture preparation happens only once, before the UI journey.
                 control(
                     page,
@@ -634,7 +561,7 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
                 expect(page.locator("#saved-drafts-list")).to_contain_text("86")
 
             # The command reapplies migrations and rebuilds, without seeding/resetting.
-            with rehearsal(tmp_path, port):
+            with rehearsal(tmp_path, urlsplit(origin).port):
                 page.reload()
                 expect(page.locator("#visit-form")).to_be_visible()
                 page.get_by_role("button", name="展開草稿").click()
@@ -687,7 +614,7 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
                     assert page.request.post(origin + "/__niy006_test/alarm").ok
                 assert control(page, origin, "snapshot") == first
 
-            with rehearsal(tmp_path, port):
+            with rehearsal(tmp_path, urlsplit(origin).port):
                 page.reload()
                 expect(page.locator(f'[data-stop="{visit_id}"]')).to_be_visible()
                 # Both the D1 event and DO fake-request log survived the process exit.
@@ -719,14 +646,10 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
 def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_drafts(
     tmp_path,
 ):
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = listener.getsockname()[1]
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context()
-        origin = f"http://127.0.0.1:{port}"
         context.route(
             "**/*",
             lambda route: (
@@ -737,7 +660,7 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
         )
         page = context.new_page()
         try:
-            with rehearsal(tmp_path, port):
+            with rehearsal(tmp_path) as origin:
                 control(
                     page,
                     origin,
@@ -968,14 +891,10 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
 def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fields(
     tmp_path,
 ):
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = listener.getsockname()[1]
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context(viewport={"width": 1280, "height": 900})
-        origin = f"http://127.0.0.1:{port}"
         context.route(
             "**/*",
             lambda route: (
@@ -986,7 +905,7 @@ def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fie
         )
         page = context.new_page()
         try:
-            with rehearsal(tmp_path, port):
+            with rehearsal(tmp_path) as origin:
                 control(
                     page,
                     origin,
@@ -1084,9 +1003,6 @@ def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fie
     "scenario", ["settled", "fill_during_load", "click_during_load"]
 )
 def test_correction_save_vs_roster_latency(tmp_path, scenario):
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = int(listener.getsockname()[1])
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     next_day = (datetime.fromisoformat(day) + timedelta(days=1)).date().isoformat()
     expired_at = datetime.fromisoformat(day).replace(tzinfo=timezone.utc) + timedelta(
@@ -1095,7 +1011,6 @@ def test_correction_save_vs_roster_latency(tmp_path, scenario):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context()
-        origin = f"http://127.0.0.1:{port}"
         context.route(
             "**/*",
             lambda r: (
@@ -1114,7 +1029,7 @@ def test_correction_save_vs_roster_latency(tmp_path, scenario):
                 held.pop().continue_()
 
         try:
-            with rehearsal(tmp_path, port):
+            with rehearsal(tmp_path) as origin:
                 control(
                     page,
                     origin,
@@ -1165,9 +1080,6 @@ def test_correction_save_vs_roster_latency(tmp_path, scenario):
 def test_setup_form_shows_the_readers_label_and_the_chosen_clinics_details(tmp_path):
     # Local integration: the real page and backend, with the clinics request
     # answered in the browser because local test mode does not run the reader.
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = int(listener.getsockname()[1])
     day = (datetime.now(timezone.utc) + timedelta(days=2)).date().isoformat()
     roster = {
         "available": True,
@@ -1203,7 +1115,6 @@ def test_setup_form_shows_the_readers_label_and_the_chosen_clinics_details(tmp_p
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context(viewport={"width": 1280, "height": 900})
-        origin = f"http://127.0.0.1:{port}"
         context.route(
             "**/*",
             lambda route: (
@@ -1220,7 +1131,7 @@ def test_setup_form_shows_the_readers_label_and_the_chosen_clinics_details(tmp_p
             ),
         )
         try:
-            with rehearsal(tmp_path, port):
+            with rehearsal(tmp_path) as origin:
                 page.goto(origin)
                 page.get_by_role("button", name="本機合成測試登入").click()
                 page.locator("#visit-form").wait_for()
@@ -1262,13 +1173,9 @@ def test_setup_form_shows_the_readers_label_and_the_chosen_clinics_details(tmp_p
 def test_rehearsal_joined_family_member_is_told_how_to_return_to_the_manager_view(
     tmp_path,
 ):
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = int(listener.getsockname()[1])
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context(viewport={"width": 390, "height": 800})
-        origin = f"http://127.0.0.1:{port}"
         context.route(
             "**/*",
             lambda route: (
@@ -1279,7 +1186,7 @@ def test_rehearsal_joined_family_member_is_told_how_to_return_to_the_manager_vie
         )
         page = context.new_page()
         try:
-            with rehearsal(tmp_path, port):
+            with rehearsal(tmp_path) as origin:
                 control(
                     page,
                     origin,
@@ -1302,13 +1209,9 @@ def test_rehearsal_joined_family_member_is_told_how_to_return_to_the_manager_vie
 def test_rehearsal_invitee_who_waits_through_a_scheduler_tick_still_joins(tmp_path):
     # Issue #134, local integration: the invitee is on the consent page when the
     # per-minute tick runs, presses 確認加入 two minutes later and joins.
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = int(listener.getsockname()[1])
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context(viewport={"width": 390, "height": 800})
-        origin = f"http://127.0.0.1:{port}"
         context.route(
             "**/*",
             lambda route: (
@@ -1319,7 +1222,7 @@ def test_rehearsal_invitee_who_waits_through_a_scheduler_tick_still_joins(tmp_pa
         )
         page = context.new_page()
         try:
-            with rehearsal(tmp_path, port):
+            with rehearsal(tmp_path) as origin:
                 control(
                     page,
                     origin,

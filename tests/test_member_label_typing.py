@@ -5,22 +5,16 @@ Local integration: real browser on the local rehearsal Worker, synthetic login.
 
 from __future__ import annotations
 
-import socket
-
 from playwright.sync_api import expect, sync_playwright
 
 from test_rehearsal import rehearsal
 
 
 def test_rehearsal_member_label_typed_by_the_organizer_is_not_cleared(tmp_path):
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = int(listener.getsockname()[1])
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context(viewport={"width": 1280, "height": 900})
         context.grant_permissions(["clipboard-read", "clipboard-write"])
-        origin = f"http://127.0.0.1:{port}"
         context.route(
             "**/*",
             lambda route: (
@@ -31,7 +25,7 @@ def test_rehearsal_member_label_typed_by_the_organizer_is_not_cleared(tmp_path):
         )
         page = context.new_page()
         try:
-            with rehearsal(tmp_path, port):
+            with rehearsal(tmp_path) as origin:
                 page.goto(origin)
                 page.get_by_role("button", name="本機合成測試登入").click()
                 label = page.get_by_label("成員稱呼")
@@ -56,13 +50,9 @@ def test_rehearsal_member_label_typed_by_the_organizer_is_not_cleared(tmp_path):
 def test_rehearsal_member_label_survives_refresh_and_follows_the_invitation_result(
     tmp_path,
 ):
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = int(listener.getsockname()[1])
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context(viewport={"width": 1280, "height": 900})
-        origin = f"http://127.0.0.1:{port}"
         fail_invitations = {"on": False}
 
         def route(route):
@@ -79,7 +69,7 @@ def test_rehearsal_member_label_survives_refresh_and_follows_the_invitation_resu
         context.route("**/*", route)
         page = context.new_page()
         try:
-            with rehearsal(tmp_path, port):
+            with rehearsal(tmp_path) as origin:
                 page.goto(origin)
                 page.get_by_role("button", name="本機合成測試登入").click()
                 label = page.get_by_label("成員稱呼")

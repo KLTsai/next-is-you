@@ -1,7 +1,6 @@
 -- Synthetic rows for rehearsing migration 0008 on a database at 0007 (issue #135).
 -- Staging or local only. Every id starts with `rehearsal-8-` so the rows can be
--- found and removed afterwards, and do not collide with rows left by the 0007
--- rehearsal.
+-- found and removed afterwards.
 --
 -- Seed only while the database is in a recovery hold. Under it, scheduled
 -- cleanup deletes nothing but expired drafts, and the drafts below expire in
@@ -14,6 +13,16 @@
 -- nullable columns both set and NULL, an inactive recipient, a visit recipient
 -- at the cap of 20 near reminders, an unavailable warning, every outbound
 -- outcome) plus every source-read reason the CHECK allowed before 0008.
+
+-- Clear every earlier rehearsal first, children before parents, so this seed
+-- never collides with rows another seed left behind. GLOB is case-sensitive,
+-- unlike LIKE, so only ids that start with exactly `rehearsal-` match.
+DELETE FROM outbound_events
+WHERE id GLOB 'rehearsal-*' OR visit_id GLOB 'rehearsal-*' OR recipient_id GLOB 'rehearsal-*';
+DELETE FROM visit_recipients WHERE visit_id GLOB 'rehearsal-*' OR recipient_id GLOB 'rehearsal-*';
+DELETE FROM visits WHERE id GLOB 'rehearsal-*';
+DELETE FROM recipients WHERE id GLOB 'rehearsal-*';
+
 INSERT INTO recipients (id, line_subject, display_name, consented_at, friendship_checked_at, active, created_at) VALUES
     ('rehearsal-8-r-1', 'rehearsal-8-line-1', 'Rehearsal One', '2026-11-19T00:00:00Z', '2026-11-19T00:00:00Z', 1, '2026-11-19T00:00:00Z'),
     ('rehearsal-8-r-2', 'rehearsal-8-line-2', 'Rehearsal Two', '2026-11-19T00:00:00Z', NULL, 1, '2026-11-19T00:00:00Z'),

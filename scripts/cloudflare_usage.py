@@ -259,7 +259,13 @@ def main(
         token, account = (env[name] for name in SETTINGS)
         lines, over = check(account, now, post or http_post(token))
     except CheckFailed as error:
-        print(f"Cloudflare usage check could not run: {error}", file=out)
+        # Error text can echo the request back, and the report is published in
+        # a public run summary, so neither setting's value may appear in it.
+        reason = str(error)
+        for name, placeholder in zip(SETTINGS, ("<token>", "<account>")):
+            if env.get(name):
+                reason = reason.replace(env[name], placeholder)
+        print(f"Cloudflare usage check could not run: {reason}", file=out)
         return 2
     print("\n".join(lines), file=out)
     return 1 if over else 0

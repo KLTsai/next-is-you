@@ -237,3 +237,47 @@ def test_missing_settings_mean_the_check_could_not_run():
     assert code == 2
     assert "CLOUDFLARE_ANALYTICS_TOKEN" in report
     assert fake.calls == []
+
+
+SECRET_ENV = {
+    "CLOUDFLARE_ANALYTICS_TOKEN": "tok-SYNTHETIC-9f8e7d",
+    "CLOUDFLARE_ACCOUNT_ID": "acct-SYNTHETIC-1a2b3c",
+}
+
+
+def test_a_graphql_error_never_prints_the_account_id_or_the_token():
+    # The report goes into a run summary in a public repository.
+    fake = FakeGraphQL(
+        errors=[
+            {"message": "no access to account acct-SYNTHETIC-1a2b3c"},
+            {"message": "token tok-SYNTHETIC-9f8e7d is not valid"},
+        ]
+    )
+
+    code, report = run(fake, env=SECRET_ENV)
+
+    assert code == 2
+    assert "no access to account <account>" in report
+    assert "token <token> is not valid" in report
+    assert "acct-SYNTHETIC-1a2b3c" not in report
+    assert "tok-SYNTHETIC-9f8e7d" not in report
+
+
+def test_an_http_error_body_never_prints_the_account_id(monkeypatch):
+    body = b'{"errors":[{"message":"account acct-SYNTHETIC-1a2b3c is suspended"}]}'
+
+    def refuse(request, timeout):
+        raise cloudflare_usage.urllib.error.HTTPError(
+            request.full_url, 403, "Forbidden", {}, io.BytesIO(body)
+        )
+
+    monkeypatch.setattr(cloudflare_usage.urllib.request, "urlopen", refuse)
+    out = io.StringIO()
+
+    code = cloudflare_usage.main(env=SECRET_ENV, now=SIX_AM, out=out)
+
+    report = out.getvalue()
+    assert code == 2
+    assert "HTTP 403" in report
+    assert "account <account> is suspended" in report
+    assert "acct-SYNTHETIC-1a2b3c" not in report

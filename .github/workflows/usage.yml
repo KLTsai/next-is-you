@@ -5,6 +5,8 @@ name: Cloudflare usage
 # full day and fails above 50% of a limit; GitHub emails a failed scheduled run
 # to whoever last changed the cron line. Its job is not a CI gate:
 # scripts/delivery_state.py counts the gate jobs in ci.yml by name.
+# Its secrets live in the `usage` environment, which only `main` may use;
+# `deployment: false` reads them without adding a deployment record per run.
 on:
   schedule:
     # Minute 30, so the first run of a UTC day projects from half an hour of
@@ -24,6 +26,9 @@ jobs:
     name: Free plan daily usage
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment:
+      name: usage
+      deployment: false
     steps:
       - uses: actions/checkout@v7
         with:

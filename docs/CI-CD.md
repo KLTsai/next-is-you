@@ -329,6 +329,7 @@ The deployment branch policies must therefore be:
 | --- | --- | --- |
 | `staging` | branch `main` | Automatic staging deployment after a green push to `main`. |
 | `prod` | branch `main` | Promote, dispatched from `main`; the guard then checks the version's commit. |
+| `usage` | branch `main` | Secrets for the hourly [usage check](#daily-usage-on-the-free-plan). It deploys nothing and sets `deployment: false`, so it adds no entry to the **Deployments** list. |
 
 ## Release PR merge creates the tag
 
@@ -558,7 +559,10 @@ What it does not tell you:
   changed the `cron` line.
 
 The token is read-only (Account Analytics Read) and separate from the deploy
-token. `npm run status` stays GitHub only and does not run this check.
+token. It and the account ID live in the `usage` GitHub environment, which only
+`main` may use, so a workflow on another branch cannot read them. The job sets
+`deployment: false`, so its runs add nothing to the **Deployments** list.
+`npm run status` stays GitHub only and does not run this check.
 
 ## Promoting a version that applies migrations
 

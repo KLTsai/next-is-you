@@ -989,20 +989,27 @@ def test_a_second_job_carrying_a_gate_name_is_found(tmp_path, file, job, holder)
     assert sorted(found) == sorted(["ci.yml: build", holder])
 
 
+def ci_step_script(step: str) -> str:
+    """The `run: |` script of the ci.yml step with this name."""
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+    found = re.search(
+        rf"      - name: {re.escape(step)}\n(?:.*\n)*?        run: \|\n"
+        r"((?:(?:          .*)?\n)+)",
+        workflow,
+    )
+    assert found, f"ci.yml has no step named {step!r} with a run: | script"
+    return textwrap.dedent(found[1])
+
+
 def run_gate_summary(tmp_path, results: dict[str, str]) -> tuple[int, str]:
     """Run the Summary job's script as ci.yml has it, on these gate results."""
     if not shutil.which("jq"):
         pytest.skip("the Summary job's script needs jq")
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-    step = re.search(
-        r"      - name: Write the gate summary\n(?:.*\n)*?        run: \|\n"
-        r"((?:(?:          .*)?\n)+)",
-        workflow,
-    )
+    script = ci_step_script("Write the gate summary")
     summary = tmp_path / "summary.md"
     needs = {job: {"result": result, "outputs": {}} for job, result in results.items()}
     done = subprocess.run(
-        ["bash", "-c", textwrap.dedent(step[1])],
+        ["bash", "-c", script],
         env={
             **os.environ,
             "NEEDS": json.dumps(needs),
@@ -1032,6 +1039,29 @@ def test_the_run_summary_names_the_gate_that_did_not_succeed(tmp_path):
     assert code == 1
     assert "| Type check | failure |\n" in summary
     assert "| Migration check | skipped |\n" in summary
+
+
+# The backend and browser tests run as a matrix of shards, whose legs carry
+# their own check names. One job keeps the gate's name and stands for them all,
+# so GATES, Summary and the deploy jobs read one check as before.
+@pytest.mark.parametrize(
+    ("shards", "code"),
+    [("success", 0), ("failure", 1), ("cancelled", 1), ("skipped", 1)],
+)
+def test_the_test_gate_fails_unless_every_shard_succeeded(shards, code):
+    jobs = ci_jobs()
+    shard_jobs = jobs["backend-browser-tests"][1]
+    assert len(shard_jobs) == 1
+    assert jobs[shard_jobs[0]][0] not in delivery_state.GATES
+    done = subprocess.run(
+        ["bash", "-c", ci_step_script("Fail unless every shard succeeded")],
+        env={**os.environ, "SHARDS": shards},
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == code
+    if code:
+        assert shards in done.stderr
 
 
 # Staging after two pushes in quick succession. Each push's Deploy staging waits
@@ -1093,3 +1123,43 @@ def test_an_unreadable_head_of_main_names_the_fact_and_fails(monkeypatch):
     assert delivery_state.run_staging_order(out, err) == 1
     assert "head of main" in err.getvalue()
     assert "deploy=" not in out.getvalue()
+
+
+def collected_ids(*args: str) -> subprocess.Popen:
+    return subprocess.Popen(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", *args],
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def test_the_shards_in_ci_run_every_test_exactly_once():
+    # A matrix that names fewer groups than --splits leaves a group unrun, and
+    # its tests silently stop gating anything.
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+    pytest_run = re.search(r"uv run pytest .*--splits (\d+) .*", workflow)
+    algorithm = re.search(r"--splitting-algorithm (\S+)", pytest_run[0])[1]
+    splits = int(pytest_run[1])
+    groups = re.search(r"(?m)^        group: \[(.+)\]$", workflow)[1]
+    assert [int(g) for g in groups.split(",")] == list(range(1, splits + 1))
+
+    every = collected_ids()
+    shards = [
+        collected_ids(
+            "--splits",
+            str(splits),
+            "--group",
+            str(g),
+            "--splitting-algorithm",
+            algorithm,
+        )
+        for g in range(1, splits + 1)
+    ]
+    outputs = [p.communicate()[0] for p in (every, *shards)]
+    ids = [[line for line in out.splitlines() if "::" in line] for out in outputs]
+    assert all(ids), "a collection came back empty"
+    sharded = [test for shard in ids[1:] for test in shard]
+    assert len(sharded) == len(set(sharded))
+    assert set(sharded) == set(ids[0])

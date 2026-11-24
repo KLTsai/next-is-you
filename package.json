@@ -6,7 +6,8 @@
   "scripts": {
     "build": "vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "uv run ruff format --check src tests scripts && uv run ruff check src tests scripts",
+    "lint": "uv run ruff format --check src tests scripts && uv run ruff check src tests scripts && npm run lint:workflows",
+    "lint:workflows": "actionlint",
     "test": "uv run pytest -q -m \"not browser\" && npm run test:ui",
     "test:all": "uv run pytest -q",
     "test:ui": "node --test frontend/test/*.test.js",

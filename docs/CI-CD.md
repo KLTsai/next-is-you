@@ -78,7 +78,7 @@ gates still report their own result:
 
 | Gate | What it runs |
 | --- | --- |
-| Formatting and lint | `ruff format --check` and `ruff check` |
+| Formatting and lint | `ruff format --check`, `ruff check`, and actionlint on `.github/workflows/` (pinned version, checksum-verified download, shellcheck on `run:` scripts) |
 | Type check | `npm run typecheck` |
 | Frontend tests | `npm run test:ui` |
 | Build | `npm run build` |
@@ -203,6 +203,7 @@ pinned database id in `wrangler.staging.jsonc`, so that needs the owner's decisi
      uv run playwright install chromium
      uv run ruff format --check src tests scripts
      uv run ruff check src tests scripts
+     actionlint
      npm run typecheck
      npm run test:ui
      npm run build

@@ -635,7 +635,8 @@ An agent asks once per phase. Every command that writes names
    sqlite_master ORDER BY name` on both, production read-only, and confirm they
    match. If not, the rehearsal says nothing about production: stop.
 4. **Seed and take the before snapshot.** Write a seed file under
-   `scripts/migration-rehearsal/` (see `0007_seed.sql`): ids start with
+   `scripts/migration-rehearsal/` (see `0009_seed.sql`): it starts with the
+   same block that deletes earlier `rehearsal-` rows, ids start with
    `rehearsal-`, and every state, nullable column and constraint edge the
    migration touches is covered. The recovery hold from step 1 is what keeps
    the rows still: under it, scheduled cleanup deletes only expired drafts, so

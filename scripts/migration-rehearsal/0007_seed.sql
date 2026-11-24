@@ -12,6 +12,15 @@
 -- inactive recipient, a visit recipient at the cap of 20 near reminders, an
 -- unavailable warning, and every outbound outcome.
 
+-- Clear every earlier rehearsal first, children before parents, so this seed
+-- never collides with rows another seed left behind. GLOB is case-sensitive,
+-- unlike LIKE, so only ids that start with exactly `rehearsal-` match.
+DELETE FROM outbound_events
+WHERE id GLOB 'rehearsal-*' OR visit_id GLOB 'rehearsal-*' OR recipient_id GLOB 'rehearsal-*';
+DELETE FROM visit_recipients WHERE visit_id GLOB 'rehearsal-*' OR recipient_id GLOB 'rehearsal-*';
+DELETE FROM visits WHERE id GLOB 'rehearsal-*';
+DELETE FROM recipients WHERE id GLOB 'rehearsal-*';
+
 INSERT INTO recipients (id, line_subject, display_name, consented_at, friendship_checked_at, active, created_at) VALUES
     ('rehearsal-r-1', 'rehearsal-line-1', 'Rehearsal One', '2026-11-19T00:00:00Z', '2026-11-19T00:00:00Z', 1, '2026-11-19T00:00:00Z'),
     ('rehearsal-r-2', 'rehearsal-line-2', 'Rehearsal Two', '2026-11-19T00:00:00Z', NULL, 1, '2026-11-19T00:00:00Z'),

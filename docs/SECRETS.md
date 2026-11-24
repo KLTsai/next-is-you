@@ -161,10 +161,14 @@ write or read Worker secrets. Create the environment and both secrets before
 5. Leave **Client IP Address Filtering** and **TTL** empty, then **Continue to
    summary**. The summary must list only `Account Analytics:Read`. Keep a
    screenshot of it as evidence, then **Create Token** and copy the value.
-6. In GitHub: **Settings -> Environments -> New environment**, name `usage`,
-   **Configure environment**. Under **Deployment branches and tags** choose
-   **Selected branches and tags**, then **Add deployment branch or tag rule**:
-   branch `main`.
+6. In GitHub: **Settings -> Environments -> New environment**, name exactly
+   `usage` (not the token's name), **Configure environment**. Under
+   **Deployment branches and tags** choose **Selected branches and tags**, then
+   **Add deployment branch or tag rule**: branch `main`. Any other name leaves
+   the workflow without secrets: its first run creates an empty `usage`
+   environment with no branch rule, and fails with `Not set:`. If that happens,
+   add the branch rule and both secrets to that `usage` environment and delete
+   the misnamed one.
 7. In the same `usage` environment, **Environment secrets -> Add environment
    secret**: name `CLOUDFLARE_ANALYTICS_TOKEN`, paste the value, **Add secret**.
    Then add `CLOUDFLARE_ACCOUNT_ID`, the same account ID the `prod` and

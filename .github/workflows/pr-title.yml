@@ -1,0 +1,33 @@
+name: PR title
+
+# Squash merge makes the pull request title the one Conventional Commit on
+# main, so a feat, fix or perf title on a change that only touches CI, scripts,
+# tests or docs would make Release Please propose a version nobody can notice.
+# This is its own workflow, not a job in ci.yml: scripts/delivery_state.py
+# counts exactly seven gate jobs, and `edited` in ci.yml would rerun all of
+# them on every title edit.
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+
+jobs:
+  title-type:
+    name: PR title type
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Reject a release-proposing title on a non-product change
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git diff --name-only --no-renames "$PR_BASE_SHA...$PR_HEAD_SHA" | python3 scripts/pr_title_gate.py

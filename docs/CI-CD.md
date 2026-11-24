@@ -371,6 +371,17 @@ message is blank). So the PR title is the one Conventional Commit that lands on
 release PR #114 (#126). A PR title that is not a Conventional Commit is skipped
 by Release Please without any warning, so write it as one.
 
+The `PR title type` workflow (`.github/workflows/pr-title.yml`, rule in
+`scripts/pr_title_gate.py`) fails a pull request titled `feat`, `fix` or `perf`
+(with or without a scope or `!`) when every changed path is under `.github/`,
+`scripts/`, `tests/`, `docs/`, `research/` or is a `*.md` file. It prints the
+paths and the allowed types (`ci`, `chore`, `test`, `build`, `refactor`,
+`style`, `docs`). Renaming the pull request reruns it without a new push. It is
+not one of the seven gates, so `npm run status` ignores it. It does not catch
+the reverse mistake (`chore:` on product code); that stays a review judgement.
+Captain step: add `PR title type` to the "CI Summary before merge" ruleset as a
+required check.
+
 Release Please reads Conventional Commit messages:
 
 - `feat:` creates a minor version proposal.

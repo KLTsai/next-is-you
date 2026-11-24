@@ -136,7 +136,15 @@ Checks (install Chromium once with `uv run playwright install chromium`):
 
 Each gate is also its own script (`npm run lint`, `npm run typecheck`, and so on). The `browser` marker is assigned in `tests/conftest.py` to every test in a module that drives Chromium or starts a local Worker; `uv run pytest -m browser` runs only those. `check:diff` runs `scripts/check_ci_diff.sh` on the commits since `origin/main` and `git diff --check` on uncommitted changes.
 
-These are fixture/mock and local automated evidence; they do not contact a live hospital or LINE, deploy, or prove handset delivery. See the [CI workflow](.github/workflows/ci.yml): each pull request push or push to `main` is one run with seven named gates (formatting and lint, type check, frontend tests, build, migration check, backend and browser tests, diff hygiene) and a summary of each outcome; on `main`, Release Please follows the gates. Tag pushes start no run. [docs/CI-CD.md](docs/CI-CD.md#one-change-one-run) describes it.
+These are fixture/mock and local automated evidence; they do not contact a live hospital or LINE, deploy, or prove handset delivery. See the [CI workflow](.github/workflows/ci.yml): each pull request push or push to `main` is one run with seven named gates (formatting and lint, type check, frontend tests, build, migration check, backend and browser tests, diff hygiene) and a summary of each outcome; on `main`, Release Please follows the gates. Tag pushes start no run. [docs/CI-CD.md](docs/CI-CD.md#one-change-one-run) describes it. The backend and browser tests run as four shards on separate runners (pytest-split, balanced by the committed `.test_durations`), and the one job named "Backend and browser tests" fails unless every shard succeeded.
+
+When the shards' pytest steps drift more than about a minute apart, or after adding or removing many tests, refresh the durations from a full local run and commit the file in its own `test:` change:
+
+```sh
+uv run pytest -q --store-durations
+```
+
+Tests missing from the file are given the average duration, so a stale file only unbalances the shards; it never skips a test.
 
 Delivery follows [docs/CI-CD.md](docs/CI-CD.md): a green push to `main` deploys staging automatically; merging the release PR makes that commit a version tagged `vX.Y.Z`; and the captain runs **Promote** with the version number to put it in production and publish its Release. Documentation-only pushes leave staging untouched, and the repository variable `STAGING_DEPLOY_PAUSED` set to `true` pauses automatic staging deployment. Only the captain merges the release PR and runs Promote.
 

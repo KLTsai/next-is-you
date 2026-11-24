@@ -83,7 +83,7 @@ gates still report their own result:
 | Frontend tests | `npm run test:ui` |
 | Build | `npm run build` |
 | Migration check | `scripts/check_migrations.py` |
-| Backend and browser tests | `npm run build`, Playwright Chromium, then `pytest -q` |
+| Backend and browser tests | Four shards on separate runners, each running `npm run build`, Playwright Chromium, then its quarter of `pytest -q` (pytest-split, balanced by `.test_durations`). This job fails unless every shard succeeded; the shards' own checks (`... shard 1 of 4`) are not gates |
 | Diff hygiene | `scripts/check_ci_diff.sh`: whitespace errors, agent `Co-authored-by` trailers on new commits, and em dashes (U+2014) on added lines outside generated files such as `CHANGELOG.md` and lock files |
 
 After the gates, a Summary job lists each gate and its outcome on the run page,

@@ -79,9 +79,17 @@ jobs:
       - run: uv sync --group dev --locked
       - run: uv run python scripts/check_migrations.py
 
-  backend-browser-tests:
-    name: Backend and browser tests
+  # The suite is split across machines because its browser tests cannot run
+  # in parallel on one: they share dist/, pywrangler's files and ports.
+  # pytest-split balances the groups by .test_durations (README.md says how
+  # to refresh it). Each leg reports on its own, so fail-fast stays off.
+  backend-browser-shards:
+    name: Backend and browser tests shard ${{ matrix.group }} of ${{ strategy.job-total }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
@@ -98,7 +106,25 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: uv run playwright install --with-deps chromium
-      - run: uv run pytest -q
+      - run: uv run pytest -q --splits 4 --group ${{ matrix.group }} --splitting-algorithm least_duration
+
+  # The gate. Its name is what scripts/delivery_state.py GATES and Summary
+  # read, so the shards' own check names never stand in for it.
+  backend-browser-tests:
+    name: Backend and browser tests
+    if: ${{ always() }}
+    needs:
+      - backend-browser-shards
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless every shard succeeded
+        env:
+          SHARDS: ${{ needs.backend-browser-shards.result }}
+        run: |
+          if [ "$SHARDS" != "success" ]; then
+            echo "At least one test shard did not succeed: $SHARDS." >&2
+            exit 1
+          fi
 
   diff-hygiene:
     name: Diff hygiene

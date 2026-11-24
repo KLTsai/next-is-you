@@ -11,7 +11,7 @@ Commands below match the installed `gh-axi issue --help`. Pass `-R KLTsai/next-i
 - List issues: `gh-axi issue list -R KLTsai/next-is-you --state open --limit 100`. Add supported `--label`, `--assignee`, or `--state` filters as needed. Increase `--limit` or use `gh-axi api GET /repos/KLTsai/next-is-you/issues --paginate` when needed; API issue listings also include pull requests, so exclude those entries.
 - Comment: `gh-axi issue comment <number> -R KLTsai/next-is-you --body-file <path>`.
 - Apply or remove labels: `gh-axi issue edit <number> -R KLTsai/next-is-you --add-label "..."` or `--remove-label "..."`.
-- Close completed work: `gh-axi issue close <number> -R KLTsai/next-is-you --reason completed`. For discontinued work, use `--reason not_planned`. Post a detailed closing explanation with `issue comment --body-file` first when needed.
+- Close completed work: `gh-axi issue close <number> -R KLTsai/next-is-you --reason completed`. For discontinued work, use `--reason "not planned"`. Post a detailed closing explanation with `issue comment --body-file` first when needed.
 
 Record concrete scope, observable acceptance, dependencies, and non-goals before implementation. Preserve adopted decisions and link historical evidence. Do not bulk-create new issues for every retired local ticket.
 

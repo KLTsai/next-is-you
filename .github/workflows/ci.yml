@@ -84,7 +84,7 @@ jobs:
   # pytest-split balances the groups by .test_durations (README.md says how
   # to refresh it). Each leg reports on its own, so fail-fast stays off.
   backend-browser-shards:
-    name: Backend and browser tests shard ${{ matrix.group }} of 4
+    name: Backend and browser tests shard ${{ matrix.group }} of ${{ strategy.job-total }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

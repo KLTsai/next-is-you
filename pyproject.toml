@@ -13,7 +13,7 @@ dev = [
     "playwright",
     "pytest",
     "pytest-asyncio",
-    "pytest-split>=0.11.0",
+    "pytest-split",
     "python-dotenv",
     "ruff",
     "uvicorn",

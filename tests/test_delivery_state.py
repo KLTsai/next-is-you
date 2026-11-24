@@ -906,23 +906,30 @@ def test_an_unexpected_head_of_main_stops_staging_order(monkeypatch):
     assert "deploy=" not in out.getvalue()
 
 
+def workflow_job_blocks(path: Path) -> dict[str, str]:
+    """Each job in a workflow file as id -> its text, read as text."""
+    body = path.read_text().split("\njobs:\n", 1)[1]
+    blocks = {}
+    for block in re.split(r"(?m)^(?=  [\w-]+:\n)", body):
+        job = re.match(r"  ([\w-]+):\n", block)
+        if job:
+            blocks[job[1]] = block
+    return blocks
+
+
 def workflow_jobs(path: Path) -> dict[str, tuple[str, list[str]]]:
     """Each job in a workflow file as id -> (check name, the job ids it needs).
 
     Read as text: the project has no YAML parser. A job without a `name` goes
     by its id, which is what GitHub calls its check.
     """
-    body = path.read_text().split("\njobs:\n", 1)[1]
     jobs = {}
-    for block in re.split(r"(?m)^(?=  [\w-]+:\n)", body):
-        job = re.match(r"  ([\w-]+):\n", block)
-        if not job:
-            continue
+    for job, block in workflow_job_blocks(path).items():
         name = re.search(r"(?m)^    name: (.+)$", block)
         needs = re.search(r"(?m)^    needs:\n((?:      - .+\n)+)", block)
-        jobs[job[1]] = (
+        jobs[job] = (
             # Quotes and a trailing comment are YAML, not part of the name.
-            re.sub(r"\s+#.*$", "", name[1]).strip("\"'") if name else job[1],
+            re.sub(r"\s+#.*$", "", name[1]).strip("\"'") if name else job,
             re.findall(r"      - (.+)", needs[1]) if needs else [],
         )
     return jobs
@@ -1125,7 +1132,8 @@ def test_an_unreadable_head_of_main_names_the_fact_and_fails(monkeypatch):
     assert "deploy=" not in out.getvalue()
 
 
-def collected_ids(*args: str) -> subprocess.Popen:
+def start_collection(*args: str) -> subprocess.Popen:
+    """Start `pytest --collect-only -q` with these arguments, in the background."""
     return subprocess.Popen(
         [sys.executable, "-m", "pytest", "--collect-only", "-q", *args],
         cwd=ROOT,
@@ -1138,24 +1146,25 @@ def collected_ids(*args: str) -> subprocess.Popen:
 def test_the_shards_in_ci_run_every_test_exactly_once():
     # A matrix that names fewer groups than --splits leaves a group unrun, and
     # its tests silently stop gating anything.
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-    pytest_run = re.search(r"uv run pytest .*--splits (\d+) .*", workflow)
-    algorithm = re.search(r"--splitting-algorithm (\S+)", pytest_run[0])[1]
-    splits = int(pytest_run[1])
-    groups = re.search(r"(?m)^        group: \[(.+)\]$", workflow)[1]
-    assert [int(g) for g in groups.split(",")] == list(range(1, splits + 1))
+    shards_job = workflow_job_blocks(ROOT / ".github/workflows/ci.yml")[
+        "backend-browser-shards"
+    ]
+    pytest_run = re.search(
+        r"uv run pytest .*--splits (\d+) .*--splitting-algorithm (\S+)", shards_job
+    )
+    assert pytest_run, "the shard job has no pytest step with --splits and an algorithm"
+    splits, algorithm = int(pytest_run[1]), pytest_run[2]
+    groups = re.search(r"(?m)^        group: \[(.+)\]$", shards_job)
+    assert groups, "the shard job has no matrix of groups"
+    assert [int(g) for g in groups[1].split(",")] == list(range(1, splits + 1))
 
-    every = collected_ids()
+    every = start_collection()
     shards = [
-        collected_ids(
-            "--splits",
-            str(splits),
-            "--group",
-            str(g),
-            "--splitting-algorithm",
-            algorithm,
+        start_collection(
+            *("--splits", str(splits), "--group", str(group)),
+            *("--splitting-algorithm", algorithm),
         )
-        for g in range(1, splits + 1)
+        for group in range(1, splits + 1)
     ]
     outputs = [p.communicate()[0] for p in (every, *shards)]
     ids = [[line for line in out.splitlines() if "::" in line] for out in outputs]

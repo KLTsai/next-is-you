@@ -66,7 +66,8 @@ place.
 
 ## One change, one run
 
-`.github/workflows/ci.yml` is the only automatic workflow. A push to a pull
+`.github/workflows/ci.yml` is the only automatic workflow that runs the gates
+(`pr-title.yml` only checks the pull request title). A push to a pull
 request branch starts exactly one run, a push to `main` starts exactly one run,
 and a tag push starts none. A branch without a pull request has no run until one
 is opened, because running on both branch pushes and pull requests is what made
@@ -384,6 +385,17 @@ message is blank). So the PR title is the one Conventional Commit that lands on
 `Merge pull request #N` repeated the PR title, so every PR was listed twice in
 release PR #114 (#126). A PR title that is not a Conventional Commit is skipped
 by Release Please without any warning, so write it as one.
+
+The `PR title type` workflow (`.github/workflows/pr-title.yml`, rule in
+`scripts/pr_title_gate.py`) fails a pull request titled `feat`, `fix` or `perf`
+(with or without a scope or `!`) when every changed path is under `.github/`,
+`scripts/`, `tests/`, `docs/`, `research/` or is a `*.md` file. It prints the
+paths and the allowed types (`ci`, `chore`, `test`, `build`, `refactor`,
+`style`, `docs`). Renaming the pull request reruns it without a new push. It is
+not one of the seven gates, so `npm run status` ignores it. It does not catch
+the reverse mistake (`chore:` on product code); that stays a review judgement.
+Captain step: add `PR title type` to the "CI Summary before merge" ruleset as a
+required check.
 
 Release Please reads Conventional Commit messages:
 

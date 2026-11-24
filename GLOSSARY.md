@@ -99,7 +99,7 @@ The one message a recipient gets on the visit day when the system cannot follow 
 _Avoid_: Failure notice, error message
 
 **Daily recheck**:
-The system checking, once a day, that each visit that has not happened yet still matches what the hospital publishes, and on the visit day itself, before the clinic opens, that the visit's clinic is there. Covers drafts and running visits. Shown to users as 每日複查.
+The system checking, once a day, that each visit that has not happened yet still matches what the hospital publishes, and on the visit day itself, before the clinic opens, that the visit's clinic is there. When the hospital's page cannot be read, it tries again a few times later the same day before leaving it to the next day. Covers drafts and running visits. Shown to users as 每日複查.
 _Avoid_: Pre-flight sweep, preflight, sweep
 
 ### Sending

@@ -21,44 +21,10 @@ STAGING_CONFIG = ROOT / "wrangler.staging.jsonc"
 PRODUCTION_CONFIG = ROOT / "wrangler.production.jsonc"
 
 
-def _strip_jsonc(text: str) -> str:
-    """Removes // and /* */ comments and trailing commas outside strings."""
-    out: list[str] = []
-    i = 0
-    in_string = False
-    while i < len(text):
-        char = text[i]
-        if in_string:
-            out.append(char)
-            if char == "\\":
-                out.append(text[i + 1])
-                i += 1
-            elif char == '"':
-                in_string = False
-        elif char == '"':
-            in_string = True
-            out.append(char)
-        elif text.startswith("//", i):
-            end = text.find("\n", i)
-            i = len(text) if end == -1 else end
-            continue
-        elif text.startswith("/*", i):
-            i = text.index("*/", i + 2) + 2
-            continue
-        elif char in "}]":
-            while out and out[-1].isspace():
-                out.pop()
-            if out and out[-1] == ",":
-                out.pop()
-            out.append(char)
-        else:
-            out.append(char)
-        i += 1
-    return "".join(out)
-
-
 def _load(path: Path) -> dict:
-    return json.loads(_strip_jsonc(path.read_text(encoding="utf-8")))
+    # The configs are plain JSON today. A comment or trailing comma added
+    # later fails here with a JSONDecodeError instead of passing silently.
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
@@ -69,11 +35,6 @@ def staging() -> dict:
 @pytest.fixture(scope="module")
 def production() -> dict:
     return _load(PRODUCTION_CONFIG)
-
-
-def test_jsonc_reader_ignores_comments_and_trailing_commas() -> None:
-    text = '{\n  // a "comment"\n  "url": "https://x/*y*/", /* note */\n  "list": [1, 2,],\n}\n'
-    assert json.loads(_strip_jsonc(text)) == {"url": "https://x/*y*/", "list": [1, 2]}
 
 
 def test_staging_worker_name_differs_from_production(
@@ -101,6 +62,7 @@ def test_each_config_names_its_own_environment(staging: dict, production: dict) 
 
 @pytest.mark.xfail(
     strict=True,
+    raises=AssertionError,
     reason=(
         "Staging still uses Production's LINE Login channel until its own LINE "
         "provider exists (ADR 0004, https://github.com/KLTsai/next-is-you/issues/129). "

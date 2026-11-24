@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.0](https://github.com/KLTsai/next-is-you/compare/v0.3.0...v0.4.0) (2026-11-24)
+
+
+### Features
+
+* allow only one running visit at a time ([#174](https://github.com/KLTsai/next-is-you/issues/174)) ([e97c757](https://github.com/KLTsai/next-is-you/commit/e97c757dd1ff88e9d9c41e515866ca6e34c36b0e))
+* show paused reminders during send interruption ([#157](https://github.com/KLTsai/next-is-you/issues/157)) ([53553b9](https://github.com/KLTsai/next-is-you/commit/53553b987ecfe745868399b79c8db8d80a50ec39))
+
+
+### Bug Fixes
+
+* keep an invitee on the consent page until they join ([#161](https://github.com/KLTsai/next-is-you/issues/161)) ([a710d3e](https://github.com/KLTsai/next-is-you/commit/a710d3e2d07de9231acd245decfbf16459b37084))
+* keep an open calendar and typed fields through background updates ([#190](https://github.com/KLTsai/next-is-you/issues/190)) ([#191](https://github.com/KLTsai/next-is-you/issues/191)) ([811375c](https://github.com/KLTsai/next-is-you/commit/811375c08e35bcfc5d3ce4a508346a637d35e489))
+* keep the member label the organizer is typing ([#178](https://github.com/KLTsai/next-is-you/issues/178)) ([af084d2](https://github.com/KLTsai/next-is-you/commit/af084d212657b67d9904693635e2797646a70553))
+* keep the page still and the typed field focused on repaint ([#185](https://github.com/KLTsai/next-is-you/issues/185)) ([#186](https://github.com/KLTsai/next-is-you/issues/186)) ([328d4d8](https://github.com/KLTsai/next-is-you/commit/328d4d87947285a449e624c92c748b0d1c4d9111))
+* keep the page still when the date field has focus on repaint ([#182](https://github.com/KLTsai/next-is-you/issues/182)) ([#193](https://github.com/KLTsai/next-is-you/issues/193)) ([df18840](https://github.com/KLTsai/next-is-you/commit/df18840ef062da50f3474a6db4b9a1de5fcd952a))
+* let the organizer pick the word while typing with an input method ([#195](https://github.com/KLTsai/next-is-you/issues/195)) ([#196](https://github.com/KLTsai/next-is-you/issues/196)) ([787d6a0](https://github.com/KLTsai/next-is-you/commit/787d6a0af5ba56888bdd3f14a1bd19c9d0c02493))
+* match visit-day clinics before starting reminders ([#158](https://github.com/KLTsai/next-is-you/issues/158)) ([d233d40](https://github.com/KLTsai/next-is-you/commit/d233d400a9ac5f2b86eb9cd05c25938ba867e416))
+* stop the registration number field from scrolling the page on repaint ([#185](https://github.com/KLTsai/next-is-you/issues/185)) ([#187](https://github.com/KLTsai/next-is-you/issues/187)) ([55de741](https://github.com/KLTsai/next-is-you/commit/55de741e4172e2b913053223cefa59a5a0eb5771))
+
 ## [0.3.0](https://github.com/KLTsai/next-is-you/compare/v0.2.3...v0.3.0) (2026-11-19)
 
 

@@ -635,8 +635,8 @@ An agent asks once per phase. Every command that writes names
    sqlite_master ORDER BY name` on both, production read-only, and confirm they
    match. If not, the rehearsal says nothing about production: stop.
 4. **Seed and take the before snapshot.** Write a seed file under
-   `scripts/migration-rehearsal/` (see `0009_seed.sql`): it starts with the
-   same block that deletes earlier `rehearsal-` rows, ids start with
+   `scripts/migration-rehearsal/` (see `0009_seed.sql`). Start it with the
+   same block that deletes earlier `rehearsal-` rows. Ids start with
    `rehearsal-`, and every state, nullable column and constraint edge the
    migration touches is covered. The recovery hold from step 1 is what keeps
    the rows still: under it, scheduled cleanup deletes only expired drafts, so
@@ -658,9 +658,10 @@ An agent asks once per phase. Every command that writes names
 6. **Compare.** Take `after.json` with the same snapshot command and run
    `uv run python scripts/migration-rehearsal/compare.py before.json after.json <migration file name>`.
    It passes only if that migration was applied between the snapshots, every
-   row is unchanged and `PRAGMA foreign_key_check` is empty. Delete the
-   `rehearsal-` rows afterwards, or leave them for later checks; they never
-   reach production.
+   row is unchanged and `PRAGMA foreign_key_check` is empty. Leave the
+   `rehearsal-` rows for later checks: they never reach production, and the
+   next seed deletes them before it inserts its own, so they need no manual
+   delete.
 7. **Record.** Post the comparison output, the undo bookmark and the run link on
    the migration's issue. Staging stays in its recovery hold until a release
    path exists (issue #129).

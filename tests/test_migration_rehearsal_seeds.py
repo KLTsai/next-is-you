@@ -27,12 +27,12 @@ def _seed(connection, name):
 
 def _rows(connection):
     return {
-        table: connection.execute(f"SELECT * FROM {table} ORDER BY 1, 2").fetchall()
+        table: sorted(connection.execute(f"SELECT * FROM {table}").fetchall(), key=repr)
         for table in TABLES
     }
 
 
-def _real_rows(connection):
+def _insert_real_rows(connection):
     # A user's rows: a recipient, their visit, the link and one reminder.
     connection.execute(
         "INSERT INTO recipients (id, line_subject, display_name, consented_at, "
@@ -60,7 +60,7 @@ def _real_rows(connection):
     connection.commit()
 
 
-def _alone(name):
+def _rows_seeded_alone(name):
     connection = _database()
     _seed(connection, name)
     return _rows(connection)
@@ -68,17 +68,18 @@ def _alone(name):
 
 def test_each_seed_replaces_earlier_rehearsal_rows_and_keeps_real_ones():
     connection = _database()
-    _real_rows(connection)
+    _insert_real_rows(connection)
     real = _rows(connection)
 
-    # Every seed in order, then one again: a repeated rehearsal must also load.
+    # Every seed in order, then an older one over a newer one's rows, as when
+    # a migration is rehearsed again after a later rehearsal.
     names = sorted(
         seed.name.removesuffix("_seed.sql") for seed in SEEDS.glob("*_seed.sql")
     )
     for name in [*names, names[-2]]:
         _seed(connection, name)
-        seeded = _alone(name)
+        seeded = _rows_seeded_alone(name)
         assert _rows(connection) == {
-            table: sorted(real[table] + seeded[table]) for table in TABLES
+            table: sorted(real[table] + seeded[table], key=repr) for table in TABLES
         }, name
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []

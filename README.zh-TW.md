@@ -122,6 +122,8 @@ npm ci
 uv sync --group dev --locked
 ```
 
+`npm run lint` 也會對 `.github/workflows/` 執行 [actionlint](https://github.com/rhysd/actionlint)（`npm run lint:workflows`）。npm 與 uv 都不提供它，請依 [README.md 的安裝說明](README.md#for-developers) 安裝 CI 釘選版本的 actionlint 與 shellcheck。
+
 本地入口：
 
 - **完整本地服務 rehearsal：** 執行 `npm run dev:rehearsal`，開啟 <http://127.0.0.1:8787>。使用真實的本地 D1 與 SQLite Durable Object bindings、synthetic login、fake providers，不需要憑證。首次的 synthetic setup、建立草稿、Start/Stop、fake 發送、重複 tick 與重啟歷程，請依 [complete rehearsal guide](docs/LOCAL-REHEARSAL.md) 走過一遍。

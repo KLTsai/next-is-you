@@ -4,16 +4,14 @@ import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
 
-from local_worker import WRANGLER_PICKS_PORTS, local_worker
+from local_worker import ROOT, local_worker, wrangler_dev
 
 
-ROOT = Path(__file__).resolve().parents[1]
 WRANGLER_CONFIG = ROOT / "wrangler.niy006.test.jsonc"
 
 
@@ -50,24 +48,13 @@ def test_wrangler_worker_starts_and_serves_health_endpoint(
     )
     assert migrations.returncode == 0, migrations.stdout + migrations.stderr
     with local_worker(
-        [
-            sys.executable,
-            "-m",
-            "pywrangler",
-            "dev",
-            "--local",
-            "--ip",
-            "127.0.0.1",
-            "--config",
-            str(WRANGLER_CONFIG),
-            "--persist-to",
-            str(persist_to),
+        wrangler_dev(
+            WRANGLER_CONFIG,
+            persist_to,
             "--assets",
             str(assets),
-            "--show-interactive-dev-session=false",
-            *WRANGLER_PICKS_PORTS,
             *(["--var", "NIY_ENVIRONMENT:production"] if production else []),
-        ],
+        ),
         env=environment,
     ) as origin:
         with urlopen(origin + "/api/healthz", timeout=10) as response:

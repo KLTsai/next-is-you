@@ -23,6 +23,7 @@ import signal
 import socket
 import ssl
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
@@ -40,7 +41,35 @@ _READY = re.compile(r"Ready on (https?://127\.0\.0\.1:\d+)")
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 # `--local-protocol https` serves a self-signed certificate. Only ever used
 # for 127.0.0.1, which `_READY` guarantees.
-_LOOPBACK_TLS = ssl._create_unverified_context()
+_LOOPBACK_TLS = ssl.create_default_context()
+_LOOPBACK_TLS.check_hostname = False
+_LOOPBACK_TLS.verify_mode = ssl.CERT_NONE
+_KNOWN_PORT_ATTEMPTS = 3
+
+
+def wrangler_dev(
+    config: Path,
+    persist_to: Path,
+    *extra: str,
+    ports: Sequence[str] = WRANGLER_PICKS_PORTS,
+) -> list[str]:
+    """The `wrangler dev` command `local_worker` expects, on 127.0.0.1."""
+    return [
+        sys.executable,
+        "-m",
+        "pywrangler",
+        "dev",
+        "--local",
+        "--ip",
+        "127.0.0.1",
+        "--config",
+        str(config),
+        "--persist-to",
+        str(persist_to),
+        *ports,
+        "--show-interactive-dev-session=false",
+        *extra,
+    ]
 
 
 @contextmanager
@@ -53,8 +82,8 @@ def local_worker(
 ) -> Iterator[str]:
     """Runs `command` in a terminal and yields the origin it serves once healthy.
 
-    `command` must start `wrangler dev --ip 127.0.0.1` with the ports from
-    `WRANGLER_PICKS_PORTS`, or with a fixed port. If it exits first, or is not
+    `command` must start `wrangler dev --ip 127.0.0.1` (see `wrangler_dev`),
+    or `npm run dev:rehearsal`, which does. If it exits first, or is not
     healthy within `timeout` seconds, this fails with everything it printed.
     """
     master, terminal = pty.openpty()
@@ -69,16 +98,18 @@ def local_worker(
 
     reader = threading.Thread(target=read_terminal)
     try:
-        process = subprocess.Popen(
-            list(command),
-            cwd=ROOT,
-            env=env,
-            stdin=terminal,
-            stdout=terminal,
-            stderr=terminal,
-            start_new_session=True,
-        )
-        os.close(terminal)
+        try:
+            process = subprocess.Popen(
+                list(command),
+                cwd=ROOT,
+                env=env,
+                stdin=terminal,
+                stdout=terminal,
+                stderr=terminal,
+                start_new_session=True,
+            )
+        finally:
+            os.close(terminal)
         reader.start()
         try:
             yield _wait_until_healthy(process, reader, output, timeout)
@@ -91,7 +122,8 @@ def local_worker(
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait(timeout=10)
     finally:
-        reader.join(timeout=10)
+        if reader.ident is not None:
+            reader.join(timeout=10)
         os.close(master)
         if log_path is not None:
             log_path.write_text("".join(output))
@@ -143,7 +175,6 @@ def local_worker_on_known_port(
     env: dict[str, str],
     log_path: Path | None = None,
     pick_port: Callable[[], int] = unused_loopback_port,
-    attempts: int = 3,
 ) -> Iterator[str]:
     """Like `local_worker`, for a Worker whose command must name its port.
 
@@ -151,7 +182,7 @@ def local_worker_on_known_port(
     wrangler's "Address already in use" for that port starts another attempt;
     any other failure fails at once.
     """
-    for attempt in range(1, attempts + 1):
+    for attempt in range(1, _KNOWN_PORT_ATTEMPTS + 1):
         port = pick_port()
         with ExitStack() as stack:
             try:
@@ -160,7 +191,7 @@ def local_worker_on_known_port(
                 )
             except AssertionError as error:
                 taken = f"Address already in use (127.0.0.1:{port})" in str(error)
-                if taken and attempt < attempts:
+                if taken and attempt < _KNOWN_PORT_ATTEMPTS:
                     continue
                 raise
             yield origin

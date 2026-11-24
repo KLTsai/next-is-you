@@ -19,7 +19,8 @@ def rehearsal(tmp_path, port=0):
     """Runs `npm run dev:rehearsal` and yields its origin.
 
     Port 0 lets the OS assign it. A restart that must keep the browser's origin
-    passes the port of the first run's origin.
+    passes the port of the first run's origin; that reuses a port just
+    released, a smaller race no fresh port can avoid.
     """
     require_frontend_toolchain()
     environment = {

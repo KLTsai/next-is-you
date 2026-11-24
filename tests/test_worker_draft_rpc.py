@@ -5,14 +5,12 @@ import os
 import subprocess
 import sys
 from http.cookies import SimpleCookie
-from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from local_worker import WRANGLER_PICKS_PORTS, local_worker
+from local_worker import ROOT, local_worker, wrangler_dev
 
 
-ROOT = Path(__file__).resolve().parents[1]
 WRANGLER_CONFIG = ROOT / "wrangler.niy006.test.jsonc"
 
 
@@ -88,23 +86,7 @@ def test_wrangler_draft_save_crosses_real_worker_durable_object_binding(tmp_path
     assert seed_recipient.returncode == 0, seed_recipient.stdout + seed_recipient.stderr
 
     with local_worker(
-        [
-            sys.executable,
-            "-m",
-            "pywrangler",
-            "dev",
-            "--local",
-            "--ip",
-            "127.0.0.1",
-            "--config",
-            str(WRANGLER_CONFIG),
-            "--assets",
-            str(assets),
-            "--persist-to",
-            str(persist),
-            "--show-interactive-dev-session=false",
-            *WRANGLER_PICKS_PORTS,
-        ],
+        wrangler_dev(WRANGLER_CONFIG, persist, "--assets", str(assets)),
         env=environment,
     ) as base_url:
         status, body, _ = _request(base_url + "/api/healthz")

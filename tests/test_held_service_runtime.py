@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 
 from playwright.sync_api import expect, sync_playwright
 
-from local_worker import ROOT, local_worker, local_worker_on_known_port
+from local_worker import ROOT, local_worker, local_worker_on_known_port, wrangler_dev
 from next_is_you.auth import SESSION_COOKIE_NAME, issue_session
 from worktree_bootstrap import require_frontend_toolchain
 
@@ -50,25 +50,11 @@ def request(origin, path, *, session=None, body=None, method="GET"):
 
 def held_command(persist):
     def command(port):
-        return [
-            sys.executable,
-            "-m",
-            "pywrangler",
-            "dev",
-            "--local",
-            "--ip",
-            "127.0.0.1",
-            "--config",
-            str(CONFIG),
-            "--persist-to",
-            str(persist),
-            "--port",
-            str(port),
-            "--inspector-port",
-            "0",
+        return wrangler_dev(
+            CONFIG,
+            persist,
             "--local-protocol",
             "https",
-            "--show-interactive-dev-session=false",
             "--var",
             "LINE_LOGIN_CHANNEL_ID:fixture-channel",
             "--var",
@@ -80,7 +66,8 @@ def held_command(persist):
             f"SESSION_SIGNING_SECRET:{SECRET}",
             "--var",
             "ORGANIZER_LINE_SUBJECTS:fixture-organizer",
-        ]
+            ports=("--port", str(port), "--inspector-port", "0"),
+        )
 
     return command
 
@@ -190,7 +177,8 @@ def test_held_native_configuration_and_recovery_hold_persist_across_restart(tmp_
             expect(page.locator("#service-status")).to_have_text("服務正常")
             context.close()
             browser.close()
-    # The restart keeps the origin the session and callback were issued for.
+    # The restart keeps the origin the session and callback were issued for,
+    # so it reuses the port just released; nothing can move it elsewhere.
     with local_worker(command(urlsplit(origin).port), env=environment) as origin:
         status, after = request(
             origin, "/api/organizer/scheduler/status", session=session

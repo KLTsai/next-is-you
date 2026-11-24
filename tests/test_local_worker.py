@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
@@ -18,32 +17,14 @@ import pytest
 
 from local_worker import (
     ROOT,
-    WRANGLER_PICKS_PORTS,
     local_worker,
     local_worker_on_known_port,
     loopback_listener,
     unused_loopback_port,
+    wrangler_dev,
 )
 
 WRANGLER_CONFIG = ROOT / "wrangler.niy006.test.jsonc"
-
-
-def _wrangler_dev(config, persist_to, ports=WRANGLER_PICKS_PORTS):
-    return [
-        sys.executable,
-        "-m",
-        "pywrangler",
-        "dev",
-        "--local",
-        "--ip",
-        "127.0.0.1",
-        "--config",
-        str(config),
-        "--persist-to",
-        str(persist_to),
-        "--show-interactive-dev-session=false",
-        *ports,
-    ]
 
 
 def test_local_workers_started_at_once_all_serve(tmp_path):
@@ -56,7 +37,7 @@ def test_local_workers_started_at_once_all_serve(tmp_path):
             pool.submit(
                 stack.enter_context,
                 local_worker(
-                    _wrangler_dev(WRANGLER_CONFIG, tmp_path / f"state{index}"),
+                    wrangler_dev(WRANGLER_CONFIG, tmp_path / f"state{index}"),
                     env=environment,
                     log_path=tmp_path / f"worker{index}.log",
                 ),
@@ -77,7 +58,7 @@ def test_local_worker_startup_failure_fails_at_once_with_wrangler_output(tmp_pat
     started = time.monotonic()
     with pytest.raises(AssertionError) as failure:
         with local_worker(
-            _wrangler_dev(broken, tmp_path / "state"),
+            wrangler_dev(broken, tmp_path / "state"),
             env={**os.environ, "CI": "1"},
         ):
             pass
@@ -97,10 +78,10 @@ def test_local_worker_on_known_port_moves_on_when_that_port_is_taken(tmp_path):
 
         def command(port):
             chosen.append(port)
-            return _wrangler_dev(
+            return wrangler_dev(
                 WRANGLER_CONFIG,
                 tmp_path / "state",
-                ("--port", str(port), "--inspector-port", "0"),
+                ports=("--port", str(port), "--inspector-port", "0"),
             )
 
         with local_worker_on_known_port(
@@ -113,3 +94,9 @@ def test_local_worker_on_known_port_moves_on_when_that_port_is_taken(tmp_path):
     assert chosen[0] == held
     assert len(chosen) == 2
     assert origin == f"http://127.0.0.1:{chosen[1]}"
+
+
+def test_local_worker_that_cannot_start_reports_why(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        with local_worker([str(tmp_path / "no-such-wrangler")], env=dict(os.environ)):
+            pass

@@ -632,8 +632,17 @@ An agent asks once per phase. Every command that writes names
    Record the undo bookmark it prints. Confirm `d1_migrations` now ends at the
    migration before.
 3. **Compare the schema with production.** Read `SELECT type, name, sql FROM
-   sqlite_master ORDER BY name` on both, production read-only, and confirm they
-   match. If not, the rehearsal says nothing about production: stop.
+   sqlite_master ORDER BY name` on both, production read-only. They must match,
+   except for objects changed by migrations Staging has applied and production
+   has not yet (earlier migrations in the same release). Each difference must be
+   explained by one of those migrations. The objects the rehearsed migration
+   touches (tables it rebuilds, alters or reads, and their indexes and triggers)
+   must be identical on both. Record the diff in the result comment and get the
+   captain's go-ahead before seeding. Any other difference means the rehearsal
+   says nothing about production: stop. Example: the `0009` rehearsal on
+   [#222](https://github.com/KLTsai/next-is-you/issues/222#issuecomment-7124076518),
+   where Staging was at `0008` and production at `0007`, and the only
+   difference was the `visits` CHECK that `0008` changes.
 4. **Seed and take the before snapshot.** Write a seed file under
    `scripts/migration-rehearsal/` (see `0009_seed.sql`). Start it with the
    same block that deletes earlier `rehearsal-` rows. Ids start with

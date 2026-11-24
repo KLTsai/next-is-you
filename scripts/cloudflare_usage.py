@@ -10,8 +10,9 @@ Exit status:
     1  at least one projection is above 50%
     2  the check could not run (missing settings, HTTP or GraphQL error)
 
-A dataset the account does not have enabled is reported as "not available" and
-its measures are left out; the other measures are still checked.
+A dataset the account does not have enabled, or a field a dataset does not
+offer, is reported as "not available" and left out; the other measures are
+still checked and no proxy is substituted.
 
 Environment:
     CLOUDFLARE_ANALYTICS_TOKEN  API token with Account Analytics Read only
@@ -34,6 +35,7 @@ from typing import Callable, Mapping, TextIO
 
 ENDPOINT = "https://api.cloudflare.com/client/v4/graphql"
 THRESHOLD_PERCENT = 50
+SETTINGS = ("CLOUDFLARE_ANALYTICS_TOKEN", "CLOUDFLARE_ACCOUNT_ID")
 SECONDS_PER_DAY = 24 * 60 * 60
 
 Post = Callable[[str, dict], dict]
@@ -90,25 +92,59 @@ class CheckFailed(Exception):
     """The check could not run; the message says why."""
 
 
-def settings_query() -> str:
-    fields = " ".join(f"{name} {{ enabled }}" for name in DATASETS)
+# Up to this many groups per dataset. With no dimensions requested, each
+# dataset answers with one group, so this is only a ceiling.
+GROUP_LIMIT = 10_000
+
+
+def sum_type(dataset: str) -> str:
+    """The GraphQL type of a dataset's `sum`, e.g. AccountD1AnalyticsAdaptiveGroupsSum."""
+    return f"Account{dataset[0].upper()}{dataset[1:]}Sum"
+
+
+def availability_query() -> str:
+    """Which datasets are enabled, and which fields each dataset's sum offers."""
+    enabled = " ".join(f"{name} {{ enabled }}" for name in DATASETS)
+    fields = " ".join(
+        f'fields_{name}: __type(name: "{sum_type(name)}") {{ fields {{ name }} }}'
+        for name in DATASETS
+    )
     return (
         "query ($account: string!) { viewer { accounts(filter: {accountTag: $account})"
-        f" {{ settings {{ {fields} }} }} }} }}"
+        f" {{ settings {{ {enabled} }} }} }} {fields} }}"
     )
 
 
-def usage_query(datasets: list[str]) -> str:
-    parts = []
-    for name in datasets:
-        fields = " ".join(m.field for m in MEASURES if m.dataset == name)
-        parts.append(
-            f"{name}(limit: 10000, filter: {{date: $date}}) {{ sum {{ {fields} }} }}"
-        )
+def usage_query(fields: dict[str, list[str]]) -> str:
+    parts = [
+        f"{name}(limit: {GROUP_LIMIT}, filter: {{date: $date}})"
+        f" {{ sum {{ {' '.join(names)} }} }}"
+        for name, names in fields.items()
+    ]
     return (
         "query ($account: string!, $date: Date!) { viewer {"
         f" accounts(filter: {{accountTag: $account}}) {{ {' '.join(parts)} }} }} }}"
     )
+
+
+def availability(response: dict) -> dict[str, str]:
+    """Maps each measure that cannot be read to the reason, by label."""
+    settings = account_data(response)["settings"]
+    data = response.get("data") or {}
+    gaps = {}
+    for measure in MEASURES:
+        if not (settings.get(measure.dataset) or {}).get("enabled"):
+            gaps[measure.label] = f"`{measure.dataset}` is not enabled on this account"
+            continue
+        offered = {
+            field["name"]
+            for field in (
+                (data.get(f"fields_{measure.dataset}") or {}).get("fields") or []
+            )
+        }
+        if measure.field not in offered:
+            gaps[measure.label] = f"`{measure.dataset}` has no `{measure.field}` field"
+    return gaps
 
 
 def account_data(response: dict) -> dict:
@@ -150,19 +186,22 @@ def number(value: float, decimals: int) -> str:
 
 def check(account: str, now: datetime, post: Post) -> tuple[list[str], bool]:
     """Returns the report lines and whether any projection is over the line."""
-    day = now.astimezone(timezone.utc)
-    midnight = day.replace(hour=0, minute=0, second=0, microsecond=0)
-    elapsed = max((day - midnight).total_seconds(), 1.0)
+    now_utc = now.astimezone(timezone.utc)
+    midnight = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    elapsed = max((now_utc - midnight).total_seconds(), 1.0)
     date = midnight.date().isoformat()
 
-    settings = account_data(post(settings_query(), {"account": account}))["settings"]
-    enabled = [name for name in DATASETS if (settings.get(name) or {}).get("enabled")]
+    gaps = availability(post(availability_query(), {"account": account}))
+    fields: dict[str, list[str]] = {}
+    for measure in MEASURES:
+        if measure.label not in gaps:
+            fields.setdefault(measure.dataset, []).append(measure.field)
     totals: dict[str, dict] = {}
-    if enabled:
+    if fields:
         data = account_data(
-            post(usage_query(enabled), {"account": account, "date": date})
+            post(usage_query(fields), {"account": account, "date": date})
         )
-        for name in enabled:
+        for name in fields:
             sums: dict[str, float] = {}
             for group in data.get(name) or []:
                 for field, value in (group.get("sum") or {}).items():
@@ -183,10 +222,10 @@ def check(account: str, now: datetime, post: Post) -> tuple[list[str], bool]:
     ]
     over = False
     for measure in MEASURES:
-        if measure.dataset not in totals:
+        if measure.label in gaps:
             lines.append(
                 f"| {measure.label} | - | - | {measure.limit:,} | - |"
-                f" not available: `{measure.dataset}` is not enabled on this account |"
+                f" not available: {gaps[measure.label]} |"
             )
             continue
         used = totals[measure.dataset].get(measure.field, 0)
@@ -214,18 +253,10 @@ def main(
     now = datetime.now(timezone.utc) if now is None else now
     out = sys.stdout if out is None else out
     try:
-        token = env.get("CLOUDFLARE_ANALYTICS_TOKEN", "")
-        account = env.get("CLOUDFLARE_ACCOUNT_ID", "")
-        missing = [
-            name
-            for name, value in (
-                ("CLOUDFLARE_ANALYTICS_TOKEN", token),
-                ("CLOUDFLARE_ACCOUNT_ID", account),
-            )
-            if not value
-        ]
+        missing = [name for name in SETTINGS if not env.get(name)]
         if missing:
             raise CheckFailed(f"Not set: {', '.join(missing)}.")
+        token, account = (env[name] for name in SETTINGS)
         lines, over = check(account, now, post or http_post(token))
     except CheckFailed as error:
         print(f"Cloudflare usage check could not run: {error}", file=out)

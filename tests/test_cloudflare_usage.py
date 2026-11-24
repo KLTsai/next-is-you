@@ -52,12 +52,22 @@ QUIET_DAY = {
 }
 
 
+ALL_FIELDS = {
+    "workersInvocationsAdaptive": ["requests", "errors"],
+    "durableObjectsInvocationsAdaptiveGroups": ["requests"],
+    "durableObjectsPeriodicGroups": ["duration", "rowsRead", "rowsWritten"],
+    "d1AnalyticsAdaptiveGroups": ["rowsRead", "rowsWritten"],
+}
+
+
 class FakeGraphQL:
     """Answers the settings query and the usage query from canned data."""
 
-    def __init__(self, settings=None, usage=None, errors=None):
+    def __init__(self, settings=None, usage=None, errors=None, fields=None):
         self.settings = ALL_ENABLED if settings is None else settings
         self.usage = QUIET_DAY if usage is None else usage
+        # The fields each dataset's `sum` offers; by default every field used.
+        self.fields = ALL_FIELDS if fields is None else fields
         self.errors = errors
         self.calls = []
 
@@ -67,6 +77,11 @@ class FakeGraphQL:
             return {"data": None, "errors": self.errors}
         if "settings" in query:
             account = {"settings": self.settings}
+            types = {
+                f"fields_{name}": {"fields": [{"name": field} for field in fields]}
+                for name, fields in self.fields.items()
+            }
+            return {"data": {"viewer": {"accounts": [account]}, **types}}
         else:
             account = {
                 name: groups for name, groups in self.usage.items() if name in query
@@ -186,6 +201,22 @@ def test_a_dataset_not_enabled_alone_does_not_fail_the_check():
 
     assert code == 0
     assert "not available" in report
+
+
+def test_a_field_missing_from_a_dataset_is_reported_and_not_queried():
+    fields = dict(ALL_FIELDS, durableObjectsPeriodicGroups=["rowsRead", "rowsWritten"])
+    fake = FakeGraphQL(fields=fields)
+
+    code, report = run(fake)
+
+    assert code == 0
+    cells = row(report, "Durable Object duration (GB-s)")
+    assert cells[1:3] == ["-", "-"]
+    assert cells[-1].startswith("not available")
+    assert row(report, "Durable Object rows read")[1] == "901"
+    usage_query = fake.calls[-1][0]
+    assert "rowsRead" in usage_query
+    assert "duration" not in usage_query
 
 
 def test_a_graphql_error_means_the_check_could_not_run():

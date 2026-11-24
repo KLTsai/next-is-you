@@ -544,7 +544,7 @@ Free limit and the projected percentage to the run summary.
 | --- | --- | --- |
 | Every projection is at or below 50% | A green run. | Nothing. |
 | A projection is above 50% | A red run and an email from GitHub. The row is marked **over 50%** in the run summary. | Find the source before the limit: an organizer page left open in a background tab, a stuck visit, a rehearsal. Pausing staging (`STAGING_DEPLOY_PAUSED`) stops deploys, not traffic. |
-| A dataset is not enabled on the account | Its rows say `not available`; the other rows are still checked. | Nothing to fix here; Cloudflare decides which datasets an account has. |
+| A dataset is not enabled on the account, or lacks a field | Those rows say `not available` and why; the other rows are still checked. | Nothing to fix here; Cloudflare decides which datasets and fields an account has. |
 | The check could not run | A red run whose summary starts with `Cloudflare usage check could not run:` and the reason (a missing secret, an expired token, an API error). | Fix the secret or token in [docs/SECRETS.md](SECRETS.md#create-the-usage-checks-token) and run it again. |
 
 What it does not tell you:

@@ -147,7 +147,9 @@ vars actually listed in the config file.
 ### Create the usage check's token
 
 A captain step, done once. The token reads usage numbers only; it cannot deploy,
-write or read Worker secrets.
+write or read Worker secrets. Add both secrets before `usage.yml` reaches
+`main`: until they exist, every hourly run fails with `Not set:` and GitHub
+emails about each one.
 
 1. In the Cloudflare dashboard: **My Profile -> API Tokens -> Create Token ->
    Create Custom Token -> Get started**.
@@ -157,7 +159,7 @@ write or read Worker secrets.
 4. **Account Resources**: **Include** / the project's account.
 5. Leave **Client IP Address Filtering** and **TTL** empty, then **Continue to
    summary**. The summary must list only `Account Analytics:Read`. Keep a
-   screenshot of it for #212, then **Create Token** and copy the value.
+   screenshot of it as evidence, then **Create Token** and copy the value.
 6. In GitHub: **Settings -> Secrets and variables -> Actions**, the **Secrets**
    tab, **New repository secret**: name `CLOUDFLARE_ANALYTICS_TOKEN`, paste the
    value, **Add secret**.

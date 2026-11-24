@@ -23,7 +23,10 @@ to deployments from branch `main`:
 
 The other jobs (the gates, Release Please, and the promote guard) use no
 environment and no Cloudflare credential; they run with the workflow's own
-`GITHUB_TOKEN` only.
+`GITHUB_TOKEN` only. The one exception is `.github/workflows/usage.yml`, which
+uses no environment but reads two repository secrets: a read-only analytics
+token and the account ID (see
+[Create the usage check's token](#create-the-usage-checks-token)).
 
 Local development reads from the untracked `.env` file described in
 `.env_template`. `docs/CI-CD.md` owns how a commit reaches each Worker.
@@ -66,6 +69,8 @@ channel rather than owning a separate channel.
 | --- | --- | --- | --- | --- | --- |
 | `CLOUDFLARE_API_TOKEN` | GitHub Env secret | prod, staging | Authenticates `Deploy staging` (`ci.yml`) or Promote's `Deploy` job (`promote.yml`) against Cloudflare | GitHub Settings -> Environments -> the environment | Scope: Workers Scripts Edit, D1 Edit, Account Settings Read. Each environment holds its own token. Rotate when a maintainer leaves. |
 | `CLOUDFLARE_ACCOUNT_ID` | GitHub Env secret | prod, staging | Target account for `Deploy staging` and Promote's `Deploy` job | GitHub Settings -> Environments -> the environment | Identifier, not a credential. No longer duplicated in `account_id` inside the committed `wrangler.*.jsonc` files; Wrangler reads it from this env var instead. Rotate only on account change. |
+| `CLOUDFLARE_ANALYTICS_TOKEN` | GitHub Actions repository secret | repository | Lets the hourly `Cloudflare usage` workflow (`usage.yml`) read today's usage from the GraphQL Analytics API | GitHub Settings -> Secrets and variables -> Actions, **Secrets** tab | Scope: Account Analytics Read only, on the one account. Never the deploy token: this one cannot write. Created by the captain ([steps](#create-the-usage-checks-token)). Rotate when a maintainer leaves. |
+| `CLOUDFLARE_ACCOUNT_ID` (repository copy) | GitHub Actions repository secret | repository | Names the account `usage.yml` reads, which runs without an environment and so cannot see the environment copies | GitHub Settings -> Secrets and variables -> Actions, **Secrets** tab | Same value as the environment secrets above. A job that runs in `prod` or `staging` sees the environment's own value, which takes precedence. |
 | `LINE_LOGIN_CHANNEL_SECRET` | Cloudflare Worker secret | both Workers | LINE Login OAuth client secret | `pywrangler secret put` | Same value in both, because both use the shared Login channel. Rotate immediately if LINE Developers console is compromised, and rotate it in both Workers together. |
 | `SESSION_SIGNING_SECRET` | Cloudflare Worker secret | both Workers | HMAC key for session cookies and signed tokens | `pywrangler secret put` | At least 32 UTF-8 bytes. Must differ between staging and production. Rotating one invalidates that Worker's live sessions only. |
 | `ORGANIZER_LINE_SUBJECTS` | Cloudflare Worker secret | both Workers | Comma-separated LINE subject IDs allowed to sign in as organizers | `pywrangler secret put` | Treated as a secret because membership is sensitive, not because it is a credential. Login returns `503 Organizer LINE Login is not configured` while this is unset, because `organizer_login_ready` in `src/worker.py` requires it. |
@@ -138,6 +143,31 @@ uv run python -m pywrangler deploy --config wrangler.production.jsonc --keep-var
 Because every deploy already runs with `--keep-vars`, later deploys that omit
 this flag leave the value untouched on the live Worker; they only replace the
 vars actually listed in the config file.
+
+### Create the usage check's token
+
+A captain step, done once. The token reads usage numbers only; it cannot deploy,
+write or read Worker secrets.
+
+1. In the Cloudflare dashboard: **My Profile -> API Tokens -> Create Token ->
+   Create Custom Token -> Get started**.
+2. **Token name**: `next-is-you usage check (read-only)`.
+3. **Permissions**: one row, **Account** / **Account Analytics** / **Read**.
+   Add no other row.
+4. **Account Resources**: **Include** / the project's account.
+5. Leave **Client IP Address Filtering** and **TTL** empty, then **Continue to
+   summary**. The summary must list only `Account Analytics:Read`. Keep a
+   screenshot of it for #212, then **Create Token** and copy the value.
+6. In GitHub: **Settings -> Secrets and variables -> Actions**, the **Secrets**
+   tab, **New repository secret**: name `CLOUDFLARE_ANALYTICS_TOKEN`, paste the
+   value, **Add secret**.
+7. Same tab, **New repository secret**: name `CLOUDFLARE_ACCOUNT_ID`, the same
+   account ID the `prod` and `staging` environments hold.
+8. **Actions -> Cloudflare usage -> Run workflow**, **Branch: main**. The run
+   summary shows the usage table. Add a row to the change log below.
+
+To see what the check does, read
+[Daily usage on the Free plan](CI-CD.md#daily-usage-on-the-free-plan).
 
 ## Change log
 

@@ -525,6 +525,41 @@ The GitHub repository's **Deployments** sidebar shows only when each environment
 was last deployed, never a version. Use `npm run status` for what staging runs
 and the Releases sidebar's **Latest** for what production runs.
 
+## Daily usage on the Free plan
+
+Workers Free limits are per account, so Staging and Production share them, and
+they reset at 00:00 UTC (08:00 in Taiwan). Past a limit, requests fail until
+then; Worker requests return Error 1027. Cloudflare sends no usage alert on
+Free.
+
+The **Cloudflare usage** workflow (`.github/workflows/usage.yml`) runs at minute
+30 of every hour, and on **Run workflow**. It runs
+`scripts/cloudflare_usage.py`, which reads today's account totals from the
+GraphQL Analytics API: Worker requests, Durable Object requests, duration
+(GB-s) and SQLite rows read and written, and D1 rows read and written. It
+projects each to the full day at the rate so far and writes a table with the
+Free limit and the projected percentage to the run summary.
+
+| Outcome | What the captain sees | What to do |
+| --- | --- | --- |
+| Every projection is at or below 50% | A green run. | Nothing. |
+| A projection is above 50% | A red run and an email from GitHub. The row is marked **over 50%** in the run summary. | Find the source before the limit: an organizer page left open in a background tab, a stuck visit, a rehearsal. Pausing staging (`STAGING_DEPLOY_PAUSED`) stops deploys, not traffic. |
+| A dataset is not enabled on the account | Its rows say `not available`; the other rows are still checked. | Nothing to fix here; Cloudflare decides which datasets an account has. |
+| The check could not run | A red run whose summary starts with `Cloudflare usage check could not run:` and the reason (a missing secret, an expired token, an API error). | Fix the secret or token in [docs/SECRETS.md](SECRETS.md#create-the-usage-checks-token) and run it again. |
+
+What it does not tell you:
+
+- Early in the UTC day a projection rests on little data, so a short burst can
+  fail a run that later runs pass.
+- The CPU of any single invocation. Read that from Workers Logs.
+- Which page or user caused the load.
+- GitHub may delay or drop a scheduled run, and disables schedules in a public
+  repository after 60 days without activity. The email goes to whoever last
+  changed the `cron` line.
+
+The token is read-only (Account Analytics Read) and separate from the deploy
+token. `npm run status` stays GitHub only and does not run this check.
+
 ## Promoting a version that applies migrations
 
 Decided in issue #111. The rule in one line: fix forward by default, and

@@ -36,25 +36,29 @@ class SharedValue:
 
 
 Segments = tuple[str, ...]
+LIST_ENTRY = "[]"
 
 # Reviewed fields that are meant to match between Staging and Production.
-# Every other value must differ, so a binding added later fails this test
-# until its fields are reviewed here. A pattern covers the field and all of
-# its children; `[]` stands for any list entry and `*` for any one key.
+# Every other value must differ, so a field added later fails this test until
+# it is reviewed here. Each pattern names one field exactly: `[]` stands for
+# any list entry and `*` for any one key.
 ALLOWLIST = (
     "$schema",
     "main",
     "compatibility_date",
-    "compatibility_flags",
-    "assets",
+    "compatibility_flags[]",
+    "assets.directory",
+    "assets.binding",
+    "assets.run_worker_first",
     "*[].binding",
     "queues.producers[].binding",
     "d1_databases[].migrations_dir",
     "durable_objects.bindings[].name",
     "durable_objects.bindings[].class_name",
-    "exports",
-    "triggers.crons",
-    "observability",
+    "exports.*.type",
+    "exports.*.storage",
+    "triggers.crons[]",
+    "observability.enabled",
     "workers_dev",
     "preview_urls",
     "keep_vars",
@@ -62,9 +66,14 @@ ALLOWLIST = (
 )
 
 
-def _pattern(field: str) -> re.Pattern[str]:
-    body = re.escape(field).replace(r"\*", r"[^.\[]+")
-    return re.compile(rf"{body}(?=$|[.\[])")
+def _is_list_entry(segment: str) -> bool:
+    return segment.startswith("[")
+
+
+def _compile(allowlist: tuple[str, ...]) -> tuple[re.Pattern[str], ...]:
+    return tuple(
+        re.compile(re.escape(field).replace(r"\*", r"[^.\[]+")) for field in allowlist
+    )
 
 
 def _leaves(node: object, path: Segments = ()) -> Iterator[tuple[Segments, object]]:
@@ -81,18 +90,21 @@ def _leaves(node: object, path: Segments = ()) -> Iterator[tuple[Segments, objec
 def _shape(path: Segments) -> Segments:
     # A list index says where an entry sits, not which resource it names, so
     # entries of a list are compared as a set whatever their order.
-    return tuple("[]" if s.startswith("[") else s for s in path)
+    return tuple(LIST_ENTRY if _is_list_entry(s) else s for s in path)
 
 
 def _render(path: Segments) -> str:
     return "".join(
-        s if s.startswith("[") or not i else f".{s}" for i, s in enumerate(path)
+        s if _is_list_entry(s) or not i else f".{s}" for i, s in enumerate(path)
     )
 
 
-def _allowlisted(path: Segments, allowlist: tuple[str, ...]) -> bool:
-    shape = _render(_shape(path))
-    return any(_pattern(field).match(shape) for field in allowlist)
+def _same(staging_value: object, production_value: object) -> bool:
+    # Hostnames and many resource names are case-insensitive, so strings are
+    # compared without case.
+    if isinstance(staging_value, str) and isinstance(production_value, str):
+        return staging_value.casefold() == production_value.casefold()
+    return staging_value == production_value
 
 
 def shared_values(
@@ -103,19 +115,31 @@ def shared_values(
     A match is allowed only when both paths are allowlisted, so a resource
     identifier cannot hide by moving into an allowlisted field on one side.
     """
+    patterns = _compile(allowlist)
+
+    def allowlisted(path: Segments) -> bool:
+        shape = _render(_shape(path))
+        return any(pattern.fullmatch(shape) for pattern in patterns)
+
     production_leaves = list(_leaves(production))
     findings = []
-    for s_path, s_value in _leaves(staging):
-        for p_path, p_value in production_leaves:
-            if s_value != p_value:
+    for staging_path, staging_value in _leaves(staging):
+        for production_path, production_value in production_leaves:
+            if not _same(staging_value, production_value):
+                continue
+            if allowlisted(staging_path) and allowlisted(production_path):
                 continue
             # A string names a resource wherever it sits, so a shared string
             # counts under any two paths. A flag or number only counts at the
             # same path, where it means the same setting.
-            if _allowlisted(s_path, allowlist) and _allowlisted(p_path, allowlist):
-                continue
-            if isinstance(s_value, str) or _shape(s_path) == _shape(p_path):
-                findings.append(SharedValue(_render(s_path), _render(p_path), s_value))
+            if isinstance(staging_value, str) or _shape(staging_path) == _shape(
+                production_path
+            ):
+                findings.append(
+                    SharedValue(
+                        _render(staging_path), _render(production_path), staging_value
+                    )
+                )
     return findings
 
 
@@ -136,18 +160,24 @@ def production() -> dict:
 
 
 # Staging still uses Production's LINE Login channel until #129 gives it its
-# own LINE provider. The strict xfail below reports when that changes, and
-# this entry must go with it.
-LINE_CHANNEL_GAP = ("vars.LINE_LOGIN_CHANNEL_ID",)
+# own LINE provider. The real configs must share exactly this value and no
+# other, so the gap cannot outlive #129: once the channels differ, both this
+# test and the strict xfail below fail until the gap is removed.
+LINE_CHANNEL_GAP = "vars.LINE_LOGIN_CHANNEL_ID"
 
 
 def test_staging_shares_no_value_with_production(
     staging: dict, production: dict
 ) -> None:
-    findings = shared_values(staging, production, ALLOWLIST + LINE_CHANNEL_GAP)
-    assert not findings, "Staging shares Production's values:\n" + "\n".join(
+    findings = shared_values(staging, production)
+    unexpected = [f for f in findings if f.staging_path != LINE_CHANNEL_GAP]
+    assert not unexpected, "Staging shares Production's values:\n" + "\n".join(
         f"  staging {f.staging_path} = production {f.production_path} = {f.value!r}"
-        for f in findings
+        for f in unexpected
+    )
+    assert [f.staging_path for f in findings] == [LINE_CHANNEL_GAP], (
+        "Staging no longer shares Production's LINE Login channel (#129). "
+        "Remove LINE_CHANNEL_GAP and the strict xfail on the channel test."
     )
 
 
@@ -260,58 +290,81 @@ def test_rule_fails_closed_on_a_new_field_that_is_not_allowlisted() -> None:
     assert findings == [SharedValue("limits.cpu_ms", "limits.cpu_ms", 50)]
 
 
-SHARED_RESOURCES = {
-    "kv namespace id": (
+SHARED_RESOURCES = [
+    pytest.param(
         "kv_namespaces",
         [{"binding": "CACHE", "id": "prod-kv-id"}],
         "kv_namespaces[0].id",
+        id="kv namespace id",
     ),
-    "r2 bucket name": (
+    pytest.param(
         "r2_buckets",
         [{"binding": "FILES", "bucket_name": "prod-bucket"}],
         "r2_buckets[0].bucket_name",
+        id="r2 bucket name",
     ),
-    "queue producer": (
+    pytest.param(
         "queues",
         {"producers": [{"binding": "JOBS", "queue": "prod-queue"}]},
         "queues.producers[0].queue",
+        id="queue producer",
     ),
-    "queue consumer": (
+    pytest.param(
         "queues",
         {"consumers": [{"queue": "prod-queue"}]},
         "queues.consumers[0].queue",
+        id="queue consumer",
     ),
-    "route pattern": (
+    pytest.param(
         "routes",
         [{"pattern": "family.example.com/*", "zone_name": "example.com"}],
         "routes[0].pattern",
+        id="route pattern",
     ),
-    "custom domain": (
+    pytest.param(
         "routes",
         [{"pattern": "family.example.com", "custom_domain": True}],
         "routes[0].pattern",
+        id="custom domain",
     ),
-    "service binding": (
+    pytest.param(
         "services",
         [{"binding": "AUTH", "service": "prod-auth-worker"}],
         "services[0].service",
+        id="service binding",
     ),
-}
+]
 
 
-@pytest.mark.parametrize(
-    ("key", "resource", "shared_path"),
-    SHARED_RESOURCES.values(),
-    ids=SHARED_RESOURCES.keys(),
-)
+@pytest.mark.parametrize(("config_key", "resource", "shared_path"), SHARED_RESOURCES)
 def test_rule_names_a_shared_production_resource(
-    key: str, resource: object, shared_path: str
+    config_key: str, resource: object, shared_path: str
 ) -> None:
     staging = _synthetic_config("staging")
     production = _synthetic_config("production")
-    staging[key] = resource
-    production[key] = resource
+    staging[config_key] = resource
+    production[config_key] = resource
 
     findings = shared_values(staging, production)
 
     assert shared_path in {f.staging_path for f in findings}
+
+
+def test_rule_checks_new_fields_inside_an_allowlisted_block() -> None:
+    staging = _synthetic_config("staging")
+    production = _synthetic_config("production")
+    staging["observability"]["logs"] = {"destinations": ["prod-sink"]}
+    production["observability"]["logs"] = {"destinations": ["prod-sink"]}
+
+    findings = shared_values(staging, production)
+
+    assert [f.staging_path for f in findings] == ["observability.logs.destinations[0]"]
+
+
+def test_rule_ignores_case_when_comparing_identifiers() -> None:
+    staging = {"routes": ["Family.Example.com/*"]}
+    production = {"routes": ["family.example.com/*"]}
+
+    findings = shared_values(staging, production)
+
+    assert [f.staging_path for f in findings] == ["routes[0]"]

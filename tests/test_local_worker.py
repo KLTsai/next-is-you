@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
@@ -32,6 +34,17 @@ def test_local_workers_started_at_once_all_serve(tmp_path):
     # and closed it, so of six started together one or two usually died with
     # `Address already in use (socket "direct:1:default")`.
     environment = {**os.environ, "CI": "1"}
+    # Every `pywrangler dev` first syncs .venv-workers. Six syncing at once on
+    # a fresh checkout race to create it, and the losers wait at uv's
+    # "replace it? [y/n]" prompt. Sync once up front so only the ports race.
+    sync = subprocess.run(
+        [sys.executable, "-m", "pywrangler", "sync"],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert sync.returncode == 0, sync.stdout + sync.stderr
     with ExitStack() as stack, ThreadPoolExecutor(max_workers=6) as pool:
         starts = [
             pool.submit(

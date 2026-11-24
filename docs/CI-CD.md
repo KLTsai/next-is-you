@@ -244,8 +244,9 @@ pinned database id in `wrangler.staging.jsonc`, so that needs the owner's decisi
    adds one.
 
 Only the captain, in person, merges the release PR and runs Promote. Nothing on
-the hosting plan enforces this; it is a written rule in `AGENTS.md`. The
-ruleset bypass is the captain's alone too: agents never use it.
+the hosting plan enforces this; it is a written rule in `AGENTS.md`. Who may
+use the ruleset bypass is in [Release and rollback
+rules](#release-and-rollback-rules).
 
 Do not use a production deployment as a staging test. `workers.dev` URLs are
 publicly reachable, so staging protects production users and data through a
@@ -404,9 +405,13 @@ paths and the allowed types (`ci`, `chore`, `test`, `build`, `refactor`,
 not one of the seven gates, so `npm run status` ignores it. It does not catch
 the reverse mistake (`chore:` on product code); that stays a review judgement.
 The `main: CI Summary before merge` ruleset requires `PR title type` and CI's
-`Summary` job on every pull request into `main`. Repository admins may bypass
-it; the release PR is the expected case (step 3 of [Everyday
-flow](#everyday-flow)).
+`Summary` job on every update to `main`, pull request merges and direct pushes
+alike. Repository admins may bypass it. Agents use the bypass in one case only:
+a documentation-only push straight to `main`, which `AGENTS.md` allows and
+which succeeds only through the bypass. Merging a pull request with the bypass
+(`gh pr merge --admin` or the bypass checkbox), merging the release PR (the
+expected bypass case, step 3 of [Everyday flow](#everyday-flow)), and changing
+the ruleset stay the captain's alone.
 
 Release Please reads Conventional Commit messages:
 

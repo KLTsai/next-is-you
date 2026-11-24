@@ -361,6 +361,20 @@ Creating the tag at release PR merge removes the dependency on promotion, so a
 delayed or rejected Promote can no longer stall versioning. The
 `check:release` script that guarded the old gap is gone.
 
+### Settings that did not restore the boundary
+
+Only a `vX.Y.Z` tag matching the manifest version sets the changelog boundary
+here. These settings were tried and observed to have no effect, so do not try
+them again to fix a release PR that sweeps in old history:
+
+| Setting | Tried | Observed | Fact checked later |
+| --- | --- | --- | --- |
+| `bootstrap-sha` at the top level | `8652200`, removed in `f23ebf4` (2026-10-30) | The first release PR still collected every commit back to the start of the repo. | The [config schema](https://github.com/googleapis/release-please/blob/main/schemas/config.json) accepts it only at the top level, so it was in the right place. Why it did not bind was not established. |
+| `last-release-sha` inside `packages."."` | `f23ebf4`, value changed on 2026-11-14, removed in `f7b6cb8` | A `release-please` 16.18.0 dry run reported "Considering: 103 commits", the whole history, with and without it. Release PRs #52 and #63 swept in the whole history. | The schema defines it at the top level only. Per-package options accept unknown keys, so the misplaced key passed silently. |
+| `autorelease: pending` / `autorelease: tagged` labels on merged release PRs | 2026-11 | No boundary. | Release Please owns these labels; do not set them by hand ([issue tracker](agents/issue-tracker.md#labels)). |
+
+Source review: [research/ci-gates-and-cloudflare-usage-2026-11-24.md](../research/ci-gates-and-cloudflare-usage-2026-11-24.md) (Question A).
+
 ## Release and rollback rules
 
 Pull requests are squash-merged only (`allow_merge_commit` and
@@ -395,7 +409,7 @@ show the same text:
 | Staging | A commit, never a version | A push to `main` deploys (see [At a glance](#at-a-glance) for the skips) |
 | Release PR | The version Release Please proposes, and the changes it would contain | A pull request with a visible type (`feat`, `fix`, `perf`) merges |
 | Tag `vX.Y.Z` | A version | The captain merges the release PR |
-| Production | The version of the newest successful Promote | The captain runs Promote |
+| Production | The version of the newest successful Promote, shown as **Latest** on the repository's Releases sidebar | The captain runs Promote |
 
 The proposed number is the highest level among every commit since the last tag,
 not one step per commit. While the last tag is `v0.2.3`, one `feat:` makes the
@@ -461,6 +475,27 @@ migration, the check on staging is the last point where stopping costs nothing.
 `git diff --name-only <version in production> <version to promote> --
 migrations/` lists the migrations a Promote will apply. When it lists any, follow
 [Promoting a version that applies migrations](#promoting-a-version-that-applies-migrations).
+
+## Reading Staging D1
+
+Read Staging D1 with `npx wrangler`, not `pywrangler`. `pywrangler` re-splits a
+`--command` argument and prints log lines into `--json` output.
+
+```sh
+npx wrangler d1 execute next-is-you-staging --remote --config wrangler.staging.jsonc --json \
+  --command "SELECT name, applied_at FROM d1_migrations ORDER BY id"
+```
+
+- Keep these commands read-only (`SELECT`, `PRAGMA`). Writes to Staging go
+  through a migration or the rehearsal steps below; never query or write
+  production this way.
+- `--file` returns an import summary, not result sets, so use `--command` for
+  anything you need to read back.
+- `wrangler d1 execute` has no `--yes` flag.
+
+The GitHub repository's **Deployments** sidebar shows only when each environment
+was last deployed, never a version. Use `npm run status` for what staging runs
+and the Releases sidebar's **Latest** for what production runs.
 
 ## Promoting a version that applies migrations
 

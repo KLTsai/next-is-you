@@ -28,6 +28,7 @@ The former local tickets are [inactive historical records](../docs/archive/ticke
 
 - [Schema migration risk practices](schema-migration-risk-practices.md) (2026-11-19): how teams classify, review, rehearse, back up, and roll forward schema changes, with SQLite rebuild and Cloudflare D1 specifics and what fits a solo operator.
 - [Workers Free plan 10 ms CPU limit and the Python tick](workers-free-cpu-limit-2026-11-21.md) (2026-11-21): how Cloudflare counts and enforces CPU per invocation for Cron and Durable Object invocations and Python Workers, and which techniques fit this project's tick. Supporting evidence for #162 and #170, not a measurement.
+- [CI gates and Cloudflare usage tracking](ci-gates-and-cloudflare-usage-2026-11-24.md) (2026-11-24): how the seven CI gates compare with GitHub, actionlint and Release Please guidance, and what Cloudflare offers on the Free plan to track Worker, Durable Object and D1 usage against daily limits. Supporting evidence for #203.
 - [Cutting CI wall time for the backend and browser test job](ci-test-wall-time-2026-11-23.md) (2026-11-23): what the browser tests share on one machine, and how matrix sharding, pytest-xdist, cheaper fixtures, caching and affected-test selection compare. It recommends 4 pytest-split shards behind one job that keeps the gate name.
 
 ## Local-only supporting material

@@ -24,12 +24,18 @@ The former local tickets are [inactive historical records](../docs/archive/ticke
 - [Hospital schedule and queue progress survey](hospital-schedule-and-progress-survey.md) (2026-11-17): how 15 Taiwan hospitals publish their clinic schedule and queue progress, and where the capability model in Issue #45 does not fit. Not evidence that any hospital is ready for a reader.
 - [Automated reading of public hospital pages under Taiwan law](automated-access-taiwan-law.md) (2026-11-17): what statutes, court decisions and agency letters say about the reading rules in the README. Source research by a non-lawyer, not legal advice.
 
+## LINE research
+
+- [LINE rich menu progress button and the message quota](line-rich-menu-progress-button.md) (2026-11-20): whether a rich menu tap can return the current queue progress as a reply that does not count toward the monthly message quota, how postback, webhook and reply tokens fit together, Taiwan plan quotas from 2026-11-01, and what separate staging and production accounts mean for menus.
+
 ## Delivery and operations research
 
 - [Schema migration risk practices](schema-migration-risk-practices.md) (2026-11-19): how teams classify, review, rehearse, back up, and roll forward schema changes, with SQLite rebuild and Cloudflare D1 specifics and what fits a solo operator.
 - [Workers Free plan 10 ms CPU limit and the Python tick](workers-free-cpu-limit-2026-11-21.md) (2026-11-21): how Cloudflare counts and enforces CPU per invocation for Cron and Durable Object invocations and Python Workers, and which techniques fit this project's tick. Supporting evidence for #162 and #170, not a measurement.
 - [CI gates and Cloudflare usage tracking](ci-gates-and-cloudflare-usage-2026-11-24.md) (2026-11-24): how the seven CI gates compare with GitHub, actionlint and Release Please guidance, and what Cloudflare offers on the Free plan to track Worker, Durable Object and D1 usage against daily limits. Supporting evidence for #203.
 - [Cutting CI wall time for the backend and browser test job](ci-test-wall-time-2026-11-23.md) (2026-11-23): what the browser tests share on one machine, and how matrix sharding, pytest-xdist, cheaper fixtures, caching and affected-test selection compare. It recommends 4 pytest-split shards behind one job that keeps the gate name.
+- [CI/CD main branch policy and versioning before production](CI-CD-main-policy-and-versioning.md) (2026-11-15): whether every change must go through a pull request, what GitHub can enforce for this repository, and how Release Please versions should be managed between the release PR merge and production.
+- [firstmate and Matt Pocock's skills workflow](firstmate-and-matt-skills-workflow.md) (2026-11-18): whether firstmate can implement work defined with `grilling`, `to-spec` and `to-tickets`, and where the two workflows conflict. The captain chose Option A: all phases run in this repository's own session, firstmate for exploration only.
 
 ## Local-only supporting material
 

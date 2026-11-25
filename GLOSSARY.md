@@ -39,8 +39,12 @@ _Avoid_: Booking open time, registration open time
 ### Visits
 
 **Visit**:
-A job an organizer sets up and sends off: follow one clinic's progress on one day for one patient number, and tell the chosen recipients on LINE when to check in, when the number has been passed, and when the patient's turn comes close. It starts as a draft, runs once the organizer presses Start, and ends when it is stopped, the patient number leaves the hospital's list, the clinic ends, or its day is over. A visit the hospital confirms cannot happen as set up is stopped by the system and comes back as a draft for the organizer to correct. Its recipients are fixed at the first Start: the organizer can remove them, but no one can be added. When the organizer removes every recipient of a started visit, the system stops it, and the organizer sets up a new visit to tell anyone else. Shown to users as 叫號追蹤, counted as 一個.
-_Avoid_: Watch, reminder setting, appointment, 看診提醒, 監聽工作
+A job an organizer sets up and sends off: follow one clinic's progress on one day for one patient number, and tell the chosen recipients on LINE when to check in, when the number has been passed, and when the patient's turn comes close. It starts as a draft, runs once the organizer presses Start, and ends when the organizer stops it, the patient number leaves the hospital's list, the clinic ends, or its day is over. A visit the hospital confirms cannot happen as set up is taken back by the system and returned as a draft for the organizer to correct. Its recipients are fixed at the first Start: the organizer can remove them, but no one can be added. When the organizer removes every recipient of a started visit, the system ends it, and the organizer sets up a new visit to tell anyone else. Shown to users as 叫號追蹤, counted as 一個.
+_Avoid_: Watch, reminder setting, appointment, 看診提醒, 監聽工作, stopped or expired as a visit's state (a visit that has stopped running is ended; why is its end reason)
+
+**End reason**:
+Why a visit ended, one of: the organizer stopped it, the patient number left the hospital's list, the clinic ended, every recipient was removed, or its day is over. Each reason has its own sentence on the organizer's page, so the organizer can tell a normal end from a mistake. A visit sent back to draft because the hospital confirmed a mismatch has not ended and has no end reason; it carries a reason under needs attention instead.
+_Avoid_: Stop reason, status, closing code
 
 **Patient**:
 The person who is seen at the clinic. A patient need not be an organizer or a recipient, and the product never stores who they are, only their patient number.

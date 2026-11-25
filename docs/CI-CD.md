@@ -832,9 +832,16 @@ Two things put a version out of reach:
   refuses them. `v0.2.2` is the earliest version Promote can return to.
 - GitHub lets a run be re-run for 30 days after it first ran. A version older
   than that can no longer be put on staging.
+- Once an environment is live, a version older than its first live version is
+  refused by the promote guard and by both deploy jobs, with a `Refused:` line
+  that names that version (#237, [pre-live
+  checklist](PRE-LIVE-CHECKLIST.md#how-an-environment-is-made-live)). Going live
+  cannot be undone.
 
 For those versions, and whenever Promote itself is unusable, the native
-procedure is the only path:
+procedure is the only path. It skips the live check too: on a live environment,
+never use it to return to a version older than that environment's first live
+version, because that version is not live and would stop all reading and sending.
 
 ```sh
 uv run python -m pywrangler deployments list --config wrangler.production.jsonc

@@ -30,7 +30,11 @@ decides it, and every deploy writes the committed value.
 LINE messages together. To stop sending, use a send interruption. The promote
 guard and the Staging deploy refuse any version older than the environment's
 first live one (`scripts/delivery_state.py live-check`), so a rollback cannot
-make it not live again. Rolling back past that point is not possible.
+make it not live again. Rolling back past that point is not possible through
+Promote or CI. Two paths outside them are not guarded and must not be used for
+this: Cloudflare's native rollback ([CI-CD.md](CI-CD.md#rollback)), and editing
+`NIY_LIVE` in the Cloudflare dashboard, which lasts until the next deploy writes
+the committed value back.
 
 Use [HTTPS-SERVICE.md](HTTPS-SERVICE.md) for provisioning and the interruption
 procedures, and [CI-CD.md](CI-CD.md) for deployment and rollback. This checklist

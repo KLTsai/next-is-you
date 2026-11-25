@@ -3,10 +3,10 @@
 Each environment's live state (GLOSSARY.md: Live) is `vars.NIY_LIVE` in its own
 `wrangler.*.jsonc`, so it changes only through a pull request the captain
 merges. Every deploy writes the committed value over whatever the dashboard
-holds, and Cloudflare refuses a secret with the same name as a var, so neither
-a secret nor a dashboard variable can decide it. These checks keep it that way:
-every config carries the value, nothing deploys it from anywhere else, and the
-code reads it from that one name.
+holds, and Cloudflare does not let a secret share a var's name. These checks
+keep it that way: every config carries the value, nothing deploys it from
+anywhere else, and the code reads it from that one name. A dashboard edit
+between deploys is outside what a test can see; the pre-live checklist forbids it.
 """
 
 from __future__ import annotations

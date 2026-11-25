@@ -17,7 +17,7 @@ import re
 import subprocess
 import sys
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Iterator, TextIO
 
 # Repository variable that pauses automatic staging deployment when its value
@@ -93,8 +93,9 @@ class LiveFloor:
 
     `commit` is the first commit on main whose committed config sets NIY_LIVE
     to "true" (GLOSSARY.md: Live, #237). For production, which runs versions,
-    `version` is the first version that carries it; production has no floor
-    until such a version exists, because it has never run a live one.
+    `version` is the first version that carries it. Production has no floor
+    until such a version exists. Once one does, versions older than it are
+    refused even before it is promoted: by then going live is decided.
     """
 
     environment: str  # "staging" or "production"
@@ -772,12 +773,18 @@ def _main_ref() -> str:
     return os.environ.get("LIVE_MAIN_REF", "origin/main")
 
 
+def _git(fact: str, args: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run git and return the result whatever its exit code."""
+    try:
+        return subprocess.run(["git", *args], capture_output=True, text=True)
+    except OSError as error:
+        raise FactUnreadable(fact, f"cannot run git: {error}") from error
+
+
 def _live_at(commit: str, config: str) -> bool:
     """Whether the config committed at this commit sets NIY_LIVE to "true"."""
     fact = f"{config} at {_short(commit)}"
-    result = subprocess.run(
-        ["git", "show", f"{commit}:{config}"], capture_output=True, text=True
-    )
+    result = _git(fact, ["show", f"{commit}:{config}"])
     if result.returncode != 0:
         # Before the file existed, the environment was not live.
         if "does not exist" in result.stderr or "exists on disk" in result.stderr:
@@ -810,11 +817,7 @@ def _first_live_commit(config: str) -> str | None:
 
 def _is_at_or_after(ancestor: str, commit: str) -> bool:
     fact = f"history of {_short(commit)}"
-    result = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", ancestor, commit],
-        capture_output=True,
-        text=True,
-    )
+    result = _git(fact, ["merge-base", "--is-ancestor", ancestor, commit])
     if result.returncode in (0, 1):
         return result.returncode == 0
     raise FactUnreadable(fact, result.stderr.strip() or "git merge-base failed")
@@ -882,7 +885,7 @@ def read_guard_snapshot(version: str) -> Snapshot:
     if commit:
         facts = _read_commit_facts(commit)
         if facts.on_main and before_live(floor, commit):
-            facts = CommitFacts(facts.on_main, facts.checks, facts.failed, True)
+            facts = replace(facts, before_live=True)
         commits[commit] = facts
     return Snapshot(
         main=main,

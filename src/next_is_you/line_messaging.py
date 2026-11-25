@@ -78,13 +78,7 @@ class WorkersLineFriendshipClient:
             return FriendshipResult(None)
 
     async def _fetch(self, url: str, options: dict[str, object]):
-        if self._fetcher is not None:
-            return await self._fetcher(url, options)
-        from js import Object
-        from js import fetch
-        from pyodide.ffi import to_js
-
-        return await fetch(url, to_js(options, dict_converter=Object.fromEntries))
+        return await _workers_fetch(self._fetcher, url, options)
 
 
 class LineBotInfoClient(Protocol):
@@ -118,13 +112,7 @@ class WorkersLineBotInfoClient:
             return None
 
     async def _fetch(self, url: str, options: dict[str, object]):
-        if self._fetcher is not None:
-            return await self._fetcher(url, options)
-        from js import Object
-        from js import fetch
-        from pyodide.ffi import to_js
-
-        return await fetch(url, to_js(options, dict_converter=Object.fromEntries))
+        return await _workers_fetch(self._fetcher, url, options)
 
 
 class WorkersLinePushTransport:
@@ -220,6 +208,17 @@ class LinePushClient:
             request_id=response.request_id,
             accepted_request_id=response.accepted_request_id,
         )
+
+
+async def _workers_fetch(fetcher, url: str, options: dict[str, object]):
+    """Fetch with an injected fetcher, or with the Workers fetch API."""
+    if fetcher is not None:
+        return await fetcher(url, options)
+    from js import Object
+    from js import fetch
+    from pyodide.ffi import to_js
+
+    return await fetch(url, to_js(options, dict_converter=Object.fromEntries))
 
 
 def _read_header(response, name: str) -> str | None:

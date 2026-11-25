@@ -6,6 +6,10 @@ import pytest
 
 from worktree_bootstrap import require_built_ui
 
+# `serve_reader_values` lives with the NTUH reader values it serves (#205); a
+# module that serves them turns it on with `pytest.mark.usefixtures`.
+pytest_plugins = ["ntuh_reads"]
+
 
 @pytest.fixture
 def built_ui() -> None:
@@ -33,7 +37,3 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         if _is_browser_module(item.path, cache):
             item.add_marker(pytest.mark.browser)
-
-
-# Visit and reminder tests feed the NTUH readers' values, not pages (#205).
-from ntuh_reads import serve_reader_values  # noqa: E402, F401

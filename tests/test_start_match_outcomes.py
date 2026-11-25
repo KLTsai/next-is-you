@@ -24,6 +24,9 @@ from test_ntuh_reader import (
     seed_ntuh_at,
 )
 
+# This module serves NTUH reader values (#205).
+pytestmark = pytest.mark.usefixtures("serve_reader_values")
+
 # outcome -> (draft clinic code, days after the simulated today or None for the
 # first fixture day, schedule read, expected Start result, stored read)
 OUTCOMES = {

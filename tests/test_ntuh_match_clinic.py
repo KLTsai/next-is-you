@@ -26,6 +26,9 @@ from test_ntuh_reader import (
     reader,
 )
 
+# This module serves NTUH reader values (#205).
+pytestmark = pytest.mark.usefixtures("serve_reader_values")
+
 TAIPEI = timezone(timedelta(hours=8))
 TODAY_EVE = datetime(2026, 11, 9, 14, 0, tzinfo=TAIPEI)
 

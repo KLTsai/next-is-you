@@ -20,6 +20,7 @@ from enum import StrEnum
 import json
 from typing import Any, Mapping, Sequence
 
+from next_is_you.page_markers import page_status
 from next_is_you.domain import (
     ClinicScope,
     ClinicSession,
@@ -71,15 +72,6 @@ _SHIN_KONG_FIELDS = {
     "NextVisitSeq",
     "NextVisitSeqDesc",
 }
-_CHALLENGE_MARKERS = (
-    "captcha",
-    "challenge",
-    "robot check",
-    "驗證碼",
-    "安全驗證",
-    "機器人驗證",
-)
-_DENIAL_MARKERS = ("access denied", "forbidden", "拒絕存取", "無權限")
 
 
 def parse_shin_kong_rows(
@@ -252,8 +244,5 @@ def _is_stale(updated: datetime, observed: datetime, max_age: timedelta) -> bool
 
 
 def _page_status(text: str) -> ParseStatus | None:
-    if any(marker in text for marker in _CHALLENGE_MARKERS):
-        return ParseStatus.CHALLENGE
-    if any(marker in text for marker in _DENIAL_MARKERS):
-        return ParseStatus.DENIED
-    return None
+    marker = page_status(text)
+    return None if marker is None else ParseStatus(marker)

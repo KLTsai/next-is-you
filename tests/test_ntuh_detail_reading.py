@@ -29,14 +29,20 @@ from next_is_you.domain import (
 from next_is_you.hospital_registry import forget_other_days
 from next_is_you.ntuh_reader import STATE_KEY, FetchedPage
 from next_is_you.persistence import CloudflareD1Store, VisitRepository
-from ntuh_reads import DetailRead, ListRead, listing, progress
+from ntuh_reads import (
+    DetailRead,
+    card,
+    listing,
+    of_doctor,
+    progress,
+    with_rows,
+)
 from test_ntuh_reader import (
     CHECK_IN_ORDER_CLINIC,
     DAY,
     PAGE,
     LocalDurableStorage,
     TwoPageSource,
-    _card,
     counts,
     gate_with_visit,
     page_with,
@@ -50,30 +56,19 @@ from test_visit_day_matching import (
     VISIT_DAY,
     SwitchableSource,
     at,
-    card_page,
     started_three_days_ahead,
     tick_every_minute,
 )
+
+# This module serves NTUH reader values (#205).
+pytestmark = pytest.mark.usefixtures("serve_reader_values")
 
 # The `11診/合成醫師丙/醫師約診` card of the list fixture links to this ID.
 SERVICE_ID = "8000011"
 
 
-def with_rows(read: ListRead, match, **changes) -> ListRead:
-    """`read` with `changes` made to every card `match` accepts."""
-    return listing(
-        *(replace(row, **changes) if match(row) else row for row in read.rows),
-        status=read.status,
-    )
-
-
-def of_doctor(doctor: str):
-    return lambda row: row.doctor == doctor
-
-
 NO_CARD = with_rows(PAGE, of_doctor("合成醫師丙"), doctor="其他醫師")
 BLANK_LIST = page_with("")
-SUBSTITUTE_LIST = with_rows(PAGE, of_doctor("合成醫師丙"), doctor="住院醫師(代)")
 UNUSABLE_PAGES = [
     pytest.param(FetchedPage(404, ""), id="not-found"),
     pytest.param(FetchedPage(410, ""), id="gone"),
@@ -491,7 +486,8 @@ async def test_an_evening_card_without_a_detail_link_sends_nothing_either():
 @pytest.mark.asyncio
 async def test_an_evening_substitute_is_still_shown_to_the_organizer():
     source = TwoPageSource(
-        SUBSTITUTE_LIST, progress(doctor="住院醫師", current=25, highest=25)
+        with_rows(PAGE, of_doctor("合成醫師丙"), doctor="住院醫師(代)"),
+        progress(doctor="住院醫師", current=25, highest=25),
     )
     database, gate = await running_visit(source, session="evening")
     for minute in (0, 2):
@@ -910,7 +906,7 @@ async def test_a_readable_page_between_failures_ends_their_run():
 @pytest.mark.asyncio
 async def test_a_visit_started_days_ahead_reads_the_detail_page_on_its_day():
     source = SwitchableSource(
-        card_page(_card("03 診", "合成醫師甲", "普通門診", "")),
+        listing(card("03 診", "合成醫師甲", "普通門診", "")),
         schedule=SCHEDULE_FIXTURE,
         details=[progress(room="合成科 03診", doctor="合成醫師甲")],
     )
@@ -926,7 +922,7 @@ async def test_a_visit_started_days_ahead_reads_the_detail_page_on_its_day():
 
     assert called["events_created"] == 1
     assert await kinds(gate) == ["near"]
-    service_id = _card("03 診", "合成醫師甲", "普通門診").service_id
+    service_id = card("03 診", "合成醫師甲", "普通門診").service_id
     assert len(source.detail_requests) == 2
     assert all(f"ServiceIDSE={service_id}" in r.url for r in source.detail_requests)
 

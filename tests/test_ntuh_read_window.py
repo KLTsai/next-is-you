@@ -28,6 +28,9 @@ from test_ntuh_reader import (
 )
 from test_visit_day_matching import tick_every_minute
 
+# This module serves NTUH reader values (#205).
+pytestmark = pytest.mark.usefixtures("serve_reader_values")
+
 NOT_DUE = ReadSkipped("not_due")
 FIRST_READ = [
     pytest.param("morning", (8, 0), id="morning"),

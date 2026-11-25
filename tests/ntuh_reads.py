@@ -4,8 +4,9 @@ Visit and reminder logic is tested on the values a reader returns, not on HTML:
 a clinic list is `ListRow`s, a detail page is a `ProgressObservation`, and a
 clinic schedule is `ScheduleRow`s. A fake source serves such a value with
 `served(value)`, and while a test runs, the readers in `next_is_you.ntuh_reader`
-return it for that body instead of parsing (`serve_reader_values`, installed for
-every test by `conftest.py`). A body that is not `served` is parsed as usual, so
+return it for that body instead of parsing. A module whose tests serve values
+turns this on with
+`pytestmark = pytest.mark.usefixtures("serve_reader_values")`. A body that is not `served` is parsed as usual, so
 a real capture still goes through the real reader.
 
 How the hospital's pages read is tested on real captures, in
@@ -16,14 +17,21 @@ Fixture/mock only.
 from __future__ import annotations
 
 import itertools
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any
 
 import pytest
 
 import next_is_you.ntuh_reader as ntuh_reader
-from next_is_you.domain import CallKind, ClinicSession, ExpectedCall, NumberStatus
+from next_is_you.domain import (
+    CallKind,
+    ClinicSession,
+    ExpectedCall,
+    NumberState,
+    NumberStatus,
+)
 from next_is_you.ntuh_detail import ProgressObservation
 from next_is_you.ntuh_reader import ListRow, ScheduleRow
 
@@ -56,6 +64,24 @@ def listing(*rows: ListRow, status: str = "ok") -> ListRead:
     return ListRead(status, rows)
 
 
+def with_rows(read: ListRead, match: Callable[[ListRow], bool], **changes) -> ListRead:
+    """`read` with `changes` made to every card `match` accepts."""
+    return ListRead(
+        read.status,
+        tuple(replace(row, **changes) if match(row) else row for row in read.rows),
+    )
+
+
+def plus(read: ListRead, *rows: ListRow) -> ListRead:
+    """`read` with `rows` listed after its cards."""
+    return ListRead(read.status, (*read.rows, *rows))
+
+
+def of_doctor(doctor: str) -> Callable[[ListRow], bool]:
+    """Matches the cards of `doctor`."""
+    return lambda row: row.doctor == doctor
+
+
 def card(
     room: str,
     doctor: str,
@@ -81,7 +107,7 @@ def progress(
     check_in_order: bool = False,
     check_in_position: int | None = None,
     expected: tuple[tuple[int, CallKind | None], ...] = (),
-    numbers: tuple[tuple[int, str] | tuple[int, str, int], ...] = (),
+    numbers: tuple[tuple[int, NumberState] | tuple[int, NumberState, int], ...] = (),
 ) -> ProgressObservation:
     """A clinic's detail page as the reader returns it.
 
@@ -96,11 +122,18 @@ def progress(
         check_in_order=check_in_order,
         check_in_position=check_in_position,
         expected=tuple(ExpectedCall(number, kind) for number, kind in expected),
-        numbers=tuple(
-            NumberStatus(item[0], item[1], item[2] if len(item) == 3 else None)  # type: ignore[arg-type]
-            for item in numbers
-        ),
+        numbers=tuple(_number_status(item) for item in numbers),
     )
+
+
+def _number_status(
+    item: tuple[int, NumberState] | tuple[int, NumberState, int],
+) -> NumberStatus:
+    if len(item) == 3:
+        number, state, check_in_position = item
+        return NumberStatus(number, state, check_in_position)
+    number, state = item
+    return NumberStatus(number, state, None)
 
 
 def schedule(*rows: ScheduleRow, status: str = "ok") -> ScheduleRead:
@@ -149,8 +182,8 @@ def _value(body: str, kind: type) -> Any:
     return value
 
 
-@pytest.fixture(autouse=True)
-def serve_reader_values(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.fixture
+def serve_reader_values(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     real_list = ntuh_reader.parse_light_table
     real_detail = ntuh_reader.parse_detail_page
     real_schedule = ntuh_reader.parse_schedule
@@ -172,3 +205,5 @@ def serve_reader_values(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ntuh_reader, "parse_light_table", light_table)
     monkeypatch.setattr(ntuh_reader, "parse_detail_page", detail)
     monkeypatch.setattr(ntuh_reader, "parse_schedule", dept_schedule)
+    yield
+    _SERVED.clear()

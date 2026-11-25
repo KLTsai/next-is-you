@@ -51,10 +51,13 @@ from ntuh_reads import (
     ScheduleRead,
     card,
     listing,
+    of_doctor,
+    plus,
     progress,
     schedule,
     served,
     slot,
+    with_rows,
 )
 from test_scheduler_outbox import (
     LocalContext,
@@ -64,6 +67,9 @@ from test_scheduler_outbox import (
 from next_is_you.send_gate import SystemSendGate
 
 from next_is_you.domain import clinic_label  # noqa: E402
+
+# This module serves NTUH reader values (#205).
+pytestmark = pytest.mark.usefixtures("serve_reader_values")
 
 FIXTURES = Path(__file__).parent / "fixtures" / "hospitals"
 CAPTURES = FIXTURES / "ntuh_captures"
@@ -133,21 +139,6 @@ def page_with(current: str) -> ListRead:
             for row in PAGE.rows
         )
     )
-
-
-def page_where(**changes) -> ListRead:
-    """`PAGE` with `changes` made to the `11 診/合成醫師丙` card."""
-    return listing(
-        *(
-            replace(row, **changes) if row.doctor == "合成醫師丙" else row
-            for row in PAGE.rows
-        )
-    )
-
-
-def page_plus(*rows) -> ListRead:
-    """`PAGE` with `rows` listed after its cards."""
-    return listing(*PAGE.rows, *rows)
 
 
 def _page(item) -> FetchedPage:
@@ -420,7 +411,7 @@ async def test_non_ascii_numeric_light_fails_closed_for_each_read_path(method):
 @pytest.mark.asyncio
 async def test_duplicate_exact_rows_are_ambiguous() -> None:
     duplicate = card("11 診", "合成醫師丙", "醫師約診", "026")
-    result = await reader(FakeSource(page_plus(duplicate))).observe(
+    result = await reader(FakeSource(plus(PAGE, duplicate))).observe(
         scope(), taipei(15, 0)
     )
     assert result == ReadFailed("invalid", "ambiguous_match")
@@ -704,7 +695,10 @@ async def test_card_missing_its_number_is_schema_drift_not_a_clinic_end(method):
     "absent",
     [
         pytest.param(page_with(""), id="number-goes-blank"),
-        pytest.param(page_where(doctor="其他醫師"), id="card-disappears"),
+        pytest.param(
+            with_rows(PAGE, of_doctor("合成醫師丙"), doctor="其他醫師"),
+            id="card-disappears",
+        ),
     ],
 )
 async def test_the_watch_ends_once_the_number_is_gone_for_two_reads(absent) -> None:
@@ -1547,15 +1541,11 @@ async def test_a_schedule_form_clinic_code_reads_the_visit_day_card(method) -> N
     assert result.scope == scope(SCHEDULE_FORM_CLINIC)
 
 
-def _card(room: str, doctor: str, clinic_type: str, number: str = ""):
-    return card(room, doctor, clinic_type, number)
-
-
 @pytest.mark.asyncio
 async def test_one_doctor_with_two_clinic_types_in_a_room_is_ambiguous() -> None:
     # A schedule-form code names no clinic type the cards use, so two cards for
     # the same doctor in one room and session cannot be told apart: no guess.
-    page = page_plus(_card("11 診", "合成醫師丙", "普通門診", "031"))
+    page = plus(PAGE, card("11 診", "合成醫師丙", "普通門診", "031"))
     result = await reader(FakeSource(page)).observe(
         scope(SCHEDULE_FORM_CLINIC), taipei(15, 0)
     )
@@ -1564,7 +1554,7 @@ async def test_one_doctor_with_two_clinic_types_in_a_room_is_ambiguous() -> None
 
 @pytest.mark.asyncio
 async def test_a_stored_clinic_type_tells_two_cards_of_one_doctor_apart() -> None:
-    page = page_plus(_card("11 診", "合成醫師丙", "普通門診", "031"))
+    page = plus(PAGE, card("11 診", "合成醫師丙", "普通門診", "031"))
     result = await reader(FakeSource(page)).observe(scope(CLINIC), taipei(15, 0))
     assert isinstance(result, QueueObservation)
     assert result.current_number == 25
@@ -1574,7 +1564,7 @@ async def test_a_stored_clinic_type_tells_two_cards_of_one_doctor_apart() -> Non
 async def test_a_substitute_card_in_the_room_is_the_visits_card_marked_as_such() -> (
     None
 ):
-    page = page_where(doctor="住院醫師(代)")
+    page = with_rows(PAGE, of_doctor("合成醫師丙"), doctor="住院醫師(代)")
     result = await reader(FakeSource(page)).observe(
         scope(SCHEDULE_FORM_CLINIC), taipei(15, 0)
     )
@@ -1585,7 +1575,7 @@ async def test_a_substitute_card_in_the_room_is_the_visits_card_marked_as_such()
 
 @pytest.mark.asyncio
 async def test_a_substitute_card_that_has_not_called_yet_is_still_marked() -> None:
-    page = page_where(doctor="住院醫師(代)", current="")
+    page = with_rows(PAGE, of_doctor("合成醫師丙"), doctor="住院醫師(代)", current="")
     result = await reader(FakeSource(page)).observe(
         scope(SCHEDULE_FORM_CLINIC), taipei(13, 0)
     )
@@ -1595,7 +1585,7 @@ async def test_a_substitute_card_that_has_not_called_yet_is_still_marked() -> No
 
 @pytest.mark.asyncio
 async def test_the_booked_doctor_wins_over_a_substitute_in_the_same_room() -> None:
-    page = page_plus(_card("11 診", "住院醫師(代)", "普通門診", "031"))
+    page = plus(PAGE, card("11 診", "住院醫師(代)", "普通門診", "031"))
     result = await reader(FakeSource(page)).observe(
         scope(SCHEDULE_FORM_CLINIC), taipei(15, 0)
     )
@@ -1607,8 +1597,8 @@ async def test_the_booked_doctor_wins_over_a_substitute_in_the_same_room() -> No
 @pytest.mark.asyncio
 async def test_two_substitute_cards_in_the_room_are_ambiguous() -> None:
     page = listing(
-        *page_where(doctor="住院醫師(代)").rows,
-        _card("11 診", "主治醫師(代)", "普通門診", "031"),
+        *with_rows(PAGE, of_doctor("合成醫師丙"), doctor="住院醫師(代)").rows,
+        card("11 診", "主治醫師(代)", "普通門診", "031"),
     )
     result = await reader(FakeSource(page)).observe(
         scope(SCHEDULE_FORM_CLINIC), taipei(15, 0)
@@ -1621,7 +1611,7 @@ async def test_two_substitute_cards_in_the_room_are_ambiguous() -> None:
     "mark", ["住院醫師 (代)", "住院醫師（代）", "住院醫師（ 代 ）"]
 )
 async def test_a_substitute_mark_is_recognised_with_spacing_or_full_width(mark) -> None:
-    page = page_where(doctor=mark)
+    page = with_rows(PAGE, of_doctor("合成醫師丙"), doctor=mark)
     result = await reader(FakeSource(page)).observe(
         scope(SCHEDULE_FORM_CLINIC), taipei(15, 0)
     )

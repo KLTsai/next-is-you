@@ -17,9 +17,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from typing import Literal
 
 from next_is_you.domain import CallKind, ExpectedCall, NumberState, NumberStatus
+from next_is_you.page_markers import page_status
 
 __all__ = [
     "MAX_NUMBER_DIGITS",
@@ -50,18 +50,6 @@ _KINDS: dict[str, CallKind] = {
     "檢查號": "exam",
     "敬老號": "senior",
 }
-
-# Text that means the hospital served a challenge or a refusal instead of the
-# page. Shared with the list and schedule parsers in `ntuh_reader`.
-_CHALLENGE_MARKERS = (
-    "captcha",
-    "challenge",
-    "robot check",
-    "驗證碼",
-    "安全驗證",
-    "機器人驗證",
-)
-_DENIAL_MARKERS = ("access denied", "forbidden", "拒絕存取", "無權限")
 
 _DIGITS = re.compile(r"\d+", re.ASCII)
 # Longer than any clinic number. A longer run of digits is not a number.
@@ -99,15 +87,6 @@ def _number(text: str) -> int | None:
         return None
     value = int(match.group())
     return value if value > 0 else None
-
-
-def _page_status(text: str) -> Literal["challenge", "denied"] | None:
-    """Name a challenge or denial page from its casefolded text, else None."""
-    if any(marker in text for marker in _CHALLENGE_MARKERS):
-        return "challenge"
-    if any(marker in text for marker in _DENIAL_MARKERS):
-        return "denied"
-    return None
 
 
 def _is_garbled(text: str) -> bool:
@@ -224,7 +203,7 @@ def parse_detail_page(html: str) -> tuple[str, ProgressObservation | None]:
         collector.close()
     except (ValueError, AssertionError):
         return "schema", None
-    marker = _page_status(" ".join(collector.text).casefold())
+    marker = page_status(" ".join(collector.text).casefold())
     if marker is not None:
         return marker, None
     room = collector.room.strip()

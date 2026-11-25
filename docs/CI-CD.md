@@ -93,6 +93,25 @@ rules](#release-and-rollback-rules)). On `main` only, the Release
 Please job runs after every gate has passed, so a red gate also holds back the
 release proposal. Release behavior itself is unchanged.
 
+### Why the Playwright browser install is not cached
+
+Every browser test shard runs `playwright install --with-deps chromium` on
+purpose. Caching the browser was tried for #220 (PR #233, closed unmerged) and
+measured with no gain: the install step took 17-20 s per shard before, and
+cache restore (4-6 s) plus `install-deps chromium` (9-15 s) took 15-21 s after.
+
+The apt step cannot be skipped on a hosted runner. A probe on three fresh
+`ubuntu-latest` VMs ([run
+45538074609](https://github.com/KLTsai/next-is-you/actions/runs/45538074609),
+Ubuntu 26.04.1, Playwright 1.63.0) showed all 21 Chromium libraries
+preinstalled but 9 font and xfonts packages missing. A `--dry-run` guard always
+falls through on a fresh VM and costs 11-24 s, slightly more than installing.
+Caching the debs, or skipping only `apt-get update`, saves 1-2 s at most.
+
+The real tail risk is a slow apt mirror on one runner (73 kB/s once). A browser
+cache does not touch it. The lever is a `timeout-minutes` on the install step,
+to be added only if slow runners recur.
+
 ## Staging follows main
 
 On a push to `main`, the same run deploys that commit to staging once every gate

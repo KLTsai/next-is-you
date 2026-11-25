@@ -112,6 +112,10 @@ _Avoid_: Pre-flight sweep, preflight, sweep
 A deployed environment that reads real hospitals and sends real LINE reminders. Each environment starts not live and is made live once, after its own pre-live gates pass, and is never made not live again; to stop sending, use a send interruption. Expired data is cleaned up either way. Shown to users as 已開通 and 未開通.
 _Avoid_: Send hold, configuration hold, production hold, go-live
 
+**Pre-live read**:
+The one exception to "not live reads no hospital": the captain starts a single, time-boxed read of one real hospital page, either one progress page or one clinic schedule page, to measure the environment's cost before it is made live. It belongs to no visit, sends no message, keeps nothing for organizers, and must be started again to repeat.
+_Avoid_: Test read, probe, dry run
+
 **Send record**:
 What the system keeps about each running visit and each message it has sent or is sending, and relies on to decide what to send next. Only the system's own steps change it. Shown to users as 發送紀錄.
 _Avoid_: Ledger, 帳本

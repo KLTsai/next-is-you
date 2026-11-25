@@ -66,7 +66,11 @@ Staging is used by the captain alone. No family member is invited to it.
 - [x] #181: scheduled reads begin one hour before the session's published start.
   Evidence: PR #194, fixture/mock (#181).
 - [ ] #188: a clinic schedule read stays within the Free plan's 10 ms and the reader's
-  size limit, for the picker, Start and the daily recheck.
+  size limit, for the picker, Start and the daily recheck. The reader runs in its
+  own Worker ([ADR 0008](adr/0008-clinic-schedule-reader-runs-in-its-own-worker.md)).
+  Evidence label live provider: the captain's pre-live read (#242) of the largest
+  offered clinic schedule page, with every reader invocation at or below 10 ms; and,
+  deployed, a reader forced over its memory limit leaves a running tick untouched.
 - [ ] #192: an open organizer page stays within the Free plan's daily limits
   around the clock, for Staging and Production together.
 - [ ] #163's CPU condition ([HTTPS-SERVICE.md](HTTPS-SERVICE.md), #170 verdict),

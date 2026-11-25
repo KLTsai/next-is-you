@@ -47,6 +47,7 @@
 	"vars": {
 		"NIY_ENVIRONMENT": "staging",
 		"NIY006_LOCAL_TEST_MODE": "0",
+		"NIY_LIVE": "false",
 		"LINE_LOGIN_CHANNEL_ID": "2011753957"
 	}
 }

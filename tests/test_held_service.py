@@ -61,9 +61,10 @@ async def test_non_test_environment_cannot_send_or_resume_even_with_test_flag(
     restarted = SystemSendGate(LocalContext(storage), env)
     assert await restarted.scheduler_status() == {
         "held": True,
-        "configuration_hold": True,
+        "live": False,
         "recovery_hold": True,
         "hospital_reader_available": False,
+        "line_unavailable_reason": "not_live",
     }
     assert (
         database.connection.execute("SELECT COUNT(*) FROM outbound_events").fetchone()[
@@ -154,7 +155,7 @@ async def test_scheduler_status_requires_allowlisted_organizer():
             response = await client.get("/api/organizer/scheduler/status")
             assert response.status_code == expected
             if expected == 200:
-                assert json.loads(response.content)["configuration_hold"] is True
+                assert json.loads(response.content)["live"] is False
 
 
 @pytest.mark.asyncio
@@ -162,7 +163,7 @@ async def test_sending_is_interrupted_only_by_a_recovery_hold_not_by_a_not_live_
     database = LocalD1()
     storage = LocalDurableStorage()
     live_not_yet = SystemSendGate(LocalContext(storage), {"DB": database})
-    # Not live is a configuration hold, which is not a send interruption.
+    # Not live holds sending, but it is not a send interruption.
     assert await live_not_yet.sending_interrupted() is False
     env = {
         "DB": database,

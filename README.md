@@ -52,7 +52,7 @@ flowchart TD
     G -->|when authorized| H[LINE message<br/>when called number<br/>is close]
 ```
 
-The reader stores only the matched row's fields (room, doctor, clinic type, current number and the link to its page) for the clinic the owner's draft names, and what that clinic's own progress page states, including the status of every patient number still on its list. The reader drops its copy when the day ends. Raw response bodies are not retained. The send-gate is a per-environment hold: no environment emits a real LINE message until the Issue #22 pilot flips it, by design.
+The reader stores only the matched row's fields (room, doctor, clinic type, current number and the link to its page) for the clinic the owner's draft names, and what that clinic's own progress page states, including the status of every patient number still on its list. The reader drops its copy when the day ends. Raw response bodies are not retained. Each environment is either live or not live, from a committed value (see [Making an environment live](#making-an-environment-live)). No environment is live today, so none reads a hospital or emits a real LINE message.
 
 ### Notification rules
 
@@ -158,6 +158,10 @@ uv run pytest -q --store-durations
 Tests missing from the file are given the average duration, so a stale file only unbalances the shards; it never skips a test.
 
 Delivery follows [docs/CI-CD.md](docs/CI-CD.md): a green push to `main` deploys staging automatically; merging the release PR makes that commit a version tagged `vX.Y.Z`; and the captain runs **Promote** with the version number to put it in production and publish its Release. Documentation-only pushes leave staging untouched, and the repository variable `STAGING_DEPLOY_PAUSED` set to `true` pauses automatic staging deployment. Only the captain merges the release PR and runs Promote.
+
+### Making an environment live
+
+An environment is live (`GLOSSARY.md`) when `vars.NIY_LIVE` in its own committed config (`wrangler.staging.jsonc`, `wrangler.production.jsonc`) is `"true"`. Live means it reads the hospital and sends LINE messages together; not live means it does neither, even with a LINE token present. A live environment also sends nothing unless its `LINE_CHANNEL_ACCESS_TOKEN` belongs to the Official Account named by the committed `LINE_BOT_BASIC_ID`, and its status endpoint says why. Local test mode is unaffected. The value changes only through a pull request the captain merges, after that environment's gates in [docs/PRE-LIVE-CHECKLIST.md](docs/PRE-LIVE-CHECKLIST.md#how-an-environment-is-made-live) pass. **It cannot be undone:** the promote guard and the Staging deploy refuse any version older than the environment's first live one (`uv run python scripts/delivery_state.py live-check staging|production <commit>`), so no rollback makes it not live again. `tests/test_live_config.py`, `tests/test_live_switch.py` and `tests/test_live_rollback.py` hold these rules.
 
 To see where delivery stands, run `npm run status` (needs `gh` signed in and `uv`; read-only). It prints the commit on `main` and whether its checks passed, the commit staging is showing and whether it equals `main`, the version in production (the version the newest successful Promote run deployed, so a rollback shows correctly), the next proposed version with its release PR and change count, any version that is tagged but not yet a Release, and exactly one next step. If a fact cannot be read it names that fact on stderr and exits non-zero rather than printing a partial report. The rules live in `scripts/delivery_state.py` as a pure function over a snapshot of facts, tested from recorded snapshots by `tests/test_delivery_state.py` in the pytest gate above. The same module holds the promote guard: `uv run python scripts/delivery_state.py guard <version>` prints `Accepted` or one refusal reason with the action that clears it, which is exactly what the Promote workflow runs.
 

@@ -36,6 +36,7 @@
   },
   "vars": {
     "NIY006_LOCAL_TEST_MODE": "1",
-    "NIY_ENVIRONMENT": "local-test"
+    "NIY_ENVIRONMENT": "local-test",
+    "NIY_LIVE": "false"
   }
 }

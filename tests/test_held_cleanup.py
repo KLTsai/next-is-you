@@ -155,6 +155,7 @@ async def test_send_hold_tick_reports_and_logs_what_it_cleaned_up(capsys):
         "pending_invitees_erased": 0,
         "drafts_deleted": 1,
         "visits_deleted": 2,
+        "line_unavailable_reason": "not_live",
     }
     logged = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert logged == [{"event": "scheduled_tick", **result}]

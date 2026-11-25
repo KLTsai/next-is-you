@@ -106,5 +106,15 @@
     "releases": ["v0.2.0", "v0.2.1", "v0.3.0"],
     "release_pr": null,
     "commits": {"1110000000000000000000000000000000000000": {"on_main": true, "checks": "success", "failed": []}}
+  },
+  "rollback_before_live": {
+    "main": {"sha": "ccc3333000000000000000000000000000000000", "checks": "success", "failed": []},
+    "staging_sha": "aaa1111000000000000000000000000000000000",
+    "staging_paused": false,
+    "tags": {"v0.3.0": "aaa1111000000000000000000000000000000000", "v0.3.1": "bbb2222000000000000000000000000000000000"},
+    "releases": ["v0.3.0", "v0.3.1"],
+    "release_pr": null,
+    "live_floor": {"environment": "production", "commit": "bbb2222000000000000000000000000000000000", "version": "v0.3.1"},
+    "commits": {"aaa1111000000000000000000000000000000000": {"on_main": true, "checks": "success", "failed": [], "before_live": true}}
   }
 }

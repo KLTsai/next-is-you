@@ -5,6 +5,33 @@ never made not live again (`GLOSSARY.md`). Staging goes live first. Production
 goes live only after every Staging gate has passed. Decided in the #129
 grilling (2026-11-19/20).
 
+## How an environment is made live
+
+Each environment's live state is `vars.NIY_LIVE` in its own committed config,
+`wrangler.staging.jsonc` or `wrangler.production.jsonc` (#237). It is `"false"`
+until that environment's gates below pass. No dashboard variable or secret
+decides it, and every deploy writes the committed value.
+
+1. Open a pull request that sets `"NIY_LIVE": "true"` in that environment's
+   config and adds `"LINE_BOT_BASIC_ID"`, the bot basic ID of the environment's
+   own Official Account (LINE Developers console, Messaging API tab, for example
+   `@123abcde`). A test refuses a live config without it.
+2. The captain merges it. Staging deploys it on its own. Production gets it when
+   the captain promotes the first version that carries it.
+3. On the status endpoint (`/api/organizer/scheduler/status`), `live` is `true`
+   and `line_unavailable_reason` is `null`. While it names a reason, nothing is
+   read or sent: `line_token_missing` (no `LINE_CHANNEL_ACCESS_TOKEN` secret),
+   `line_token_other_account` (the token belongs to another Official Account,
+   such as the other environment's), `line_account_not_committed` (no
+   `LINE_BOT_BASIC_ID`) or `line_account_unverified` (LINE did not say which
+   account the token belongs to; asked again on the next tick).
+
+**It cannot be undone.** Once live, the environment reads the hospital and sends
+LINE messages together. To stop sending, use a send interruption. The promote
+guard and the Staging deploy refuse any version older than the environment's
+first live one (`scripts/delivery_state.py live-check`), so a rollback cannot
+make it not live again. Rolling back past that point is not possible.
+
 Use [HTTPS-SERVICE.md](HTTPS-SERVICE.md) for provisioning and the interruption
 procedures, and [CI-CD.md](CI-CD.md) for deployment and rollback. This checklist
 owns the gates for making an environment live. Tick a gate only with a pointer
@@ -102,7 +129,8 @@ Staging is used by the captain alone. No family member is invited to it.
   `ntuh_unobserved_situation` the same day, and writes what was seen on #136 with no
   clinic, doctor or number. Nothing else tells anyone.
 - Every merge to `main` reaches a live Staging. A production rollback re-runs an
-  earlier pipeline run, which also puts that version on Staging.
+  earlier pipeline run, which also puts that version on Staging. A run from
+  before Staging went live is refused instead.
 
 ## Before Production goes live
 

@@ -399,8 +399,9 @@ LINE Login proves nothing about reminder delivery.
    allowlist. Do not capture callback codes, cookies, provider tokens or patient
    information in evidence.
 3. **Recovery hold.** Set recovery hold through the authorized status API and
-   confirm the status endpoint reports `held: true`, `configuration_hold: true`,
-   `recovery_hold: true` and `hospital_reader_available: false`. The console
+   confirm the status endpoint reports `held: true`, `live: false`,
+   `recovery_hold: true`, `hospital_reader_available: false` and
+   `line_unavailable_reason: "not_live"`. The console
    snippet is in
    [Stop, failure recovery and rollback](#stop-failure-recovery-and-rollback).
    No production resume is allowed in this bootstrap, even with
@@ -454,11 +455,12 @@ const csrf = decodeURIComponent(document.cookie.split('; ').find(v => v.startsWi
 const hold = await fetch('/api/organizer/scheduler/recovery-hold', {method: 'POST', headers: {'x-csrf-token': csrf}});
 console.log(hold.status); // 204; otherwise stop and investigate
 console.log(await (await fetch('/api/organizer/scheduler/status')).json());
-// held: true, configuration_hold: true, recovery_hold: true,
-// hospital_reader_available: false
+// held: true, live: false, recovery_hold: true,
+// hospital_reader_available: false, line_unavailable_reason: "not_live"
 ```
 
-The configuration hold is enforced by this version's code, and recovery hold is
+Whether the environment is live comes from its committed config (`NIY_LIVE`,
+[pre-live checklist](PRE-LIVE-CHECKLIST.md#how-an-environment-is-made-live)), and recovery hold is
 stored separately in the named DO, so it survives Worker restarts. Set recovery
 hold before any restore, code rollback or later live experiment and verify the
 status API. While recovery hold is active, the organizer visits response reports

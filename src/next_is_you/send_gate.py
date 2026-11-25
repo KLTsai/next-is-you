@@ -9,7 +9,13 @@ from dataclasses import asdict, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping, Sequence, get_args
 
-from next_is_you.line_messaging import LinePushClient, LinePushHttpResponse
+from next_is_you.line_messaging import (
+    LineBotInfoClient,
+    LinePushClient,
+    LinePushHttpResponse,
+    LinePushTransport,
+    WorkersLineBotInfoClient,
+)
 from next_is_you.persistence import (
     CloudflareD1Store,
     Statement,
@@ -128,12 +134,14 @@ class SystemSendGate(_DurableObjectBase):
                 if fixed_clock
                 else lambda: datetime.now(timezone.utc)
             )
-            scheduler = self._scheduler(clock)
-            cleaned = await scheduler.run_lifecycle(tick_time)
+            cleaned = await self._scheduler(clock, None).run_lifecycle(tick_time)
             await self._save_ledger()
-            if not local_test_mode(self.env):
-                # Send hold: nothing below may read a hospital or call LINE.
-                return _held_result(cleaned)
+            line, unavailable = await self._line_sender()
+            if line is None:
+                # Not live, or no LINE token of this environment's own Official
+                # Account: nothing below may read a hospital or call LINE.
+                return {**_held_result(cleaned), "line_unavailable_reason": unavailable}
+            scheduler = self._scheduler(clock, line)
             plan = await scheduler.prepare_tick(tick_time)
             await self._save_ledger()
 
@@ -719,17 +727,19 @@ class SystemSendGate(_DurableObjectBase):
 
     async def sending_interrupted(self) -> bool:
         # A send interruption is the recovery hold only. An environment that is
-        # not live yet is held by configuration and is not an interruption.
+        # not live yet sends nothing either, but that is not an interruption.
         return await self._recovery_held()
 
-    async def scheduler_status(self) -> dict[str, bool]:
-        recovery_hold = (await self.ctx.storage.get("recovery_hold")) is True
-        configuration_hold = not local_test_mode(self.env)
+    async def scheduler_status(self) -> dict[str, Any]:
+        recovery_hold = await self._recovery_held()
+        _, unavailable = await self._line_sender()
         return {
-            "held": configuration_hold or recovery_hold,
-            "configuration_hold": configuration_hold,
+            "held": unavailable is not None or recovery_hold,
+            "live": committed_live(self.env),
             "recovery_hold": recovery_hold,
             "hospital_reader_available": self._hospital_reader() is not None,
+            # Why LINE messages cannot be sent, or None when they can.
+            "line_unavailable_reason": unavailable,
         }
 
     async def _delete_expired_drafts(self, now: datetime) -> LifecycleCounts:
@@ -741,12 +751,9 @@ class SystemSendGate(_DurableObjectBase):
         return (await self.ctx.storage.get("recovery_hold")) is True
 
     async def _held(self) -> bool:
-        # Issue #18 is a held service bootstrap. Only the synthetic local
-        # rehearsal can send; a token or resume request cannot release production.
-        return (
-            not local_test_mode(self.env)
-            or (await self.ctx.storage.get("recovery_hold")) is True
-        )
+        # Only a live environment (its committed config, #237) or the synthetic
+        # local rehearsal can send; a token or resume request cannot make one live.
+        return not _can_send(self.env) or await self._recovery_held()
 
     async def _check_ledger(self) -> bool:
         digest = await self._repository().scheduler_ledger_digest()
@@ -799,14 +806,19 @@ class SystemSendGate(_DurableObjectBase):
         return VisitRepository(CloudflareD1Store(binding))
 
     def _hospital_reader(self) -> HospitalReader | None:
-        """Production stays without a hospital reader until the Issue #22 pilot."""
-        if not local_test_mode(self.env):
+        """No hospital reader unless the environment is live (#237).
+
+        The synthetic local rehearsal reads its scripted stub, or the real
+        reader when `NTUH_READER_ENABLED` asks for it.
+        """
+        if local_test_mode(self.env):
+            if str(_field(self.env, "NTUH_READER_ENABLED", "")) != "1":
+                return _TestHospitalReader(self.ctx.storage)
+        elif not committed_live(self.env):
             return None
-        if str(_field(self.env, "NTUH_READER_ENABLED", "")) == "1":
-            return RegistryHospitalReader(
-                ReaderDeps(storage=self.ctx.storage, fetch=self._ntuh_fetcher)
-            )
-        return _TestHospitalReader(self.ctx.storage)
+        return RegistryHospitalReader(
+            ReaderDeps(storage=self.ctx.storage, fetch=self._ntuh_fetcher)
+        )
 
     async def list_clinics(
         self, hospital: str, department_code: str, visit_date: str, now: str
@@ -860,21 +872,52 @@ class SystemSendGate(_DurableObjectBase):
         return result
 
     _ntuh_fetcher = WorkersFetcher()
+    # Replaced by fixtures; None sends through the Workers fetch API.
+    _line_transport: LinePushTransport | None = None
+    _line_bot_info: LineBotInfoClient = WorkersLineBotInfoClient()
 
-    def _scheduler(self, clock) -> OutboxScheduler:
-        test_mode = local_test_mode(self.env)
-        hospital = self._hospital_reader()
-        if test_mode:
-            line = LinePushClient(
-                "local-test-only-token",
-                _TestLineTransport(self),
-            )
+    async def _line_sender(self) -> tuple[LinePushClient | None, str | None]:
+        """The LINE client this environment may send with, or why there is none.
+
+        A live environment sends only with a token of its own Official Account:
+        the basic ID LINE reports for the token must equal the one committed in
+        `LINE_BOT_BASIC_ID`. A confirmed answer is kept per token, so LINE is
+        asked again only when the token or the committed account changes. An
+        unreadable answer is not kept and is asked again on the next tick.
+        """
+        if local_test_mode(self.env):
+            return LinePushClient(
+                "local-test-only-token", _TestLineTransport(self)
+            ), None
+        if not committed_live(self.env):
+            return None, "not_live"
+        token = str(_field(self.env, "LINE_CHANNEL_ACCESS_TOKEN", "") or "").strip()
+        if not token:
+            return None, "line_token_missing"
+        expected = str(_field(self.env, "LINE_BOT_BASIC_ID", "") or "").strip()
+        if not expected:
+            return None, "line_account_not_committed"
+        fingerprint = hashlib.sha256(token.encode()).hexdigest()
+        checked = json.loads(await self.ctx.storage.get("line_account_check") or "{}")
+        if checked.get("token_sha256") == fingerprint:
+            basic_id = checked.get("basic_id")
         else:
-            token = str(_field(self.env, "LINE_CHANNEL_ACCESS_TOKEN", ""))
-            line = LinePushClient(token) if token else None
+            basic_id = await self._line_bot_info.basic_id(token)
+            if basic_id is not None:
+                await self.ctx.storage.put(
+                    "line_account_check",
+                    json.dumps({"token_sha256": fingerprint, "basic_id": basic_id}),
+                )
+        if basic_id is None:
+            return None, "line_account_unverified"
+        if basic_id != expected:
+            return None, "line_token_other_account"
+        return LinePushClient(token, self._line_transport), None
+
+    def _scheduler(self, clock, line: LinePushClient | None) -> OutboxScheduler:
         return OutboxScheduler(
             self._repository(),
-            hospital,
+            self._hospital_reader(),
             line,
             clock,
         )
@@ -1179,6 +1222,20 @@ class _TestLineTransport:
             "wait": 200,
         }[mode]
         return LinePushHttpResponse(status_code=status, request_id="local-test-request")
+
+
+def committed_live(env: Any) -> bool:
+    """Whether the environment is live (GLOSSARY.md: Live), from its committed config.
+
+    `NIY_LIVE` is a var in the environment's own `wrangler.*.jsonc`, so every
+    deploy writes the committed value (#237). Only the exact string "true" is
+    live; anything else, a missing value included, is not.
+    """
+    return _field(env, "NIY_LIVE", "") == "true"
+
+
+def _can_send(env: Any) -> bool:
+    return local_test_mode(env) or committed_live(env)
 
 
 def local_test_mode(env: Any) -> bool:

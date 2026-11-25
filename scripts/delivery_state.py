@@ -6,7 +6,7 @@ Layout, top to bottom:
    (`status`), and to a verdict on one version (`guard`, the promote guard).
 2. Fact reading. The only code that talks to GitHub and Git. A fact that cannot
    be read raises FactUnreadable, naming itself.
-3. Command line. `status` and `guard <version>`.
+3. Command line. `status`, `guard <version>` and `live-check <environment> <commit>`.
 """
 
 from __future__ import annotations
@@ -83,6 +83,27 @@ class CommitFacts:
     on_main: bool
     checks: str  # "success", "failure" or "pending"
     failed: tuple[str, ...] = ()
+    # Older than the environment's first live commit (see LiveFloor).
+    before_live: bool = False
+
+
+@dataclass(frozen=True)
+class LiveFloor:
+    """Where an environment became live, so a deploy can never go back past it.
+
+    `commit` is the first commit on main whose committed config sets NIY_LIVE
+    to "true" (GLOSSARY.md: Live, #237). For production, which runs versions,
+    `version` is the first version that carries it; production has no floor
+    until such a version exists, because it has never run a live one.
+    """
+
+    environment: str  # "staging" or "production"
+    commit: str
+    version: str | None = None
+
+    @property
+    def name(self) -> str:
+        return self.version or _short(self.commit)
 
 
 @dataclass(frozen=True)
@@ -103,11 +124,15 @@ class Snapshot:
     # What the pause variable holds when that is neither true nor false. It
     # does not pause, and whoever set it most likely believes it does.
     ignored_pause_value: str | None = None
+    # Production's first live version, once there is one.
+    live_floor: LiveFloor | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> Snapshot:
         pr = data["release_pr"]
+        floor = data.get("live_floor")
         return cls(
+            live_floor=LiveFloor(**floor) if floor else None,
             staging_gap_docs_only=data.get("staging_gap_docs_only", False),
             production_sha=data.get("production_sha"),
             ignored_pause_value=data.get("ignored_pause_value"),
@@ -116,6 +141,7 @@ class Snapshot:
                     on_main=facts["on_main"],
                     checks=facts["checks"],
                     failed=tuple(facts["failed"]),
+                    before_live=facts.get("before_live", False),
                 )
                 for sha, facts in data.get("commits", {}).items()
             },
@@ -310,7 +336,7 @@ def promote_guard(snapshot: Snapshot, version: str) -> Verdict:
 
     Promoting an earlier version is rollback and the version already in
     production is a retry, so neither is special: every version faces the same
-    four questions, in this order.
+    five questions, in this order.
     """
     version = normalize_version(version)
     commit = snapshot.tags.get(version)
@@ -331,6 +357,9 @@ def promote_guard(snapshot: Snapshot, version: str) -> Verdict:
             reason=f"{version} is at {short}, which is not on main.",
             action="Do not promote it. Merge the release PR on main to cut a new version.",
         )
+    if facts.before_live and snapshot.live_floor is not None:
+        reason, action = live_refusal(snapshot.live_floor, f"{version} ({short})")
+        return Verdict(version, reason=reason, action=action)
     if facts.checks == "failure":
         failed = ", ".join(facts.failed)
         detail = f"failed ({failed})" if failed else "failed"
@@ -367,6 +396,20 @@ def promote_guard(snapshot: Snapshot, version: str) -> Verdict:
             action=rerun,
         )
     return Verdict(version, commit=commit)
+
+
+def live_refusal(floor: LiveFloor, candidate: str) -> tuple[str, str]:
+    """Why a candidate older than an environment's first live commit is refused."""
+    reason = (
+        f"{floor.environment} is live since {floor.name}, and {candidate} is older. "
+        f"Deploying it would make {floor.environment} not live again, "
+        "and going live cannot be undone."
+    )
+    if floor.environment == "production":
+        action = f"Choose {floor.name} or a newer version."
+    else:
+        action = f"Deploy {floor.name} or a newer commit of main."
+    return reason, action
 
 
 # ---------------------------------------------------------------------------
@@ -717,6 +760,100 @@ def _read_release_pr() -> ReleasePR | None:
     return ReleasePR(pr["number"], match[1], changes)
 
 
+# The committed config of each environment that can be made live.
+LIVE_CONFIGS = {
+    "staging": "wrangler.staging.jsonc",
+    "production": "wrangler.production.jsonc",
+}
+
+
+def _main_ref() -> str:
+    """The ref holding main's history: origin/main in a workflow's full clone."""
+    return os.environ.get("LIVE_MAIN_REF", "origin/main")
+
+
+def _live_at(commit: str, config: str) -> bool:
+    """Whether the config committed at this commit sets NIY_LIVE to "true"."""
+    fact = f"{config} at {_short(commit)}"
+    result = subprocess.run(
+        ["git", "show", f"{commit}:{config}"], capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        # Before the file existed, the environment was not live.
+        if "does not exist" in result.stderr or "exists on disk" in result.stderr:
+            return False
+        raise FactUnreadable(fact, result.stderr.strip() or "git show failed")
+    with _reading(fact):
+        return json.loads(result.stdout).get("vars", {}).get("NIY_LIVE") == "true"
+
+
+def _first_live_commit(config: str) -> str | None:
+    """The first commit on main whose committed config is live, if any."""
+    out = _run(
+        "main history",
+        [
+            "git",
+            "log",
+            "--first-parent",
+            "--reverse",
+            "--format=%H",
+            _main_ref(),
+            "--",
+            config,
+        ],
+    )
+    for commit in out.split():
+        if _live_at(commit, config):
+            return commit
+    return None
+
+
+def _is_at_or_after(ancestor: str, commit: str) -> bool:
+    fact = f"history of {_short(commit)}"
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", ancestor, commit],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode in (0, 1):
+        return result.returncode == 0
+    raise FactUnreadable(fact, result.stderr.strip() or "git merge-base failed")
+
+
+@_reading("local version tags")
+def _read_local_tags() -> dict[str, str]:
+    out = _run(
+        "local version tags",
+        ["git", "tag", "--list", "v*", "--format=%(refname:short) %(objectname)^{}"],
+    )
+    tags: dict[str, str] = {}
+    for line in out.splitlines():
+        name, target = line.split(" ")
+        if VERSION_TAG.fullmatch(name):
+            tags[name] = _run(
+                "local version tags", ["git", "rev-parse", target]
+            ).strip()
+    return tags
+
+
+def read_live_floor(environment: str, tags: dict[str, str]) -> LiveFloor | None:
+    """Where the environment became live, or None while it never has."""
+    first = _first_live_commit(LIVE_CONFIGS[environment])
+    if first is None:
+        return None
+    if environment == "staging":
+        return LiveFloor(environment, first)
+    carrying = sorted(
+        (tag for tag, commit in tags.items() if _is_at_or_after(first, commit)),
+        key=_version_key,
+    )
+    return LiveFloor(environment, first, carrying[0]) if carrying else None
+
+
+def before_live(floor: LiveFloor | None, commit: str) -> bool:
+    return floor is not None and not _is_at_or_after(floor.commit, commit)
+
+
 def read_snapshot() -> Snapshot:
     main = _read_main()
     staging_sha = _read_staging_sha()
@@ -740,6 +877,13 @@ def read_guard_snapshot(version: str) -> Snapshot:
     main = _read_main()
     tags = _read_tags()
     commit = tags.get(normalize_version(version))
+    floor = read_live_floor("production", tags)
+    commits = {}
+    if commit:
+        facts = _read_commit_facts(commit)
+        if facts.on_main and before_live(floor, commit):
+            facts = CommitFacts(facts.on_main, facts.checks, facts.failed, True)
+        commits[commit] = facts
     return Snapshot(
         main=main,
         staging_sha=_read_staging_sha(),
@@ -747,7 +891,8 @@ def read_guard_snapshot(version: str) -> Snapshot:
         tags=tags,
         releases=_read_releases(),
         release_pr=None,
-        commits={commit: _read_commit_facts(commit)} if commit else {},
+        commits=commits,
+        live_floor=floor,
     )
 
 
@@ -807,6 +952,31 @@ def run_guard(
     return 0 if verdict.accepted else 1
 
 
+def run_live_check(environment: str, commit: str, out: TextIO, err: TextIO) -> int:
+    """Exit 0 when the commit may deploy, 1 when refused, 2 when unknown.
+
+    Each deploy job runs this right before it deploys, so re-running an old
+    run's deploy job cannot put a version from before going live back either.
+    Needs a full clone with tags.
+    """
+    try:
+        floor = read_live_floor(environment, _read_local_tags())
+        refused = before_live(floor, commit)
+    except FactUnreadable as error:
+        err.write(
+            "live check cannot be decided: "
+            f"could not read {error.fact} ({error.detail})\n"
+        )
+        return 2
+    if refused and floor is not None:
+        reason, action = live_refusal(floor, _short(commit))
+        out.write(f"Refused: {reason}\nTo clear it: {action}\n")
+        return 1
+    since = f"live since {floor.name}" if floor else "not live"
+    out.write(f"Accepted: {_short(commit)} for {environment} ({since})\n")
+    return 0
+
+
 def run_staging_order(out: TextIO, err: TextIO) -> int:
     """Print deploy=true or deploy=false for the job output, then the reason."""
     sha = os.environ.get("AFTER", "")
@@ -852,6 +1022,8 @@ def main(argv: list[str]) -> int:
         return run_status(read_snapshot, sys.stdout, sys.stderr)
     if len(argv) == 2 and argv[0] == "guard":
         return run_guard(read_guard_snapshot, argv[1], sys.stdout, sys.stderr)
+    if len(argv) == 3 and argv[0] == "live-check" and argv[1] in LIVE_CONFIGS:
+        return run_live_check(argv[1], argv[2], sys.stdout, sys.stderr)
     if argv == ["staging-order"]:
         return run_staging_order(sys.stdout, sys.stderr)
     if argv == ["pause-warning"]:
@@ -862,7 +1034,8 @@ def main(argv: list[str]) -> int:
         return 0
     sys.stderr.write(
         "usage: delivery_state.py status | guard <version> | docs-only-push"
-        " | staging-order | pause-warning\n"
+        " | staging-order | pause-warning"
+        " | live-check staging|production <commit>\n"
     )
     return 2
 

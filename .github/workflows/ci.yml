@@ -116,6 +116,15 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv sync --group dev --locked
+      # The local Worker starts `uv venv --python cpython-3.14.2-emscripten-...`,
+      # and uv downloads the Pyodide build environment from GitHub releases into
+      # its Python directory. Cache that directory so a hit makes no download.
+      # The uv version picks the Pyodide release uv fetches and uv.lock pins
+      # pywrangler, which picks the interpreter, so both are in the key.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.local/share/uv/python/pyodide-*
+          key: pyodide-xbuildenv-${{ runner.os }}-uv-0.12.3-${{ hashFiles('uv.lock') }}
       - uses: actions/setup-node@v7
         with:
           node-version: "24"

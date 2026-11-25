@@ -13,6 +13,8 @@ Commands below match the installed `gh-axi issue --help`. Pass `-R KLTsai/next-i
 - Apply or remove labels: `gh-axi issue edit <number> -R KLTsai/next-is-you --add-label "..."` or `--remove-label "..."`.
 - Close completed work: `gh-axi issue close <number> -R KLTsai/next-is-you --reason completed`. For discontinued work, use `--reason "not planned"`. Post a detailed closing explanation with `issue comment --body-file` first when needed.
 
+- Link blockers and sub-issues with native relationships, not only prose. This is the one exception to `gh-axi`: use `gh issue edit <number> -R KLTsai/next-is-you --add-blocked-by <m>` for a blocker and `gh issue edit <parent> -R KLTsai/next-is-you --add-sub-issue <child>` for a sub-issue.
+
 Record concrete scope, observable acceptance, dependencies, and non-goals before implementation. Preserve adopted decisions and link historical evidence. Do not bulk-create new issues for every retired local ticket.
 
 ## Ticking acceptance boxes
@@ -30,8 +32,9 @@ Every open issue carries exactly one state label and at least one `area:*` label
 | State label | Meaning | Next step |
 |---|---|---|
 | `needs-grilling` | Holds decisions the captain has not made yet. | `/grill-with-docs`. Its output is decisions plus `ready-for-agent` work, not code. |
-| `ready-for-agent` | Scope, non-goals and blocking edges are written, and every acceptance criterion is checkable and names its evidence label. | `/implement` (one session per ticket), then `/no-mistakes`. |
-| `blocked` | Waits on the issues named under "Blocked by". | Nothing until they close. |
+| `ready-for-agent` | Scope, non-goals and blocking edges are written, and every acceptance criterion is checkable and names its evidence label. | `/to-tickets` if it has no sub-issues and needs more than one session; otherwise `/implement` (one session per ticket), then `/no-mistakes`. |
+| `blocked` | Has at least one open native blocker, or is a parent spec whose sub-issues are open. | Nothing until they close. When the last blocker closes, relabel `ready-for-agent`. |
+| `ready-for-human` | Code merged; the remaining acceptance criteria need the captain (live provider, handset, Promote). | The captain verifies, ticks them with evidence and closes the issue. |
 | `future-direction` | Deliberately parked. | Not worked on before the live pilot. |
 
 `area:*` labels name the part of the product. `autorelease: *` labels belong to Release Please; do not apply them by hand.
@@ -39,7 +42,17 @@ Every open issue carries exactly one state label and at least one `area:*` label
 ## Workflow and definition of done
 
 - Decisions come first: anything unclear goes through `/grill-with-docs` before an issue is marked `ready-for-agent`. Exploration tools (firstmate, free-form notes) may feed a grilling session but never produce `ready-for-agent` issues directly.
-- Work that spans several sessions goes `/to-spec` then `/to-tickets`. Small, fully decided work goes straight to `/implement`. All of it is built in this repository's own session (see `research/firstmate-and-matt-skills-workflow.md`, Option A).
+- The flow, in order:
+  1. An idea goes through `/grill-with-docs`.
+  2. Small, decided work gets acceptance criteria and `ready-for-agent`. Work that spans several sessions goes `/to-spec` then `/to-tickets`. A bug starts with `/diagnosing-bugs`.
+  3. `/implement` in a worktree, then `/no-mistakes`.
+  4. Tick the criteria with `scripts/tick_acceptance.py`, then merge.
+  5. If criteria that need the captain remain, relabel `ready-for-human`.
+  6. The release PR and Promote follow [CI-CD.md](../CI-CD.md); only the captain merges the release PR and runs Promote.
+
+  All of it is built in this repository's own session (see `research/firstmate-and-matt-skills-workflow.md`, Option A).
+- After `/to-tickets` slices a spec, label the parent `blocked` and link each ticket as its sub-issue. This overrides to-tickets' "do not modify the parent". Close the parent when every sub-issue is closed and its own criteria are ticked.
+- `/implement-spec` references the spec and tickets with `Refs #N` in the PR body, never a closing keyword, because an issue closes only once its boxes are ticked with evidence.
 - Each acceptance criterion names its evidence label (fixture/mock, local integration, live provider) and is ticked only with a pointer to the evidence: a test name, a PR, a log excerpt or a screenshot.
 - A merged PR does not by itself finish an issue. Close it only when every criterion is ticked with evidence; reopen it if `Closes #N` closed it early.
 - When issues are merged into another, comment on each one first with where it went and which decisions moved, list the source issues in the new issue, then close the old ones as not planned.

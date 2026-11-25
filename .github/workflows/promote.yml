@@ -92,10 +92,11 @@ jobs:
       TAG: ${{ needs.guard.outputs.tag }}
       COMMIT: ${{ needs.guard.outputs.commit }}
     steps:
-      # The exact commit the guard accepted, never the head of main.
+      # This run's own commit, so the live check below is this run's script,
+      # not the promoted version's copy (which may predate live-check).
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.guard.outputs.commit }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       # Checked again here, not only by the guard, because re-running this job
       # of an old run reuses that run's guard verdict. Before migrations, so a
@@ -104,6 +105,11 @@ jobs:
         # shell: bash adds pipefail, so tee does not hide a refusal.
         shell: bash
         run: python3 scripts/delivery_state.py live-check production "$COMMIT" | tee -a "$GITHUB_STEP_SUMMARY"
+      # The exact commit the guard accepted, never the head of main.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.guard.outputs.commit }}
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: "0.12.3"

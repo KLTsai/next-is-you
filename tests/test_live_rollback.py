@@ -191,6 +191,21 @@ DEPLOY_JOBS = {
     "production": ("promote.yml", "deploy"),
     "staging": ("ci.yml", "deploy-staging"),
 }
+DEPLOYED_REFS = {
+    "production": "${{ needs.guard.outputs.commit }}",
+    "staging": "${{ github.sha }}",
+}
+
+
+def checked_out_ref(steps: list[dict], before: int) -> str | None:
+    """The ref of the last checkout before this step: the code it runs."""
+    checkouts = [
+        step.get("with", {}).get("ref")
+        for step in steps[:before]
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+    ]
+    assert checkouts
+    return checkouts[-1]
 
 
 @pytest.mark.parametrize("environment", DEPLOY_JOBS)
@@ -212,3 +227,8 @@ def test_every_deploy_runs_the_live_check_before_deploying(environment):
     assert checks[0] < min(changes)
     # Without pipefail, piping the check into tee would hide a refusal.
     assert steps[checks[0]].get("shell") == "bash"
+    # The check runs this run's own script: a promoted version from before
+    # #237 has no live-check, and an old copy would apply an old floor rule.
+    assert checked_out_ref(steps, checks[0]) == "${{ github.sha }}"
+    for change in changes:
+        assert checked_out_ref(steps, change) == DEPLOYED_REFS[environment]

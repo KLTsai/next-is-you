@@ -33,7 +33,7 @@ Every open issue carries exactly one state label and at least one `area:*` label
 |---|---|---|
 | `needs-grilling` | Holds decisions the captain has not made yet. | `/grill-with-docs`. Its output is decisions plus `ready-for-agent` work, not code. |
 | `ready-for-agent` | Scope, non-goals and blocking edges are written, and every acceptance criterion is checkable and names its evidence label. | `/to-tickets` if it has no sub-issues and needs more than one session; otherwise `/implement` (one session per ticket), then `/no-mistakes`. |
-| `blocked` | Has at least one open native blocker, or is a parent spec whose sub-issues are open. | Nothing until they close. When the last blocker closes, relabel `ready-for-agent`. |
+| `blocked` | Has at least one open native blocker, or is a parent spec whose sub-issues are open. | Nothing until they close. When the last blocker closes, relabel `ready-for-agent`; a parent spec instead closes once its sub-issues are closed and its own criteria are ticked. |
 | `ready-for-human` | Code merged; the remaining acceptance criteria need the captain (live provider, handset, Promote). | The captain verifies, ticks them with evidence and closes the issue. |
 | `future-direction` | Deliberately parked. | Not worked on before the live pilot. |
 

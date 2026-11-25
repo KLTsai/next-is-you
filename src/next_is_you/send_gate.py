@@ -891,9 +891,10 @@ class SystemSendGate(_DurableObjectBase):
 
         A live environment sends only with a token of its own Official Account:
         the basic ID LINE reports for the token must equal the one committed in
-        `LINE_BOT_BASIC_ID`. A confirmed answer is kept per token, so LINE is
-        asked again only when the token or the committed account changes. An
-        unreadable answer is not kept and is asked again on the next tick.
+        `LINE_BOT_BASIC_ID`. LINE's answer is kept per token, so LINE is asked
+        again only when the token changes; the kept basic ID is compared with
+        the committed one on every call. An unreadable answer is not kept and
+        is asked again on the next tick.
         """
         if local_test_mode(self.env):
             return LinePushClient(

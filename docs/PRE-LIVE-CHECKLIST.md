@@ -20,7 +20,7 @@ decides it, and every deploy writes the committed value.
    the captain promotes the first version that carries it.
 3. On the status endpoint (`/api/organizer/scheduler/status`), `live` is `true`
    and `line_unavailable_reason` is `null`. While it names a reason, nothing is
-   read or sent: `line_token_missing` (no `LINE_CHANNEL_ACCESS_TOKEN` secret),
+   read or sent, and Start is refused: `line_token_missing` (no `LINE_CHANNEL_ACCESS_TOKEN` secret),
    `line_token_other_account` (the token belongs to another Official Account,
    such as the other environment's), `line_account_not_committed` (no
    `LINE_BOT_BASIC_ID`) or `line_account_unverified` (LINE did not say which

@@ -325,7 +325,7 @@ class SystemSendGate(_DurableObjectBase):
                 return {"error": "invalid_lifecycle_state"}
             if not await self._check_ledger():
                 return {"error": "scheduler_held"}
-            reader = self._hospital_reader()
+            reader = await self._reader()
             if reader is None:
                 await repository.set_source_read(
                     visit_id, "unavailable", "no_observation"
@@ -737,7 +737,7 @@ class SystemSendGate(_DurableObjectBase):
             "held": unavailable is not None or recovery_hold,
             "live": committed_live(self.env),
             "recovery_hold": recovery_hold,
-            "hospital_reader_available": self._hospital_reader() is not None,
+            "hospital_reader_available": await self._reader() is not None,
             # Why LINE messages cannot be sent, or None when they can.
             "line_unavailable_reason": unavailable,
         }
@@ -805,6 +805,16 @@ class SystemSendGate(_DurableObjectBase):
             raise RuntimeError("D1 binding is unavailable")
         return VisitRepository(CloudflareD1Store(binding))
 
+    async def _reader(self) -> HospitalReader | None:
+        """The hospital reader, only while LINE messages can be sent too.
+
+        Reading and sending go together (#237): a live environment without a
+        LINE token of its own Official Account reads no hospital, so Start
+        cannot activate a visit that would never get a reminder.
+        """
+        line, _ = await self._line_sender()
+        return self._hospital_reader() if line is not None else None
+
     def _hospital_reader(self) -> HospitalReader | None:
         """No hospital reader unless the environment is live (#237).
 
@@ -830,7 +840,7 @@ class SystemSendGate(_DurableObjectBase):
         manual entry. Arguments and the result stay JSON-friendly for the gate's
         RPC boundary.
         """
-        reader = self._hospital_reader()
+        reader = await self._reader()
         lister = getattr(reader, "list_clinics", None)
         if lister is None:
             return {"available": False, "reason": "no_observation", "clinics": []}

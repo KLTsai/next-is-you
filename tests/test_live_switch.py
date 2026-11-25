@@ -15,7 +15,7 @@ import pytest
 
 from next_is_you.line_messaging import LinePushHttpResponse
 from next_is_you.send_gate import SystemSendGate
-from test_ntuh_reader import PAGE, FakeSource, active_visit, taipei
+from test_ntuh_reader import DAY, PAGE, FakeSource, active_visit, seed_ntuh, taipei
 from test_scheduler_outbox import LocalContext, LocalD1, LocalDurableStorage
 
 STAGING_ACCOUNT = "@111aaaaa"
@@ -177,3 +177,58 @@ async def test_a_verified_token_is_looked_up_once_until_it_changes() -> None:
     assert result["line_unavailable_reason"] == "line_token_other_account"
     assert bot_info.lookups == ["staging-token", "production-token"]
     assert len(line.requests) == 1
+
+
+async def live_draft(**overrides: Any):
+    """A live gate holding one draft and no running visit."""
+    database = LocalD1()
+    source = FakeSource(PAGE)
+    gate = SystemSendGate(
+        LocalContext(LocalDurableStorage()), staging_env(database, **overrides)
+    )
+    gate._ntuh_fetcher = source
+    gate._line_transport = RecordingLineTransport()
+    gate._line_bot_info = FakeBotInfo(TOKENS)
+    await seed_ntuh(database, gate, "d1")
+    return gate, source
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"NIY_LIVE": "false"},
+        {"LINE_CHANNEL_ACCESS_TOKEN": None},
+        {"LINE_CHANNEL_ACCESS_TOKEN": "production-token"},
+    ],
+    ids=["not live", "no token", "other account token"],
+)
+async def test_start_and_the_picker_read_no_hospital_while_nothing_can_be_sent(
+    overrides,
+) -> None:
+    # Reading and sending go together: a visit started now would never get
+    # a reminder, so Start is refused before the hospital is read.
+    gate, source = await live_draft(**overrides)
+
+    assert await gate.start_visit("d1", taipei(15, 0).isoformat()) == {
+        "error": "observation_unavailable"
+    }
+    roster = await gate.list_clinics(
+        "ntuh-main", "OPH", DAY.isoformat(), taipei(14, 0).isoformat()
+    )
+    assert roster == {"available": False, "reason": "no_observation", "clinics": []}
+    assert source.urls == []
+    assert (await gate.scheduler_status())["hospital_reader_available"] is False
+
+
+@pytest.mark.asyncio
+async def test_start_and_the_picker_read_the_hospital_once_live_with_its_own_token() -> (
+    None
+):
+    gate, source = await live_draft()
+
+    roster = await gate.list_clinics(
+        "ntuh-main", "OPH", DAY.isoformat(), taipei(14, 0).isoformat()
+    )
+    assert roster["available"] is True
+    assert source.urls

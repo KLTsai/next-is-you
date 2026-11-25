@@ -1,5 +1,7 @@
 name: Promote
 
+run-name: Promote ${{ inputs.version }} to production
+
 # The captain's release action. Dispatch it from main with a version number.
 # The promote guard decides whether the version may go to production. The rules
 # live in scripts/delivery_state.py and this file only runs them. Running it

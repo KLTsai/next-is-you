@@ -102,7 +102,10 @@ head. Re-running an earlier run therefore returns staging to that earlier
 commit. The job builds, applies the staging D1 migrations, then runs
 `pywrangler deploy --config wrangler.staging.jsonc --keep-vars`. It uses the `staging` environment, so GitHub records a deployment
 for that commit; that record, not any tag, is the source of truth for what
-staging is showing. The job summary also names the commit.
+staging is showing. The job summary also names the commit and a `Version` line
+from `git describe --tags --match 'v*'`, for example `v0.4.0-3-gefa2eb5`: three
+commits after `v0.4.0`. Staging runs a commit, not a version, so read the line
+as a distance from the last version, never as a release staging runs.
 
 Staging is unchanged in what it may do: its configuration still holds sends, has
 no LINE access token, and reads no hospital data (see
@@ -459,7 +462,8 @@ Production migrations are forward-only. See [Rollback](#rollback).
 ## Promote
 
 Promote is **Actions -> Promote -> Run workflow**, from `main`, with one input:
-the version, for example `v0.3.0`. Only the captain runs it. Its `Promote guard`
+the version, for example `v0.3.0`. Only the captain runs it. The run is titled
+`Promote v0.3.0 to production` in the **Actions** list. Its `Promote guard`
 job runs `python3 scripts/delivery_state.py guard <version>`, the same command
 the captain can run locally, and writes the verdict to the run summary. The
 rules are not repeated in the workflow. A dispatch from any other ref fails the

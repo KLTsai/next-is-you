@@ -273,6 +273,21 @@ async def test_the_observation_carries_the_progress_fields_the_page_states():
         NumberStatus(29, "not_checked_in"),
     )
     assert observation.called_in_session is True
+
+
+@pytest.mark.asyncio
+async def test_an_expected_call_without_a_type_is_carried_with_an_unknown_kind():
+    # A real page can show 預計叫號 as a bare number with no type (#205). The
+    # reader passes the page through its stored form before reporting it.
+    source = TwoPageSource(
+        page_with("024"), progress(current=25, highest=30, expected=((27, None),))
+    )
+    r = reader(source)
+    await r.observe(scope(), taipei(15, 0))
+    observation = await r.observe(scope(), taipei(15, 2))
+
+    assert isinstance(observation, QueueObservation)
+    assert observation.expected == (ExpectedCall(27, None),)
     assert observation.is_comparable_to(scope())
 
 

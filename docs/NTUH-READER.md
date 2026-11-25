@@ -76,7 +76,8 @@ The start and end signals come from two clinics watched through their transition
 
 The list card links to `ClinicCurrentLightNoDetail?ServiceIDSE=<id>`, a public page per clinic. Reads of seven clinics in 眼科 and 內科 on 2026-11-20 (`research/private/source-evidence/ntuh-per-doctor-2026-11-20.md`, raw pages under `raw/ntuh-2026-11-20*/`) showed:
 
-- It shows the current light with a flag (過號, 檢查號, 報到順序NN), 已叫最大號, 預計叫號 with a type ((順號), (過號), (報到NN), (無)), and the status of every number not yet finished: 未報到, 已報到 (報到N in check-in-order clinics), 初診 or 看診中. Its legend says a number below the highest called that has not checked in has been passed.
+- It shows the current light with a flag (過號, 檢查號, 報到順序NN), 已叫最大號, 預計叫號 with a type ((順號), (過號), (報到NN), (無)) or, on some pages captured on 2026-11-25, as one bare number with no type (read as an expected call of unknown kind), and the status of every number not yet finished: 未報到, 已報到 (報到N in check-in-order clinics), 初診 or 看診中. Its legend says a number below the highest called that has not checked in has been passed.
+- A substitute doctor shows as `總醫師<span id='subname_txt'>(代)</span>` inside `doc-name` (2026-11-25). The detail page's doctor is read with its `(代)`, as on the list card; it is not compared or shown.
 - The card's current light was not the queue front in any clinic read: 09診 showed 022 with 已叫最大號 080, and a 內科 clinic's card went 022, 042, 008 within an hour while its highest called stayed at 025.
 - Finished numbers drop off the list, but checked-in numbers also left before
   their turn (敬老號, cancellations, transfers: 22 on 2026-11-20) and none came

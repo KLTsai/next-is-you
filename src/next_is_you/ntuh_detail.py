@@ -1,7 +1,8 @@
 """Parser for NTUH's per-clinic detail page (`ClinicCurrentLightNoDetail`).
 
-The page states the current light with a flag, 已叫最大號, 預計叫號 with a type
-for each entry, and the status of every number still on the list
+The page states the current light with a flag, 已叫最大號, 預計叫號 (with a type
+for each entry, or as one bare number with none), and the status of every
+number still on the list
 (`docs/NTUH-READER.md`, `docs/adr/0003-hospital-neutral-progress-model.md`).
 `parse_detail_page` turns it into a `ProgressObservation` that holds only what
 the page states. A field the page does not show is `None` or empty, never
@@ -107,6 +108,8 @@ class _DetailCollector(HTMLParser):
         self.highest = ""
         self.title = ""
         self.expected: list[list[str]] = []
+        # 預計叫號 shown as a bare number, outside any expected-item.
+        self.bare_expected = ""
         self.numbers: list[dict[str, str]] = []
         self.unknown_tag = False
         self._stack: list[tuple[str, frozenset[str]]] = []
@@ -147,7 +150,8 @@ class _DetailCollector(HTMLParser):
         classes = self._stack[-1][1]
         if "room-number" in classes:
             self.room += data
-        elif "doc-name" in classes:
+        elif self._inside("doc-name"):
+            # Includes a substitute's (代), which sits in a span inside doc-name.
             self.doctor += data
         elif self._inside("now-number"):
             if self._inside("according-to-order-inside"):
@@ -163,6 +167,8 @@ class _DetailCollector(HTMLParser):
                 self.expected[-1][1] += data
         elif self._inside("next-number") and "title" in classes:
             self.title += data
+        elif self._inside("next-number") and "number" in classes:
+            self.bare_expected += data
         elif self._inside("progress-number"):
             entry = self.numbers[-1]
             if entry["tag_class"]:
@@ -238,6 +244,10 @@ def parse_detail_page(html: str) -> tuple[str, ProgressObservation | None]:
             expected.append(ExpectedCall(number, "check_in", int(position.group(1))))
         else:
             expected.append(ExpectedCall(number, _kind(type_text)))
+    bare_number = _number(collector.bare_expected)
+    if not expected and bare_number is not None:
+        # The page gives no type for a bare number, so its kind is unknown.
+        expected.append(ExpectedCall(bare_number, None))
 
     return "ok", ProgressObservation(
         room=room,

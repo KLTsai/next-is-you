@@ -603,12 +603,8 @@ def test_internal_medicine_number_order_page_2026_11_25() -> None:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="page and parser disagree (#205): the page shows 預計叫號 017 as a bare"
-    " number, not an expected-item, and the parser reads no expected call",
-)
 def test_internal_medicine_untyped_expected_call_is_read_2026_11_25() -> None:
+    # 預計叫號 shows a bare 017 with no type, so its kind is unknown.
     page = detail("detail_med03_2026-11-25_1015.html")
 
     assert page.expected == (ExpectedCall(17, None),)

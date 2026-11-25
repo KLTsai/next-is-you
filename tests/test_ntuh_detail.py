@@ -18,6 +18,9 @@ from test_ntuh_capture_replay import capture
 PAGE = capture("detail_orth02_2026-11-23_1030.html")
 # 骨科部 03診 at 10:15:24 on 2026-11-25: light 019 敬老號, 已叫最大號 009.
 SENIOR_PAGE = capture("detail_orth03_senior_2026-11-25_1015.html")
+# 內科部 03診 at 10:15 on 2026-11-25: 預計叫號 is a bare 017 with no type.
+BARE_EXPECTED_PAGE = capture("detail_med03_2026-11-25_1015.html")
+_BARE_EXPECTED = re.compile(r'(預計叫號\s*</div>\s*<div class="number">\s*)017')
 _LIGHT = re.compile(r'(目前燈號</div>\s*<div class="number">\s*)019')
 _HIGHEST = re.compile(r'(已叫最大號</div>\s*<div class="number">\s*)009')
 
@@ -120,3 +123,11 @@ def test_a_real_page_showing_a_challenge_instead_of_progress_is_named(
     html = SENIOR_PAGE[:start] + f"<p>{text}</p><div " + SENIOR_PAGE[end:]
 
     assert parse_detail_page(html) == (status, None)
+
+
+@pytest.mark.parametrize("shown", ["", "\u3000", "000", "(無)"])
+def test_a_bare_expected_placeholder_is_no_expected_call(shown: str) -> None:
+    html, replaced = _BARE_EXPECTED.subn(rf"\g<1>{shown}", BARE_EXPECTED_PAGE)
+    assert replaced == 1
+
+    assert _observation(html).expected == ()

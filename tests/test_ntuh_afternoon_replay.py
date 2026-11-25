@@ -465,7 +465,7 @@ ORTH07_NUMBERS = (
 
 def test_orthopedics_check_in_order_clinic_just_after_it_opens_2026_11_25() -> None:
     # 骨科部 07診 at 13:50:24, titled 預計叫號 (依報到順序看診): light 019 with
-    # 報到順序27 under it and a blank 已叫最大號. 預計叫號 is read in the xfail below.
+    # 報到順序27 under it and a blank 已叫最大號. 預計叫號 is read in the test below.
     page = detail("detail_orth07_check_in_order_2026-11-25_1350.html")
 
     assert (page.room, page.doctor) == ("骨科部 07診", "王廷明")
@@ -477,12 +477,8 @@ def test_orthopedics_check_in_order_clinic_just_after_it_opens_2026_11_25() -> N
     assert page.numbers == numbers_as_shown(ORTH07_NUMBERS)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="page and parser disagree (#205): the page shows 預計叫號 027 as a bare"
-    " number, not an expected-item, and the parser reads no expected call",
-)
 def test_orthopedics_untyped_expected_call_is_read_2026_11_25() -> None:
+    # 預計叫號 shows a bare 027 with no type, so its kind is unknown.
     page = detail("detail_orth07_check_in_order_2026-11-25_1350.html")
 
     assert page.expected == (ExpectedCall(27, None),)
@@ -538,7 +534,7 @@ MED34 = "detail_med34_substitute_empty_2026-11-25_1500.html"
 def test_substitute_clinic_with_no_numbers_2026_11_25() -> None:
     # 內科部 34診 at 15:00:20: the doctor shows as 總醫師(代), with no light, no
     # 已叫最大號, no 預計叫號 and an empty 所有燈號狀態. The doctor is read in
-    # the xfail below.
+    # the test below.
     page = detail(MED34)
 
     assert page.room == "內科部 34診"
@@ -549,12 +545,8 @@ def test_substitute_clinic_with_no_numbers_2026_11_25() -> None:
     assert page.numbers == ()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="page and parser disagree (#205): the detail page shows the doctor as"
-    " 總醫師(代), with (代) in a span inside doc-name, and the parser drops (代)",
-)
 def test_substitute_mark_on_a_detail_page_is_read_2026_11_25() -> None:
+    # The detail page puts (代) in a span inside doc-name; it reads as the list does.
     card = next(row for row in cards(list_page("med", "midway")) if row.room == "34 診")
     assert card.doctor == "總醫師(代)"
 

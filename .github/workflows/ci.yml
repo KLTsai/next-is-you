@@ -122,7 +122,26 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: uv run playwright install --with-deps chromium
+      # The browser binaries are cached on the locked Playwright version, so a
+      # bump in uv.lock misses the cache and downloads a matching build. The
+      # key uses the version that uv sync --locked installed from uv.lock, not a
+      # hash of the file, so unrelated dependency changes keep the cache.
+      - id: playwright-version
+        run: |
+          version=$(uv run python -c "import importlib.metadata as m; print(m.version('playwright'))")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - id: playwright-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+      # A hit skips the browser download. Chromium's system packages live
+      # outside the cache, so install-deps still runs; apt only fetches the
+      # packages that are missing.
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: uv run playwright install --with-deps chromium
+      - if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: uv run playwright install-deps chromium
       - run: uv run pytest -q --splits 4 --group ${{ matrix.group }} --splitting-algorithm least_duration
 
   # The gate. Its name is what scripts/delivery_state.py GATES and Summary

@@ -83,7 +83,9 @@ PAGE = listing(
         service_id="8000099",
     ),
 )
-SELECTOR = (FIXTURES / "ntuh_webreg_selector.html").read_text(encoding="utf-8")
+# The real clinic selector page, its anti-forgery token value replaced by a
+# placeholder (#205).
+SELECTOR = (CAPTURES / "selector_2026-11-25_1015.html").read_text(encoding="utf-8")
 _MORNING, _AFTERNOON = ClinicSession.MORNING, ClinicSession.AFTERNOON
 _NOV_10, _NOV_11 = datetime(2026, 11, 10).date(), datetime(2026, 11, 11).date()
 # An invented ophthalmology schedule for 11/10 and 11/11, as the reader returns it.

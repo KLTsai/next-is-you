@@ -1,3 +1,6 @@
 # Hospital pages committed as the hospital served them (ADR 0006): keep their
 # CRLF line ends and trailing spaces byte for byte.
 tests/fixtures/hospitals/ntuh_captures/** -text -whitespace
+# Clinic schedule captures run to megabytes on a few long lines; a text diff of
+# one is unreadable, so git shows them as binary.
+tests/fixtures/hospitals/ntuh_captures/schedule_*.html -diff

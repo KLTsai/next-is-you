@@ -7,6 +7,8 @@ page the hospital has not served yet. Nothing in this file reaches the network.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from next_is_you.ntuh_detail import ProgressObservation, parse_detail_page
@@ -14,6 +16,10 @@ from test_ntuh_capture_replay import capture
 
 # 骨科部 02診 at 10:30:17 on 2026-11-23, with a 初診 number.
 PAGE = capture("detail_orth02_2026-11-23_1030.html")
+# 骨科部 03診 at 10:15:24 on 2026-11-25: light 019 敬老號, 已叫最大號 009.
+SENIOR_PAGE = capture("detail_orth03_senior_2026-11-25_1015.html")
+_LIGHT = re.compile(r'(目前燈號</div>\s*<div class="number">\s*)019')
+_HIGHEST = re.compile(r'(已叫最大號</div>\s*<div class="number">\s*)009')
 
 
 def _observation(html: str) -> ProgressObservation:
@@ -74,3 +80,43 @@ def test_page_without_the_region_wrapper_is_still_read_in_full() -> None:
     assert unwrapped != PAGE
 
     assert _observation(unwrapped) == _observation(PAGE)
+
+
+@pytest.mark.parametrize(
+    "shown", ["abc", "000", "9" * 7, "9" * 5000, "\u00b2", "1\u00b2"]
+)
+def test_a_garbled_current_light_is_invalid(shown: str) -> None:
+    html, replaced = _LIGHT.subn(rf"\g<1>{shown}", SENIOR_PAGE)
+    assert replaced == 1
+
+    assert parse_detail_page(html) == ("invalid", None)
+
+
+@pytest.mark.parametrize("shown", ["abc", "000", "9" * 7])
+def test_a_garbled_highest_called_is_invalid(shown: str) -> None:
+    html, replaced = _HIGHEST.subn(rf"\g<1>{shown}", SENIOR_PAGE)
+    assert replaced == 1
+
+    assert parse_detail_page(html) == ("invalid", None)
+
+
+def test_a_real_page_without_the_number_list_is_a_schema_failure() -> None:
+    html = SENIOR_PAGE.replace('class="clinic-progress"', 'class="other"')
+    assert html != SENIOR_PAGE
+
+    assert parse_detail_page(html) == ("schema", None)
+
+
+@pytest.mark.parametrize(
+    ("text", "status"),
+    [("請完成驗證 captcha", "challenge"), ("Access Denied", "denied")],
+)
+def test_a_real_page_showing_a_challenge_instead_of_progress_is_named(
+    text: str, status: str
+) -> None:
+    # The hospital's page frame with the progress panel replaced by a message.
+    start = SENIOR_PAGE.index('<div class="clinic-modal-progress">')
+    end = SENIOR_PAGE.index('class="number-explain"')
+    html = SENIOR_PAGE[:start] + f"<p>{text}</p><div " + SENIOR_PAGE[end:]
+
+    assert parse_detail_page(html) == (status, None)

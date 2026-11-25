@@ -37,6 +37,7 @@ pytestmark = pytest.mark.usefixtures("built_ui")
 
 def test_current_number_only_hospital_goes_straight_to_manual_entry(
     monkeypatch,
+    screen: dict,
 ) -> None:
     monkeypatch.setitem(
         hospital_registry.HOSPITAL_REGISTRY, SYNTHETIC_ID, synthetic_entry()
@@ -87,7 +88,7 @@ def test_current_number_only_hospital_goes_straight_to_manual_entry(
         try:
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch()
-                context = browser.new_context()
+                context = browser.new_context(**screen)
                 context.route(
                     "**/*",
                     lambda route: (

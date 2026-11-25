@@ -10,10 +10,10 @@ from playwright.sync_api import expect, sync_playwright
 from test_rehearsal import rehearsal
 
 
-def test_rehearsal_member_label_typed_by_the_organizer_is_not_cleared(tmp_path):
+def test_rehearsal_member_label_typed_by_the_organizer_is_not_cleared(tmp_path, screen):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        context = browser.new_context(**screen)
         context.grant_permissions(["clipboard-read", "clipboard-write"])
         context.route(
             "**/*",
@@ -49,10 +49,11 @@ def test_rehearsal_member_label_typed_by_the_organizer_is_not_cleared(tmp_path):
 
 def test_rehearsal_member_label_survives_refresh_and_follows_the_invitation_result(
     tmp_path,
+    screen,
 ):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        context = browser.new_context(**screen)
         fail_invitations = {"on": False}
 
         def route(route):

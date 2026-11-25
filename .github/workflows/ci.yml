@@ -317,6 +317,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
+          # Full history and tags, so git describe can count commits since the last version.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: "0.12.3"
@@ -344,6 +346,7 @@ jobs:
             echo "### Staging deployment"
             echo ""
             echo "- Commit: ${GITHUB_SHA}"
+            echo "- Version: $(git describe --tags --match 'v*' "${GITHUB_SHA}" 2>/dev/null || echo 'no version tag reachable')"
             echo "- Worker: next-is-you-staging"
             echo "- D1 database: next-is-you-staging"
             echo "- Status: ${{ job.status }}"

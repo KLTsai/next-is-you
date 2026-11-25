@@ -7,12 +7,13 @@ result), the stored source-read status, and that no outbound event was created.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
 
+from ntuh_reads import ScheduleRead, schedule
 from test_ntuh_reader import (
-    PAGE,
     SCHEDULE_FIRST_VISIT,
     SCHEDULE_FIXTURE,
     FakeSource,
@@ -24,7 +25,7 @@ from test_ntuh_reader import (
 )
 
 # outcome -> (draft clinic code, days after the simulated today or None for the
-# first fixture day, schedule page served, expected Start result, stored read)
+# first fixture day, schedule read, expected Start result, stored read)
 OUTCOMES = {
     "matched": (
         "03/合成醫師甲/角膜",
@@ -74,7 +75,9 @@ OUTCOMES = {
 @pytest.mark.parametrize("outcome", list(OUTCOMES))
 async def test_start_reports_each_clinic_match_outcome(outcome: str) -> None:
     code, days_ahead, has_schedule, expected, stored = OUTCOMES[outcome]
-    source = FakeSource(schedule=SCHEDULE_FIXTURE) if has_schedule else FakeSource(PAGE)
+    # Without a schedule, the schedule page did not read as one.
+    read = SCHEDULE_FIXTURE if has_schedule else schedule(status="schema_drift")
+    source = FakeSource(schedule=read)
     database, gate = await gate_with_visit(source)
     visit_day = (
         SCHEDULE_FIRST_VISIT
@@ -96,16 +99,9 @@ async def test_start_reports_each_clinic_match_outcome(outcome: str) -> None:
     assert events.fetchone()[0] == 0
 
 
-def _every_clinic_cancelled(page: str) -> str:
-    """The schedule fixture with every card marked as a typhoon cancellation."""
-    import re
-
-    without_tags = re.sub(r'<div class="tag">.*?</div></div>', "", page)
-    return without_tags.replace(
-        '<div class="sub-spec"',
-        '<div class="tag"><div class="first-reg">颱風停診</div></div>\n'
-        '<div class="sub-spec"',
-    )
+def _every_clinic_cancelled(read: ScheduleRead) -> ScheduleRead:
+    """The schedule with every clinic marked as a typhoon cancellation."""
+    return schedule(*(replace(row, status="颱風停診") for row in read.rows))
 
 
 @pytest.mark.asyncio

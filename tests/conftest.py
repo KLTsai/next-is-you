@@ -33,3 +33,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         if _is_browser_module(item.path, cache):
             item.add_marker(pytest.mark.browser)
+
+
+# Visit and reminder tests feed the NTUH readers' values, not pages (#205).
+from ntuh_reads import serve_reader_values  # noqa: E402, F401

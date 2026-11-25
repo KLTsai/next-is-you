@@ -61,9 +61,9 @@ from next_is_you.domain import (
 from next_is_you.ntuh_detail import (
     MAX_NUMBER_DIGITS,
     ProgressObservation,
+    _page_status,
     parse_detail_page,
 )
-from next_is_you.source_samples import _page_status
 from next_is_you.persistence import TAIPEI
 
 # Both hosts serve the same application; this one is what the owner opens and
@@ -374,7 +374,7 @@ def parse_light_table(html: str) -> tuple[str, list[ListRow]]:
         return "schema", []
     marker = _page_status(" ".join(collector.text).casefold())
     if marker is not None:
-        return marker.value, []
+        return marker, []
     if not collector.cards:
         return "schema", []
     rows = []
@@ -555,7 +555,7 @@ def parse_schedule(html: str, today: date) -> tuple[str, list[ScheduleRow]]:
         return "schema_drift", []
     marker = _page_status(" ".join(collector.text).casefold())
     if marker is not None:
-        return marker.value, []
+        return marker, []
     if not collector.rows:
         return "schema_drift", []
     return "ok", collector.rows

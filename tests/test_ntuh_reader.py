@@ -1,10 +1,17 @@
-"""NTUH reader behavior against fixture pages only; nothing here reaches the network."""
+"""NTUH reader and gate lifecycle, fed with the values the reader's parsers return.
+
+When the reader reads, how it matches a card, and how it fails and backs off are
+tested on `ListRow`, `ProgressObservation` and `ScheduleRow` values served by the
+fakes below (`ntuh_reads.py`), not on hand-built pages; the request shape (URLs,
+headers, body, cookies, token) is asserted as sent. How the hospital's pages
+parse is tested on real captures in `test_ntuh_capture_replay.py`. Fixture/mock
+only; nothing here reaches the network.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import json
-import re
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
@@ -32,17 +39,23 @@ from next_is_you.ntuh_reader import (
     FetchedPage,
     NtuhProgressReader,
     PageRequest,
-    ScheduleRow,
     parse_clinic_key,
-    parse_light_table,
     parse_request_token,
     parse_retry_after,
-    parse_schedule,
     schedule_url,
     selector_page_url,
 )
 from next_is_you.persistence import CloudflareD1Store, Statement, VisitRepository
-from ntuh_detail_pages import detail_page
+from ntuh_reads import (
+    ListRead,
+    ScheduleRead,
+    card,
+    listing,
+    progress,
+    schedule,
+    served,
+    slot,
+)
 from test_scheduler_outbox import (
     LocalContext,
     LocalD1,
@@ -53,9 +66,35 @@ from next_is_you.send_gate import SystemSendGate
 from next_is_you.domain import clinic_label  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures" / "hospitals"
-PAGE = (FIXTURES / "ntuh_oph_light_table.html").read_text(encoding="utf-8")
+CAPTURES = FIXTURES / "ntuh_captures"
+# A morning-or-afternoon list of an invented ophthalmology department, as the
+# reader returns it. `11 診/合成醫師丙/醫師約診` shows light 025.
+PAGE = listing(
+    card("07 診", "合成醫師甲", "普通門診", "012", service_id="8000007"),
+    card("08 診", "合成醫師乙", "普通門診", "", service_id="8000008"),
+    card("11 診", "合成醫師丙", "醫師約診", "025", service_id="8000011"),
+    card("11 診", "合成醫師丁", "普通門診", "041", service_id="8000012"),
+    card(
+        "99 診",
+        "合成醫師戊",
+        "檢查門診",
+        "",
+        check_in_order="依報到順序",
+        service_id="8000099",
+    ),
+)
 SELECTOR = (FIXTURES / "ntuh_webreg_selector.html").read_text(encoding="utf-8")
-SCHEDULE_FIXTURE = (FIXTURES / "ntuh_oph_schedule.html").read_text(encoding="utf-8")
+_MORNING, _AFTERNOON = ClinicSession.MORNING, ClinicSession.AFTERNOON
+_NOV_10, _NOV_11 = datetime(2026, 11, 10).date(), datetime(2026, 11, 11).date()
+# An invented ophthalmology schedule for 11/10 and 11/11, as the reader returns it.
+SCHEDULE_FIXTURE = schedule(
+    slot(_NOV_10, _MORNING, "03", "合成醫師甲", "角膜", "", "一般眼科"),
+    slot(_NOV_10, _MORNING, "05", "合成醫師乙", "網膜", "額滿", "一般眼科"),
+    slot(_NOV_10, _MORNING, "07", "合成醫師丙", "教學門診", "停診", "一般眼科"),
+    slot(_NOV_10, _AFTERNOON, "11", "合成醫師丁", "青光眼", "", "一般眼科"),
+    slot(_NOV_11, _MORNING, "03", "合成醫師戊", "葡萄膜炎", "", "一般眼科"),
+    slot(_NOV_11, _MORNING, "06", "合成醫師己", "眼整型", "颱風停診", "一般眼科"),
+)
 DAY = datetime(2026, 10, 22).date()
 # The schedule fixture covers 11/10 and 11/11; the simulated today is the day
 # before so both are future dates inside the lookahead window.
@@ -84,14 +123,38 @@ def scope(
     return ClinicScope(hospital, DAY, department, clinic_code, session)
 
 
-def page_with(current: str) -> str:
-    return PAGE.replace("025", current)
+def page_with(current: str) -> ListRead:
+    """`PAGE` with `current` as the light of the `11 診/合成醫師丙` card."""
+    return listing(
+        *(
+            replace(row, current=current) if row.current == "025" else row
+            for row in PAGE.rows
+        )
+    )
+
+
+def page_where(**changes) -> ListRead:
+    """`PAGE` with `changes` made to the `11 診/合成醫師丙` card."""
+    return listing(
+        *(
+            replace(row, **changes) if row.doctor == "合成醫師丙" else row
+            for row in PAGE.rows
+        )
+    )
+
+
+def page_plus(*rows) -> ListRead:
+    """`PAGE` with `rows` listed after its cards."""
+    return listing(*PAGE.rows, *rows)
 
 
 def _page(item) -> FetchedPage:
+    """A response: an exception is raised, a reader value is `served`."""
     if isinstance(item, Exception):
         raise item
-    return item if isinstance(item, FetchedPage) else FetchedPage(200, item)
+    if isinstance(item, FetchedPage):
+        return item
+    return FetchedPage(200, item if isinstance(item, str) else served(item))
 
 
 class FakeSource:
@@ -99,13 +162,13 @@ class FakeSource:
 
     One read is the session list (a GET of the selector page, then a POST for the
     clinic cards) until the card is found, then one GET of the card's detail page.
-    The script holds one entry per read, a session list. A detail read is rendered
-    from the card in its entry (its number as the light and the highest called),
-    which keeps list and detail in step; `details` scripts the detail pages on
-    their own, and a test about the two disagreeing uses `TwoPageSource`. An
-    exception instance is raised, and an entry that is not a list is served as is.
-    `links=False` strips the cards' detail links. A GET of the dept-wide schedule
-    page returns `schedule`, when it is set.
+    The script holds one entry per read, a session list (`ListRead`). A detail
+    read returns the card in its entry as the detail page (its number as the light
+    and the highest called), which keeps list and detail in step; `details`
+    scripts the detail reads on their own, and a test about the two disagreeing
+    uses `TwoPageSource`. An exception instance is raised, and a `FetchedPage` or
+    string is served as is. `links=False` drops the cards' detail links. A GET of
+    the dept-wide schedule page returns `schedule`, when it is set.
     """
 
     SESSION_COOKIES = ("ASP.NET_SessionId=synthetic", "__RequestVerificationToken_X=t")
@@ -151,8 +214,10 @@ class FakeSource:
             return replace(page, cookies=self.SESSION_COOKIES)
         self.reads.append(LIGHT_TABLE_URL)
         item = self._next()
-        if not self.links and isinstance(item, str):
-            item = re.sub(r'href="[^"]*"', "", item)
+        if not self.links and isinstance(item, ListRead):
+            item = listing(
+                *(replace(row, service_id="") for row in item.rows), status=item.status
+            )
         return _page(item)
 
     def _detail(self, request: PageRequest) -> FetchedPage:
@@ -161,27 +226,20 @@ class FakeSource:
             item = self.details.pop(0) if len(self.details) > 1 else self.details[0]
             return _page(item)
         item = self._next()
-        page = _page(item)
-        if page.status != 200 or "open-link" not in page.body:
-            return page
+        if not isinstance(item, ListRead) or item.status != "ok":
+            return _page(item)
         service_id = parse_qsl(request.url.split("?", 1)[1])[0][1]
-        anchor = re.search(rf"ServiceIDSE={service_id}&amp;.*?</a>", page.body, re.S)
-        assert anchor is not None, f"no card links to {service_id}"
-
-        def text_of(css: str) -> str:
-            found = re.search(rf'class="{css}[^"]*">([^<]*)<', anchor.group(0))
-            return found.group(1).strip() if found else ""
-
-        number = int(text_of("number") or 0) or None
-        return FetchedPage(
-            200,
-            detail_page(
-                room=f"合成科 {text_of('room-number')}",
-                doctor=text_of("clinic-doc-name"),
-                current=number,
-                highest=number,
-                check_in_order=bool(text_of("according-to-order")),
-            ),
+        row = next((r for r in item.rows if r.service_id == service_id), None)
+        assert row is not None, f"no card links to {service_id}"
+        number = int(row.current) if row.current.isdigit() else None
+        return _page(
+            progress(
+                room=f"合成科 {row.room}",
+                doctor=row.doctor,
+                current=number or None,
+                highest=number or None,
+                check_in_order=bool(row.check_in_order),
+            )
         )
 
 
@@ -219,53 +277,6 @@ def reader(source, state: LocalDurableStorage | None = None):
     return NtuhProgressReader(state or LocalDurableStorage(), source)
 
 
-def test_parser_reads_cards_and_ignores_the_fragment_render_time() -> None:
-    status, rows = parse_light_table(PAGE)
-    assert status == "ok"
-    target = [row for row in rows if row.doctor == "合成醫師丙"]
-    assert [(r.room, r.clinic_type, r.current) for r in target] == [
-        ("11 診", "醫師約診", "025")
-    ]
-    assert not hasattr(target[0], "updated_at")
-
-
-def test_parser_keeps_a_blank_light_and_a_check_in_order_card_apart() -> None:
-    rows = {row.room: row for row in parse_light_table(PAGE)[1]}
-    assert rows["08 診"].current == "" and rows["08 診"].check_in_order == ""
-    assert rows["99 診"].current == "" and rows["99 診"].check_in_order == "依報到順序"
-
-
-@pytest.mark.parametrize(
-    "html",
-    [
-        "<html><body>maintenance</body></html>",
-        "<div class='main-container'></div>",
-        # An anchor whose card lost the doctor, and one that lost the number.
-        '<a class="open-link"><div class="room-number">11 診</div>'
-        '<div class="clinic-type">醫師約診</div><div class="number">025</div></a>',
-        '<a class="open-link"><div class="room-number">11 診</div>'
-        '<div class="clinic-doc-name">合成醫師丙</div>'
-        '<div class="clinic-type">醫師約診</div></a>',
-    ],
-)
-def test_parser_fails_closed_on_unrecognized_pages(html: str) -> None:
-    assert parse_light_table(html) == ("schema", [])
-
-
-@pytest.mark.parametrize(
-    ("html", "status"),
-    [("<p>Please complete the CAPTCHA</p>", "challenge"), ("Access Denied", "denied")],
-)
-def test_parser_detects_challenge_and_denial(html: str, status: str) -> None:
-    assert parse_light_table(html)[0] == status
-
-
-def test_token_is_read_from_the_selector_page_and_absent_elsewhere() -> None:
-    assert parse_request_token(SELECTOR) == "synthetic-token-value"
-    assert parse_request_token(PAGE) is None
-    assert parse_request_token("<html><body>moved</body></html>") is None
-
-
 def test_clinic_key_requires_room_doctor_and_type() -> None:
     assert parse_clinic_key(CLINIC) is not None
     assert parse_clinic_key("11診/合成醫師丙") is None
@@ -291,7 +302,7 @@ async def test_a_read_posts_the_token_branch_department_and_session() -> None:
     assert get_request.url == selector_page_url() and get_request.method == "GET"
     assert post_request.url == LIGHT_TABLE_URL and post_request.method == "POST"
     assert source.last_body() == {
-        "__RequestVerificationToken": "synthetic-token-value",
+        "__RequestVerificationToken": parse_request_token(SELECTOR),
         "vHospitalCode": "T0",
         "DeptCode": "OPH",
         "RegionCode": "",
@@ -309,7 +320,9 @@ async def test_a_read_posts_the_token_branch_department_and_session() -> None:
 
 @pytest.mark.asyncio
 async def test_a_missing_token_fails_closed_without_posting() -> None:
-    source = FakeSource(PAGE, selector="<html><body>moved</body></html>")
+    # A real session list where the selector page was expected: it has no token.
+    other_page = (CAPTURES / "list_oph_am_2026-11-20_1130.html").read_text("utf-8")
+    source = FakeSource(PAGE, selector=other_page)
     result = await reader(source).observe(scope(), taipei(15, 0))
     assert result == ReadFailed("invalid", "schema_drift")
     assert source.urls == []
@@ -404,14 +417,10 @@ async def test_non_ascii_numeric_light_fails_closed_for_each_read_path(method):
 
 @pytest.mark.asyncio
 async def test_duplicate_exact_rows_are_ambiguous() -> None:
-    card = (
-        '<a class="open-link"><div class="room-number">11 診</div>'
-        '<div class="clinic-doc-name">合成醫師丙</div>'
-        '<div class="clinic-type">醫師約診</div>'
-        '<div class="number">026</div>'
-        '<div class="according-to-order"></div></a>'
+    duplicate = card("11 診", "合成醫師丙", "醫師約診", "026")
+    result = await reader(FakeSource(page_plus(duplicate))).observe(
+        scope(), taipei(15, 0)
     )
-    result = await reader(FakeSource(PAGE + card)).observe(scope(), taipei(15, 0))
     assert result == ReadFailed("invalid", "ambiguous_match")
 
 
@@ -654,11 +663,11 @@ async def test_start_does_not_hammer_the_source_during_backoff() -> None:
         FetchedPage(403, "Forbidden"),
         FetchedPage(401, ""),
         FetchedPage(302, ""),
-        FetchedPage(200, "<p>Please complete the CAPTCHA to continue</p>"),
-        FetchedPage(200, "<h1>Access Denied</h1>"),
+        ListRead(status="challenge"),
+        ListRead(status="denied"),
     ],
 )
-async def test_challenge_or_denial_stops_reading_the_source(page: FetchedPage) -> None:
+async def test_challenge_or_denial_stops_reading_the_source(page) -> None:
     source = FakeSource(page, PAGE)
     r = reader(source)
     denied = ReadFailed("unavailable", "access_denied")
@@ -671,10 +680,8 @@ async def test_challenge_or_denial_stops_reading_the_source(page: FetchedPage) -
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "page", [FetchedPage(200, "<html>moved</html>"), FetchedPage(404, "")]
-)
-async def test_schema_change_fails_closed(page: FetchedPage) -> None:
+@pytest.mark.parametrize("page", [ListRead(status="schema"), FetchedPage(404, "")])
+async def test_schema_change_fails_closed(page) -> None:
     result = await reader(FakeSource(page)).observe(scope(), taipei(15, 0))
     assert result == ReadFailed("invalid", "schema_drift")
 
@@ -682,12 +689,9 @@ async def test_schema_change_fails_closed(page: FetchedPage) -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("method", ["observe", "observe_for_start"])
 async def test_card_missing_its_number_is_schema_drift_not_a_clinic_end(method):
-    malformed = (
-        '<a class="open-link"><div class="room-number">11 診</div>'
-        '<div class="clinic-doc-name">合成醫師丙</div>'
-        '<div class="clinic-type">醫師約診</div></a>'
-    )
-    source = FakeSource(malformed)
+    # The list parser rejects a card that lost its number as "schema"; that is
+    # drift, never the end of a clinic whose number went blank.
+    source = FakeSource(ListRead(status="schema"))
     result = await getattr(reader(source), method)(scope(), taipei(16, 31))
     assert result == ReadFailed("invalid", "schema_drift")
     assert len(source.urls) == 1
@@ -698,7 +702,7 @@ async def test_card_missing_its_number_is_schema_drift_not_a_clinic_end(method):
     "absent",
     [
         pytest.param(page_with(""), id="number-goes-blank"),
-        pytest.param(PAGE.replace("合成醫師丙", "其他醫師"), id="card-disappears"),
+        pytest.param(page_where(doctor="其他醫師"), id="card-disappears"),
     ],
 )
 async def test_the_watch_ends_once_the_number_is_gone_for_two_reads(absent) -> None:
@@ -916,46 +920,6 @@ def _schedule_sim_now() -> datetime:
     )
 
 
-def test_parse_schedule_extracts_date_session_room_doctor_clinic_type_status() -> None:
-    status, rows = parse_schedule(SCHEDULE_FIXTURE, SCHEDULE_SIM_TODAY)
-    assert status == "ok"
-    assert len(rows) == 6
-    # One open morning card, with 診別 pulled from `.sub-spec` after the pipe.
-    assert (
-        ScheduleRow(
-            SCHEDULE_FIRST_VISIT,
-            ClinicSession.MORNING,
-            "03",
-            "合成醫師甲",
-            "角膜",
-            "",
-            "一般眼科",
-        )
-        in rows
-    )
-    # Status markers are captured verbatim, both open and cancellation.
-    full_card = next(r for r in rows if r.doctor == "合成醫師乙")
-    assert full_card.status == "額滿"
-    cancelled = next(r for r in rows if r.doctor == "合成醫師丙")
-    assert cancelled.status == "停診"
-    typhoon = next(r for r in rows if r.doctor == "合成醫師己")
-    assert typhoon.status == "颱風停診"
-    # Afternoon session is tracked distinctly on the same day.
-    afternoon = next(r for r in rows if r.session == ClinicSession.AFTERNOON)
-    assert afternoon.doctor == "合成醫師丁" and afternoon.room == "11"
-    # Day column resolves `MM/DD` against the caller's today year.
-    next_day_rows = [r for r in rows if r.visit_date == SCHEDULE_SECOND_VISIT]
-    assert len(next_day_rows) == 2
-
-
-def test_parse_schedule_returns_schema_drift_on_empty_markup() -> None:
-    status, rows = parse_schedule(
-        "<html><body>no cards</body></html>", SCHEDULE_SIM_TODAY
-    )
-    assert status == "schema_drift"
-    assert rows == []
-
-
 @pytest.mark.asyncio
 async def test_list_clinics_future_date_filters_schedule_and_drops_cancelled() -> None:
     source = FakeSource(schedule=SCHEDULE_FIXTURE)
@@ -985,19 +949,16 @@ async def test_list_clinics_future_date_reports_no_observation_when_cancelled_on
     # A date whose every card is cancelled (停診 or 颱風停診) has no viable
     # clinic to list; the roster degrades to no_observation so the picker can
     # fall back to manual entry.
-    only_cancelled = (
-        "<html><body>"
-        '<div class="row gx-2 align-items-stretch" id="deptScheduleResult">'
-        '<div class="col-1"><div class="date" style="text-align:center">11/12</div></div>'
-        '<div class="col-md-11"><div class="row">'
-        '<span class="me-2 date">上午門診</span>'
-        '<div class="col-12 col-sm-6 col-lg-3" id="99_合成醫師X">'
-        '<button class="doctor-tag">'
-        '<div class="doc-name">合成醫師X | 03 診</div>'
-        '<div class="tag"><div class="first-reg">停診</div></div>'
-        '<div class="sub-spec" title="角膜">一般眼科 | 角膜</div>'
-        "</button></div>"
-        "</div></div></div></body></html>"
+    only_cancelled = schedule(
+        slot(
+            datetime(2026, 11, 12).date(),
+            _MORNING,
+            "03",
+            "合成醫師X",
+            "角膜",
+            "停診",
+            "一般眼科",
+        )
     )
     source = FakeSource(schedule=only_cancelled)
     roster = await reader(source).list_clinics(
@@ -1137,7 +1098,7 @@ async def test_start_activates_on_fresh_exact_positive_read() -> None:
             "access_denied",
         ),
         (
-            FetchedPage(200, "<html/>"),
+            ListRead(status="schema"),
             "schedule_unavailable",
             "unavailable",
             "schema_drift",
@@ -1156,10 +1117,10 @@ async def test_start_stays_draft_with_the_source_reason(page, error, status, rea
 @pytest.mark.asyncio
 async def test_start_on_an_earlier_day_degrades_to_schedule_unavailable() -> None:
     # The visit is one day in the future from the simulated clock. Pre-flight
-    # reads RegDeptSchedule to validate the doctor; without a schedule fixture
-    # the parse fails as schema_drift and Start fails closed with
-    # schedule_unavailable. No DeptLightTable POST runs.
-    source = FakeSource(PAGE)
+    # reads RegDeptSchedule to validate the doctor; the schedule does not parse
+    # (schema_drift) and Start fails closed with schedule_unavailable. No
+    # DeptLightTable POST runs.
+    source = FakeSource(PAGE, schedule=ScheduleRead(status="schema_drift"))
     database, gate = await gate_with_visit(source)
     repository = await seed_ntuh(database, gate, "d1")
     day_before = (taipei(15, 0) - timedelta(days=1)).isoformat()
@@ -1315,9 +1276,9 @@ async def test_preflight_blocks_start_when_doctor_not_scheduled() -> None:
 
 @pytest.mark.asyncio
 async def test_preflight_blocks_start_when_schedule_source_is_unreachable() -> None:
-    # No schedule in the fake source; parse yields schema_drift and the gate
-    # fails closed with a specific schedule_unavailable error.
-    source = FakeSource(PAGE)
+    # The schedule does not parse (schema_drift); the gate fails closed with a
+    # specific schedule_unavailable error.
+    source = FakeSource(PAGE, schedule=ScheduleRead(status="schema_drift"))
     database, gate = await gate_with_visit(source)
     await seed_ntuh_at(database, gate, "down", SCHEDULE_FIRST_VISIT, session="morning")
     result = await gate.start_visit("down", _preflight_now().isoformat())
@@ -1584,25 +1545,15 @@ async def test_a_schedule_form_clinic_code_reads_the_visit_day_card(method) -> N
     assert result.scope == scope(SCHEDULE_FORM_CLINIC)
 
 
-def _card(room: str, doctor: str, clinic_type: str, number: str = "") -> str:
-    # Every card links to its detail page, as the real list does; one ID per card.
-    service_id = 9_000_000 + sum(ord(c) for c in room + doctor + clinic_type)
-    return (
-        f'<a href="/WebReg/WebReg/ClinicCurrentLightNoDetail?ServiceIDSE={service_id}'
-        f'&amp;vHospitalCode=T0" class="open-link">'
-        f'<div class="room-number">{room}</div>'
-        f'<div class="clinic-doc-name">{doctor}</div>'
-        f'<div class="clinic-type">{clinic_type}</div>'
-        f'<div class="number">{number}</div>'
-        '<div class="according-to-order"></div></a>'
-    )
+def _card(room: str, doctor: str, clinic_type: str, number: str = ""):
+    return card(room, doctor, clinic_type, number)
 
 
 @pytest.mark.asyncio
 async def test_one_doctor_with_two_clinic_types_in_a_room_is_ambiguous() -> None:
     # A schedule-form code names no clinic type the cards use, so two cards for
     # the same doctor in one room and session cannot be told apart: no guess.
-    page = PAGE + _card("11 診", "合成醫師丙", "普通門診", "031")
+    page = page_plus(_card("11 診", "合成醫師丙", "普通門診", "031"))
     result = await reader(FakeSource(page)).observe(
         scope(SCHEDULE_FORM_CLINIC), taipei(15, 0)
     )
@@ -1611,7 +1562,7 @@ async def test_one_doctor_with_two_clinic_types_in_a_room_is_ambiguous() -> None
 
 @pytest.mark.asyncio
 async def test_a_stored_clinic_type_tells_two_cards_of_one_doctor_apart() -> None:
-    page = PAGE + _card("11 診", "合成醫師丙", "普通門診", "031")
+    page = page_plus(_card("11 診", "合成醫師丙", "普通門診", "031"))
     result = await reader(FakeSource(page)).observe(scope(CLINIC), taipei(15, 0))
     assert isinstance(result, QueueObservation)
     assert result.current_number == 25
@@ -1621,7 +1572,7 @@ async def test_a_stored_clinic_type_tells_two_cards_of_one_doctor_apart() -> Non
 async def test_a_substitute_card_in_the_room_is_the_visits_card_marked_as_such() -> (
     None
 ):
-    page = PAGE.replace("合成醫師丙", "住院醫師(代)")
+    page = page_where(doctor="住院醫師(代)")
     result = await reader(FakeSource(page)).observe(
         scope(SCHEDULE_FORM_CLINIC), taipei(15, 0)
     )
@@ -1632,7 +1583,7 @@ async def test_a_substitute_card_in_the_room_is_the_visits_card_marked_as_such()
 
 @pytest.mark.asyncio
 async def test_a_substitute_card_that_has_not_called_yet_is_still_marked() -> None:
-    page = (PAGE.replace("合成醫師丙", "住院醫師(代)")).replace("025", "")
+    page = page_where(doctor="住院醫師(代)", current="")
     result = await reader(FakeSource(page)).observe(
         scope(SCHEDULE_FORM_CLINIC), taipei(13, 0)
     )
@@ -1642,7 +1593,7 @@ async def test_a_substitute_card_that_has_not_called_yet_is_still_marked() -> No
 
 @pytest.mark.asyncio
 async def test_the_booked_doctor_wins_over_a_substitute_in_the_same_room() -> None:
-    page = PAGE + _card("11 診", "住院醫師(代)", "普通門診", "031")
+    page = page_plus(_card("11 診", "住院醫師(代)", "普通門診", "031"))
     result = await reader(FakeSource(page)).observe(
         scope(SCHEDULE_FORM_CLINIC), taipei(15, 0)
     )
@@ -1653,8 +1604,9 @@ async def test_the_booked_doctor_wins_over_a_substitute_in_the_same_room() -> No
 
 @pytest.mark.asyncio
 async def test_two_substitute_cards_in_the_room_are_ambiguous() -> None:
-    page = PAGE.replace("合成醫師丙", "住院醫師(代)") + _card(
-        "11 診", "主治醫師(代)", "普通門診", "031"
+    page = listing(
+        *page_where(doctor="住院醫師(代)").rows,
+        _card("11 診", "主治醫師(代)", "普通門診", "031"),
     )
     result = await reader(FakeSource(page)).observe(
         scope(SCHEDULE_FORM_CLINIC), taipei(15, 0)
@@ -1667,7 +1619,7 @@ async def test_two_substitute_cards_in_the_room_are_ambiguous() -> None:
     "mark", ["住院醫師 (代)", "住院醫師（代）", "住院醫師（ 代 ）"]
 )
 async def test_a_substitute_mark_is_recognised_with_spacing_or_full_width(mark) -> None:
-    page = PAGE.replace("合成醫師丙", mark)
+    page = page_where(doctor=mark)
     result = await reader(FakeSource(page)).observe(
         scope(SCHEDULE_FORM_CLINIC), taipei(15, 0)
     )

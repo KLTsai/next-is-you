@@ -39,7 +39,7 @@ _Avoid_: Booking open time, registration open time
 ### Visits
 
 **Visit**:
-A job an organizer sets up and sends off: follow one clinic's progress on one day for one patient number, and tell the chosen recipients on LINE when to check in, when the number has been passed, and when the patient's turn comes close. It starts as a draft, runs once the organizer presses Start, and ends when it is stopped, the patient number leaves the hospital's list, the clinic ends, or its day is over. A visit the hospital confirms cannot happen as set up is stopped by the system and comes back as a draft for the organizer to correct. Shown to users as 叫號追蹤, counted as 一個.
+A job an organizer sets up and sends off: follow one clinic's progress on one day for one patient number, and tell the chosen recipients on LINE when to check in, when the number has been passed, and when the patient's turn comes close. It starts as a draft, runs once the organizer presses Start, and ends when it is stopped, the patient number leaves the hospital's list, the clinic ends, or its day is over. A visit the hospital confirms cannot happen as set up is stopped by the system and comes back as a draft for the organizer to correct. Its recipients are fixed at the first Start: the organizer can remove them, but no one can be added. When the organizer removes every recipient of a started visit, the system stops it, and the organizer sets up a new visit to tell anyone else. Shown to users as 叫號追蹤, counted as 一個.
 _Avoid_: Watch, reminder setting, appointment, 看診提醒, 監聽工作
 
 **Patient**:

@@ -11,6 +11,7 @@ import pytest
 from playwright.sync_api import expect, sync_playwright
 
 from local_worker import local_worker
+from screens import PHONE
 from worktree_bootstrap import require_frontend_toolchain
 
 
@@ -46,10 +47,10 @@ def control(page, origin, operation, data=None):
     return response.json() if response.status != 204 else {}
 
 
-def test_rehearsal_empty_dashboard_keeps_reminder_status_list_visible(tmp_path):
+def test_rehearsal_empty_dashboard_keeps_reminder_status_list_visible(tmp_path, screen):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        context = browser.new_context(**screen)
         context.route(
             "**/*",
             lambda route: (
@@ -71,11 +72,11 @@ def test_rehearsal_empty_dashboard_keeps_reminder_status_list_visible(tmp_path):
             browser.close()
 
 
-def test_rehearsal_started_reminder_keeps_its_last_recipient(tmp_path):
+def test_rehearsal_started_reminder_keeps_its_last_recipient(tmp_path, screen):
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        context = browser.new_context()
+        context = browser.new_context(**screen)
         context.route(
             "**/*",
             lambda route: (
@@ -153,11 +154,13 @@ def test_rehearsal_started_reminder_keeps_its_last_recipient(tmp_path):
             browser.close()
 
 
-def test_rehearsal_stop_shows_stopping_while_fake_line_request_is_in_flight(tmp_path):
+def test_rehearsal_stop_shows_stopping_while_fake_line_request_is_in_flight(
+    tmp_path, screen
+):
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        context = browser.new_context()
+        context = browser.new_context(**screen)
         fail_next_visits = False
 
         def route_request(route):
@@ -259,11 +262,11 @@ def test_rehearsal_stop_shows_stopping_while_fake_line_request_is_in_flight(tmp_
             browser.close()
 
 
-def test_rehearsal_stopped_correction_cannot_add_recipients(tmp_path):
+def test_rehearsal_stopped_correction_cannot_add_recipients(tmp_path, screen):
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        context = browser.new_context()
+        context = browser.new_context(**screen)
         context.route(
             "**/*",
             lambda route: (
@@ -332,6 +335,7 @@ def test_rehearsal_stopped_correction_cannot_add_recipients(tmp_path):
 
 def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_duplicate_alert(
     tmp_path,
+    screen,
 ):
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     next_day = (datetime.fromisoformat(day) + timedelta(days=1)).date().isoformat()
@@ -343,7 +347,7 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
     ) + timedelta(hours=15, minutes=59)
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        context = browser.new_context()
+        context = browser.new_context(**screen)
         context.route(
             "**/*",
             lambda route: (
@@ -482,11 +486,13 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
             browser.close()
 
 
-def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_path):
+def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(
+    tmp_path, screen
+):
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        context = browser.new_context()
+        context = browser.new_context(**screen)
         context.route(
             "**/*",
             lambda route: (
@@ -645,11 +651,12 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(tmp_
 
 def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_drafts(
     tmp_path,
+    screen,
 ):
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        context = browser.new_context()
+        context = browser.new_context(**screen)
         context.route(
             "**/*",
             lambda route: (
@@ -890,11 +897,12 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
 
 def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fields(
     tmp_path,
+    screen,
 ):
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        context = browser.new_context(**screen)
         context.route(
             "**/*",
             lambda route: (
@@ -932,14 +940,19 @@ def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fie
                     page.locator('[data-correct="rehearsal-failure-setup"]')
                 ).to_be_visible(timeout=15000)
 
-                # Department and date share the first cascading row; they stay aligned.
+                # Department and date share the first cascading row on a wide screen
+                # and stack on a phone; either way they stay aligned.
                 department_box = page.locator(
                     'select[name="department_code"]'
                 ).bounding_box()
                 date_box = page.locator("input[name=date]").bounding_box()
                 assert department_box and date_box
                 assert abs(department_box["height"] - date_box["height"]) < 1
-                assert abs(department_box["y"] - date_box["y"]) < 1
+                if screen.get("is_mobile"):
+                    assert abs(department_box["x"] - date_box["x"]) < 1
+                    assert abs(department_box["width"] - date_box["width"]) < 1
+                else:
+                    assert abs(department_box["y"] - date_box["y"]) < 1
 
                 page.locator("input[name=date]").fill(day)
                 page.locator("input[name=clinic_code]").wait_for()
@@ -1002,7 +1015,7 @@ def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fie
 @pytest.mark.parametrize(
     "scenario", ["settled", "fill_during_load", "click_during_load"]
 )
-def test_correction_save_vs_roster_latency(tmp_path, scenario):
+def test_correction_save_vs_roster_latency(tmp_path, scenario, screen):
     day = (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
     next_day = (datetime.fromisoformat(day) + timedelta(days=1)).date().isoformat()
     expired_at = datetime.fromisoformat(day).replace(tzinfo=timezone.utc) + timedelta(
@@ -1010,7 +1023,7 @@ def test_correction_save_vs_roster_latency(tmp_path, scenario):
     )
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        context = browser.new_context()
+        context = browser.new_context(**screen)
         context.route(
             "**/*",
             lambda r: (
@@ -1077,7 +1090,9 @@ def test_correction_save_vs_roster_latency(tmp_path, scenario):
             browser.close()
 
 
-def test_setup_form_shows_the_readers_label_and_the_chosen_clinics_details(tmp_path):
+def test_setup_form_shows_the_readers_label_and_the_chosen_clinics_details(
+    tmp_path, screen
+):
     # Local integration: the real page and backend, with the clinics request
     # answered in the browser because local test mode does not run the reader.
     day = (datetime.now(timezone.utc) + timedelta(days=2)).date().isoformat()
@@ -1114,7 +1129,7 @@ def test_setup_form_shows_the_readers_label_and_the_chosen_clinics_details(tmp_p
     }
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        context = browser.new_context(**screen)
         context.route(
             "**/*",
             lambda route: (
@@ -1175,7 +1190,7 @@ def test_rehearsal_joined_family_member_is_told_how_to_return_to_the_manager_vie
 ):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        context = browser.new_context(viewport={"width": 390, "height": 800})
+        context = browser.new_context(**PHONE)
         context.route(
             "**/*",
             lambda route: (
@@ -1211,7 +1226,7 @@ def test_rehearsal_invitee_who_waits_through_a_scheduler_tick_still_joins(tmp_pa
     # per-minute tick runs, presses 確認加入 two minutes later and joins.
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        context = browser.new_context(viewport={"width": 390, "height": 800})
+        context = browser.new_context(**PHONE)
         context.route(
             "**/*",
             lambda route: (

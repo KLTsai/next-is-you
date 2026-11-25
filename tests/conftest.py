@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from screens import SCREENS
 from worktree_bootstrap import require_built_ui
 
 
@@ -33,3 +34,9 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         if _is_browser_module(item.path, cache):
             item.add_marker(pytest.mark.browser)
+
+
+@pytest.fixture(params=SCREENS)
+def screen(request: pytest.FixtureRequest) -> dict:
+    """Context options of one screen an organizer page is tested on."""
+    return SCREENS[request.param]

@@ -29,21 +29,13 @@ from organizer_page import (
     RehearsalBackend,
     visit_day,
 )
+from screens import SCREENS
 from test_rehearsal import rehearsal
 from worktree_bootstrap import require_frontend_toolchain
 
 REQUEST_FAILED_TEXT = "操作未完成，請重新載入後再試。"
 INVITATION_LINK = re.compile(r"/auth/line\?invite=.+")
 ROOT = Path(__file__).resolve().parents[1]
-SCREENS = {
-    "desktop": {"viewport": {"width": 1280, "height": 900}},
-    "phone": {
-        "viewport": {"width": 390, "height": 844},
-        "device_scale_factor": 2,
-        "is_mobile": True,
-        "has_touch": True,
-    },
-}
 
 
 @pytest.fixture(scope="module")
@@ -127,7 +119,8 @@ def test_closing_a_page_while_a_poll_is_answered_leaves_playwright_usable(
     controls = playwright.request.new_context()
     try:
         origin = f"http://127.0.0.1:{server.server_port}"
-        page = browser.new_context().new_page()
+        # A protocol test about closing a page mid-poll, not a layout test: one screen.
+        page = browser.new_context(**SCREENS["desktop"]).new_page()
         organizer = OrganizerPage(page, RehearsalBackend(origin, controls), touch=False)
         page.goto(origin)
         for _ in range(100):

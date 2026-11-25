@@ -185,10 +185,10 @@ class Organizer:
 
 
 @contextmanager
-def organizer(dist: Path):
+def organizer(dist: Path, screen: dict):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        context = browser.new_context(viewport={"width": 1280, "height": 1100})
+        context = browser.new_context(**screen)
         page = context.new_page()
         try:
             yield Organizer(page, dist)
@@ -196,8 +196,8 @@ def organizer(dist: Path):
             browser.close()
 
 
-def test_calendar_stays_open_while_a_visit_is_stopping(dist):
-    with organizer(dist) as app:
+def test_calendar_stays_open_while_a_visit_is_stopping(dist, screen):
+    with organizer(dist, screen) as app:
         app.add_stopping_visit()
         app.open()
         app.open_calendar()
@@ -205,8 +205,8 @@ def test_calendar_stays_open_while_a_visit_is_stopping(dist):
         assert app.calendar_is_open()
 
 
-def test_calendar_stays_open_when_the_visit_finishes_stopping(dist):
-    with organizer(dist) as app:
+def test_calendar_stays_open_when_the_visit_finishes_stopping(dist, screen):
+    with organizer(dist, screen) as app:
         app.add_stopping_visit()
         app.open()
         app.open_calendar()
@@ -218,8 +218,8 @@ def test_calendar_stays_open_when_the_visit_finishes_stopping(dist):
         expect(app.page.get_by_text("已停止").first).to_be_visible()
 
 
-def test_calendar_stays_open_when_the_clinics_arrive(dist):
-    with organizer(dist) as app:
+def test_calendar_stays_open_when_the_clinics_arrive(dist, screen):
+    with organizer(dist, screen) as app:
         app.open()
         app.choose_date_while_clinics_load()
         app.open_calendar()
@@ -230,7 +230,7 @@ def test_calendar_stays_open_when_the_clinics_arrive(dist):
         expect(app.page.get_by_text("合成醫師乙").first).to_be_attached()
 
 
-def test_half_typed_date_is_kept_while_a_visit_is_stopping(dist):
+def test_half_typed_date_is_kept_while_a_visit_is_stopping(dist, screen):
     def type_date(page, pause) -> str:
         page.locator('input[type="date"]').focus()
         page.keyboard.type("01", delay=50)
@@ -238,14 +238,14 @@ def test_half_typed_date_is_kept_while_a_visit_is_stopping(dist):
         page.keyboard.type("052099", delay=50)
         return page.locator('input[type="date"]').input_value()
 
-    with organizer(dist) as app:
+    with organizer(dist, screen) as app:
         expected = type_date(app.plain_date_page(), lambda: None)
         app.add_stopping_visit()
         app.open()
         assert type_date(app.page, lambda: app.wait_for_polls(2)) == expected != ""
 
 
-def test_last_part_of_a_date_can_be_typed(dist):
+def test_last_part_of_a_date_can_be_typed(dist, screen):
     """The last part is the day or the year, by the machine's language."""
 
     def retype_last_part(page) -> str:
@@ -256,7 +256,7 @@ def test_last_part_of_a_date_can_be_typed(dist):
         page.keyboard.type("18", delay=150)
         return field.input_value()
 
-    with organizer(dist) as app:
+    with organizer(dist, screen) as app:
         expected = retype_last_part(app.plain_date_page("2099-01-05"))
         app.open()
         app.page.locator(DATE).fill("2099-01-05")
@@ -269,8 +269,8 @@ def test_last_part_of_a_date_can_be_typed(dist):
         assert set(app.clinic_days) <= {"2099-01-05", expected}
 
 
-def test_number_typed_while_the_clinics_load_is_kept(dist):
-    with organizer(dist) as app:
+def test_number_typed_while_the_clinics_load_is_kept(dist, screen):
+    with organizer(dist, screen) as app:
         app.open()
         app.choose_date_while_clinics_load()
         app.page.locator(NUMBER).press_sequentially("85", delay=50)
@@ -279,8 +279,8 @@ def test_number_typed_while_the_clinics_load_is_kept(dist):
         assert app.page.locator(NUMBER).input_value() == "85"
 
 
-def test_visit_that_finishes_stopping_is_shown_without_a_reload(dist):
-    with organizer(dist) as app:
+def test_visit_that_finishes_stopping_is_shown_without_a_reload(dist, screen):
+    with organizer(dist, screen) as app:
         app.add_stopping_visit()
         app.open()
         expect(app.page.get_by_text("已停止")).to_have_count(0)
@@ -288,8 +288,8 @@ def test_visit_that_finishes_stopping_is_shown_without_a_reload(dist):
         expect(app.page.get_by_text("已停止").first).to_be_visible(timeout=10_000)
 
 
-def test_dropdown_stays_open_while_a_visit_is_stopping(dist):
-    with organizer(dist) as app:
+def test_dropdown_stays_open_while_a_visit_is_stopping(dist, screen):
+    with organizer(dist, screen) as app:
         app.add_stopping_visit()
         app.open()
         dropdown = app.page.locator('#visit-form select[name="department_code"]')

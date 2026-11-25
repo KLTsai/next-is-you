@@ -116,7 +116,7 @@ def journey() -> Iterator[Journey]:
     yield Journey()
 
 
-def run_in_browser(journey: Journey, steps: Any) -> None:
+def run_in_browser(journey: Journey, steps: Any, screen: dict) -> None:
     with loopback_listener() as (listener, origin):
         server = uvicorn.Server(
             uvicorn.Config(journey.app(), log_level="error", lifespan="off")
@@ -133,7 +133,7 @@ def run_in_browser(journey: Journey, steps: Any) -> None:
         try:
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch()
-                context = browser.new_context()
+                context = browser.new_context(**screen)
                 context.route(
                     "**/*",
                     lambda route: (
@@ -160,7 +160,7 @@ def run_in_browser(journey: Journey, steps: Any) -> None:
 
 
 def test_unsupported_hospital_cannot_be_selected_or_saved(
-    monkeypatch, journey: Journey
+    monkeypatch, journey: Journey, screen: dict
 ) -> None:
     monkeypatch.setitem(
         hospital_registry.HOSPITAL_REGISTRY, UNSUPPORTED_ID, unsupported_entry()
@@ -179,7 +179,7 @@ def test_unsupported_hospital_cannot_be_selected_or_saved(
             != UNSUPPORTED_ID
         )
 
-    run_in_browser(journey, steps)
+    run_in_browser(journey, steps, screen)
 
     assert [row for row in journey.visits() if row[0] == UNSUPPORTED_ID] == []
     assert journey.visits() == []
@@ -187,7 +187,7 @@ def test_unsupported_hospital_cannot_be_selected_or_saved(
 
 
 def test_failed_clinic_schedule_read_falls_back_to_manual_entry(
-    monkeypatch, journey: Journey
+    monkeypatch, journey: Journey, screen: dict
 ) -> None:
     failed_day = (date.today() + timedelta(days=5)).isoformat()
     unpublished_day = (date.today() + timedelta(days=40)).isoformat()
@@ -237,7 +237,7 @@ def test_failed_clinic_schedule_read_falls_back_to_manual_entry(
         fill_and_save(page, "B-34")
         page.get_by_role("heading", name="已儲存草稿 2").wait_for()
 
-    run_in_browser(journey, steps)
+    run_in_browser(journey, steps, screen)
 
     assert sorted(set(reads)) == sorted([failed_day, unpublished_day])
     assert sorted(journey.visits()) == sorted(

@@ -333,7 +333,7 @@ def test_local_http_acceptance_journey() -> None:
     asyncio.run(scenario())
 
 
-def test_local_browser_acceptance_journey() -> None:
+def test_local_browser_acceptance_journey(screen: dict) -> None:
     # The cascading form validates against the browser's real date, so use a
     # clearly-future appointment day (manual-entry mode, since the day is not
     # today) and a synthetic clinic in the required 診間/醫師/門診別 format.
@@ -391,7 +391,7 @@ def test_local_browser_acceptance_journey() -> None:
         try:
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch()
-                context = browser.new_context()
+                context = browser.new_context(**screen)
                 context.route(
                     "**/*",
                     lambda route: (

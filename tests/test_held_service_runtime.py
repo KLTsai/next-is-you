@@ -72,7 +72,9 @@ def held_command(persist):
     return command
 
 
-def test_held_native_configuration_and_recovery_hold_persist_across_restart(tmp_path):
+def test_held_native_configuration_and_recovery_hold_persist_across_restart(
+    tmp_path, screen
+):
     environment = {
         **os.environ,
         "CI": "1",
@@ -161,7 +163,7 @@ def test_held_native_configuration_and_recovery_hold_persist_across_restart(tmp_
         )
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
-            context = browser.new_context(ignore_https_errors=True)
+            context = browser.new_context(**screen, ignore_https_errors=True)
             context.route(
                 "**/*",
                 lambda route: (

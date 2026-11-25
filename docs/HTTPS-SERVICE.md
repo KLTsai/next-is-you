@@ -71,7 +71,7 @@ Sources: [Workers limits](https://developers.cloudflare.com/workers/platform/lim
 D1 and DO operations fail when their Free quotas are exhausted; these are
 availability limits, not permission to upgrade. Account quotas include other
 applications. One minute Cron means 1,440 invocations/day, each using the same
-named gate. The production hold returns before hospital access or LINE sends,
+named gate. While production is not live, a tick returns before hospital access or LINE sends,
 but data cleanup still runs on every invocation (Issue #117), so each one reads
 and may write D1. Do not store patient data
 in this bootstrap. Full live workload/retention measurement belongs to acceptance criterion 6 of #22.

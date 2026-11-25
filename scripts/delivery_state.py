@@ -337,7 +337,7 @@ def promote_guard(snapshot: Snapshot, version: str) -> Verdict:
 
     Promoting an earlier version is rollback and the version already in
     production is a retry, so neither is special: every version faces the same
-    five questions, in this order.
+    six questions, in this order.
     """
     version = normalize_version(version)
     commit = snapshot.tags.get(version)

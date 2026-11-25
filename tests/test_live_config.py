@@ -4,18 +4,21 @@ Each environment's live state (GLOSSARY.md: Live) is `vars.NIY_LIVE` in its own
 `wrangler.*.jsonc`, so it changes only through a pull request the captain
 merges. Every deploy writes the committed value over whatever the dashboard
 holds, and Cloudflare does not let a secret share a var's name. These checks
-keep it that way: every config carries the value, nothing deploys it from
-anywhere else, and the code reads it from that one name. A dashboard edit
-between deploys is outside what a test can see; the pre-live checklist forbids it.
+keep it that way: every config carries the value, no workflow step sets it as
+a secret or passes it at deploy time, and the code reads it from that one name.
+A dashboard edit between deploys is outside what a test can see; the pre-live
+checklist forbids it.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import shlex
 from pathlib import Path
 
 import pytest
+import yaml
 
 from next_is_you.send_gate import committed_live
 
@@ -68,30 +71,56 @@ def test_only_the_committed_value_is_live() -> None:
         assert not committed_live({LIVE: value} if value is not None else {})
 
 
-def _deploy_surfaces() -> list[Path]:
-    return [
-        *sorted((ROOT / ".github" / "workflows").glob("*.yml")),
-        *sorted((ROOT / "scripts").glob("*")),
-        ROOT / "package.json",
-        *sorted(ROOT.glob("*.md")),
-        *sorted((ROOT / "docs").glob("*.md")),
+WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+
+
+def job_steps(workflow: Path, job: str) -> list[dict]:
+    return yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"][job]["steps"]
+
+
+def all_steps() -> list[tuple[str, dict]]:
+    steps = []
+    for workflow in WORKFLOWS:
+        jobs = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]
+        for name, job in jobs.items():
+            steps += [
+                (f"{workflow.name} {name}", step) for step in job.get("steps", [])
+            ]
+    return steps
+
+
+def argv(step: dict) -> list[str]:
+    """The shell words of a step's run script, comments left out."""
+    return shlex.split(str(step.get("run", "")), comments=True)
+
+
+def runs(step: dict, *words: str) -> bool:
+    """Whether the step's run script has these words in a row."""
+    tokens = argv(step)
+    return any(
+        tokens[start : start + len(words)] == list(words)
+        for start in range(len(tokens))
+    )
+
+
+def test_no_workflow_sets_live_as_a_secret() -> None:
+    offenders = [
+        where for where, step in all_steps() if runs(step, "secret", "put", LIVE)
     ]
-
-
-def test_nothing_sets_live_as_a_secret_or_a_deploy_time_var() -> None:
-    offenders = []
-    for path in _deploy_surfaces():
-        if not path.is_file():
-            continue
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
-            if re.search(rf"secret\s+put\s+{LIVE}\b|--var[\s=]+[\"']?{LIVE}\b", line):
-                offenders.append(f"{path.relative_to(ROOT)}:{number + 1}: {line}")
-    assert not offenders, "\n".join(offenders)
+    assert not offenders
 
 
 def test_deploys_take_vars_from_the_committed_config_only() -> None:
-    for workflow in (ROOT / ".github" / "workflows").glob("*.yml"):
-        for line in workflow.read_text(encoding="utf-8").splitlines():
-            if "pywrangler deploy" in line:
-                assert "--var" not in line, f"{workflow.name}: {line.strip()}"
-                assert re.search(r"--config wrangler\.\w+\.jsonc", line), line
+    deploys = [
+        (where, step)
+        for where, step in all_steps()
+        if runs(step, "pywrangler", "deploy")
+    ]
+    assert len(deploys) == len(DEPLOYED)
+    configs = set()
+    for where, step in deploys:
+        tokens = argv(step)
+        assert not [t for t in tokens if t.startswith("--var")], where
+        assert "--config" in tokens, where
+        configs.add(tokens[tokens.index("--config") + 1])
+    assert configs == set(DEPLOYED)

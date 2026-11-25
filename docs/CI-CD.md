@@ -833,10 +833,11 @@ Two things put a version out of reach:
 - GitHub lets a run be re-run for 30 days after it first ran. A version older
   than that can no longer be put on staging.
 - Once an environment is live, a version older than its first live version is
-  refused by the promote guard and by both deploy jobs, with a `Refused:` line
-  that names that version (#237, [pre-live
-  checklist](PRE-LIVE-CHECKLIST.md#how-an-environment-is-made-live)). Going live
-  cannot be undone.
+  refused by the promote guard and by both deploy jobs of any run created after
+  #237 merged, with a `Refused:` line that names that version (#237, [pre-live
+  checklist](PRE-LIVE-CHECKLIST.md#how-an-environment-is-made-live)). A run
+  created before #237 merged has no live check, so it must not be re-run on a
+  live environment. Going live cannot be undone.
 
 For those versions, and whenever Promote itself is unusable, the native
 procedure is the only path. It skips the live check too: on a live environment,

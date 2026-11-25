@@ -732,12 +732,13 @@ class SystemSendGate(_DurableObjectBase):
 
     async def scheduler_status(self) -> dict[str, Any]:
         recovery_hold = await self._recovery_held()
-        _, unavailable = await self._line_sender()
+        line, unavailable = await self._line_sender()
         return {
             "held": unavailable is not None or recovery_hold,
             "live": committed_live(self.env),
             "recovery_hold": recovery_hold,
-            "hospital_reader_available": await self._reader() is not None,
+            "hospital_reader_available": line is not None
+            and self._hospital_reader() is not None,
             # Why LINE messages cannot be sent, or None when they can.
             "line_unavailable_reason": unavailable,
         }

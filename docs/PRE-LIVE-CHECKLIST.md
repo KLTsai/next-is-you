@@ -15,7 +15,10 @@ decides it, and every deploy writes the committed value.
 1. Open a pull request that sets `"NIY_LIVE": "true"` in that environment's
    config and adds `"LINE_BOT_BASIC_ID"`, the bot basic ID of the environment's
    own Official Account (LINE Developers console, Messaging API tab, for example
-   `@123abcde`). A test refuses a live config without it.
+   `@123abcde`). A test refuses a live config without it. Open it only once no
+   CI or Promote run created before #237 merged can still be re-run (GitHub
+   allows re-runs for 30 days after a run first ran), or the captain confirms
+   none will be re-run.
 2. The captain merges it. Staging deploys it on its own. Production gets it when
    the captain promotes the first version that carries it.
 3. On the status endpoint (`/api/organizer/scheduler/status`), `live` is `true`
@@ -31,10 +34,12 @@ LINE messages together. To stop sending, use a send interruption. The promote
 guard and the Staging deploy refuse any version older than the environment's
 first live one (`scripts/delivery_state.py live-check`), so a rollback cannot
 make it not live again. Rolling back past that point is not possible through
-Promote or CI. Two paths outside them are not guarded and must not be used for
-this: Cloudflare's native rollback ([CI-CD.md](CI-CD.md#rollback)), and editing
-`NIY_LIVE` in the Cloudflare dashboard, which lasts until the next deploy writes
-the committed value back.
+Promote or CI runs created after #237 merged. Three paths are not guarded and
+must not be used for this: Cloudflare's native rollback
+([CI-CD.md](CI-CD.md#rollback)); editing `NIY_LIVE` in the Cloudflare dashboard,
+which lasts until the next deploy writes the committed value back; and
+re-running a CI or Promote run created before #237 merged. A re-run uses the
+workflow of its own commit, and those workflows have no live check.
 
 Use [HTTPS-SERVICE.md](HTTPS-SERVICE.md) for provisioning and the interruption
 procedures, and [CI-CD.md](CI-CD.md) for deployment and rollback. This checklist
@@ -133,12 +138,17 @@ Staging is used by the captain alone. No family member is invited to it.
   `ntuh_unobserved_situation` the same day, and writes what was seen on #136 with no
   clinic, doctor or number. Nothing else tells anyone.
 - Every merge to `main` reaches a live Staging. A production rollback re-runs an
-  earlier pipeline run, which also puts that version on Staging. A run from
-  before Staging went live is refused instead.
+  earlier pipeline run, which also puts that version on Staging. A run created
+  after #237 merged refuses a version from before Staging went live; an older
+  run has no check.
+- No CI or Promote run created before #237 merged can still be re-run, or the
+  captain confirms none will be re-run.
 
 ## Before Production goes live
 
 - [ ] Every Staging gate above has passed.
+- [ ] No CI or Promote run created before #237 merged can still be re-run, or
+  the captain confirms none will be re-run.
 - [ ] #22, the live pilot on Staging, evidence label live provider:
   - Claude Code on the captain's Mac drives the captain's own account through at
     least 3 visits on real NTUH clinics, morning and afternoon, with a patient

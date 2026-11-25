@@ -823,22 +823,6 @@ def _is_at_or_after(ancestor: str, commit: str) -> bool:
     raise FactUnreadable(fact, result.stderr.strip() or "git merge-base failed")
 
 
-@_reading("local version tags")
-def _read_local_tags() -> dict[str, str]:
-    out = _run(
-        "local version tags",
-        ["git", "tag", "--list", "v*", "--format=%(refname:short) %(objectname)^{}"],
-    )
-    tags: dict[str, str] = {}
-    for line in out.splitlines():
-        name, target = line.split(" ")
-        if VERSION_TAG.fullmatch(name):
-            tags[name] = _run(
-                "local version tags", ["git", "rev-parse", target]
-            ).strip()
-    return tags
-
-
 def read_live_floor(environment: str, tags: dict[str, str]) -> LiveFloor | None:
     """Where the environment became live, or None while it never has."""
     first = _first_live_commit(LIVE_CONFIGS[environment])
@@ -960,10 +944,10 @@ def run_live_check(environment: str, commit: str, out: TextIO, err: TextIO) -> i
 
     Each deploy job runs this right before it deploys, so re-running an old
     run's deploy job cannot put a version from before going live back either.
-    Needs a full clone with tags.
+    Needs a full clone with tags and an origin remote to list them from.
     """
     try:
-        floor = read_live_floor(environment, _read_local_tags())
+        floor = read_live_floor(environment, _read_tags())
         refused = before_live(floor, commit)
     except FactUnreadable as error:
         err.write(

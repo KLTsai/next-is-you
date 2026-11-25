@@ -18,6 +18,9 @@ from next_is_you.send_gate import SystemSendGate
 from test_ntuh_reader import DAY, PAGE, FakeSource, active_visit, seed_ntuh, taipei
 from test_scheduler_outbox import LocalContext, LocalD1, LocalDurableStorage
 
+# This module serves NTUH reader values (#205).
+pytestmark = pytest.mark.usefixtures("serve_reader_values")
+
 STAGING_ACCOUNT = "@111aaaaa"
 PRODUCTION_ACCOUNT = "@222bbbbb"
 

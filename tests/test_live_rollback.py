@@ -18,6 +18,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 from test_delivery_state import delivery_state  # noqa: E402
+from test_live_config import job_steps, runs  # noqa: E402
 
 CONFIGS = {
     "staging": "wrangler.staging.jsonc",
@@ -41,6 +42,16 @@ def commit(repo: Path, message: str, *, staging: str, production: str) -> str:
     git(repo, "add", ".")
     git(repo, "commit", "-q", "--allow-empty", "-m", message)
     return git(repo, "rev-parse", "HEAD")
+
+
+def publish(repo: Path) -> None:
+    """Give the repo an origin holding main and its tags, as a workflow clone has."""
+    origin = repo.parent / "origin.git"
+    subprocess.run(
+        ["git", "init", "-q", "--bare", str(origin)], check=True, capture_output=True
+    )
+    git(repo, "remote", "add", "origin", str(origin))
+    git(repo, "push", "-q", "origin", "main", "--tags")
 
 
 @pytest.fixture
@@ -70,6 +81,7 @@ def history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     git(repo, "commit", "-qam", "release")
     commits["v0.3.0"] = git(repo, "rev-parse", "HEAD")
     git(repo, "tag", "v0.3.0")
+    publish(repo)
     monkeypatch.chdir(repo)
     monkeypatch.setenv("LIVE_MAIN_REF", "main")
     return commits
@@ -125,6 +137,7 @@ def test_production_is_not_held_before_any_version_carries_its_live_config(
     # The live config is on main but no version has it yet, so production has
     # never run a live version and a rollback cannot make it not live.
     git(Path.cwd(), "tag", "-d", "v0.3.0")
+    git(Path.cwd(), "push", "-q", "origin", ":refs/tags/v0.3.0")
     code, out, _ = live_check("production", history["v0.1.0"])
     assert code == 0
     assert out.startswith("Accepted: ")
@@ -138,6 +151,7 @@ def test_an_environment_that_was_never_live_accepts_anything(tmp_path, monkeypat
     git(repo, "config", "user.name", "fixture")
     first = commit(repo, "first", staging="false", production="false")
     commit(repo, "second", staging="false", production="false")
+    publish(repo)
     monkeypatch.chdir(repo)
     monkeypatch.setenv("LIVE_MAIN_REF", "main")
     for environment in CONFIGS:
@@ -156,9 +170,7 @@ def test_an_unreadable_commit_stops_the_check_without_a_verdict(history):
 def test_the_guard_snapshot_marks_a_version_before_production_went_live(
     history, monkeypatch
 ):
-    floor = delivery_state.read_live_floor(
-        "production", delivery_state._read_local_tags()
-    )
+    floor = delivery_state.read_live_floor("production", delivery_state._read_tags())
     assert floor == delivery_state.LiveFloor(
         "production", history["production live"], "v0.3.0"
     )
@@ -166,16 +178,28 @@ def test_the_guard_snapshot_marks_a_version_before_production_went_live(
     assert not delivery_state.before_live(floor, history["v0.3.0"])
 
 
-def test_every_deploy_runs_the_live_check_before_deploying():
-    workflows = {
-        "promote.yml": ("production", "Deploy Worker"),
-        "ci.yml": ("staging", "Deploy Worker (staging)"),
-    }
-    for name, (environment, deploy_step) in workflows.items():
-        text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
-        check = text.index(f"scripts/delivery_state.py live-check {environment}")
-        assert check < text.index(f"- name: {deploy_step}"), name
-        assert check < text.index("d1 migrations apply"), name
-        # Without pipefail, piping the check into tee would hide a refusal.
-        step = text[text.rindex("- name:", 0, check) : check]
-        assert "shell: bash" in step, name
+DEPLOY_JOBS = {
+    "production": ("promote.yml", "deploy"),
+    "staging": ("ci.yml", "deploy-staging"),
+}
+
+
+@pytest.mark.parametrize("environment", DEPLOY_JOBS)
+def test_every_deploy_runs_the_live_check_before_deploying(environment):
+    workflow, job = DEPLOY_JOBS[environment]
+    steps = job_steps(ROOT / ".github" / "workflows" / workflow, job)
+    checks = [
+        index
+        for index, step in enumerate(steps)
+        if runs(step, "scripts/delivery_state.py", "live-check", environment)
+    ]
+    changes = [
+        index
+        for index, step in enumerate(steps)
+        if runs(step, "d1", "migrations", "apply") or runs(step, "pywrangler", "deploy")
+    ]
+    assert len(checks) == 1
+    assert len(changes) == 2
+    assert checks[0] < min(changes)
+    # Without pipefail, piping the check into tee would hide a refusal.
+    assert steps[checks[0]].get("shell") == "bash"

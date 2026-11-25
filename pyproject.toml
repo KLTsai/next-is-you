@@ -15,6 +15,7 @@ dev = [
     "pytest-asyncio",
     "pytest-split",
     "python-dotenv",
+    "pyyaml>=6.0.4",
     "ruff",
     "uvicorn",
     "workers-py",

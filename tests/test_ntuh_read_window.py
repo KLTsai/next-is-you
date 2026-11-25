@@ -6,13 +6,14 @@ scheduled tick run through the send gate. Nothing reaches the hospital.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
 
 from next_is_you.domain import ReadSkipped
 from next_is_you.ntuh_reader import FetchedPage
-from ntuh_detail_pages import detail_page
+from ntuh_reads import listing, progress
 from test_ntuh_detail_reading import BLANK_LIST, kinds, running_visit, tick
 from test_ntuh_reader import (
     DAY,
@@ -27,6 +28,9 @@ from test_ntuh_reader import (
 )
 from test_visit_day_matching import tick_every_minute
 
+# This module serves NTUH reader values (#205).
+pytestmark = pytest.mark.usefixtures("serve_reader_values")
+
 NOT_DUE = ReadSkipped("not_due")
 FIRST_READ = [
     pytest.param("morning", (8, 0), id="morning"),
@@ -40,7 +44,7 @@ FIRST_READ = [
 async def test_the_first_scheduled_read_leaves_one_hour_before_the_published_start(
     session, first
 ):
-    source = TwoPageSource(BLANK_LIST, detail_page())
+    source = TwoPageSource(BLANK_LIST, progress())
     _, gate = await running_visit(source, session=session)
     await tick_every_minute(gate, taipei(0, 1), taipei(*first) - timedelta(minutes=1))
     assert source.requests == []
@@ -60,7 +64,7 @@ async def test_a_page_that_fails_before_the_first_read_neither_blocks_nor_messag
     assert await kinds(gate) == []
     assert counts(database, "v")[2] == 0
     # The source is healthy by the first read, and nothing earlier is held against it.
-    source.listed, source.detail = PAGE, detail_page(current=25, highest=25)
+    source.listed, source.detail = PAGE, progress(current=25, highest=25)
     await tick(gate, 12, 30)
     assert counts(database, "v") == ("usable", "none", 0)
     assert await kinds(gate) == ["near"]
@@ -68,7 +72,7 @@ async def test_a_page_that_fails_before_the_first_read_neither_blocks_nor_messag
 
 @pytest.mark.asyncio
 async def test_start_before_the_first_read_reads_once_and_nothing_follows_until_then():
-    source = TwoPageSource(BLANK_LIST, detail_page())
+    source = TwoPageSource(BLANK_LIST, progress())
     database, gate = await gate_with_visit(source)
     await seed_ntuh_at(database, gate, "v", DAY)
     assert await gate.start_visit("v", taipei(7, 0).isoformat()) == {"state": "active"}
@@ -86,9 +90,13 @@ async def test_start_before_the_first_read_reads_once_and_nothing_follows_until_
 
 @pytest.mark.asyncio
 async def test_a_substitute_found_by_an_early_start_stays_shown_until_the_first_read():
-    source = TwoPageSource(
-        BLANK_LIST.replace("合成醫師丙", "住院醫師(代)"), detail_page()
+    substitute = listing(
+        *(
+            replace(row, doctor="住院醫師(代)") if row.doctor == "合成醫師丙" else row
+            for row in BLANK_LIST.rows
+        )
     )
+    source = TwoPageSource(substitute, progress())
     database, gate = await gate_with_visit(source)
     await seed_ntuh_at(database, gate, "v", DAY)
     assert await gate.start_visit("v", taipei(7, 0).isoformat()) == {"state": "active"}
@@ -98,8 +106,9 @@ async def test_a_substitute_found_by_an_early_start_stays_shown_until_the_first_
 
 @pytest.mark.asyncio
 async def test_a_clinic_that_called_before_its_first_read_is_seen_as_called():
-    # It called early: the list card shows a number, and the page a frozen-looking one.
-    source = TwoPageSource(PAGE, detail_page(current=25, highest=30))
+    # It called early: the list card shows a number, and the detail page a
+    # frozen-looking one.
+    source = TwoPageSource(PAGE, progress(current=25, highest=30))
     r = reader(source)
     assert await r.observe(scope(), taipei(12, 29)) == NOT_DUE
     first = await r.observe(scope(), taipei(12, 30))
@@ -111,17 +120,17 @@ async def test_a_clinic_that_called_before_its_first_read_is_seen_as_called():
 @pytest.mark.asyncio
 async def test_a_clinic_that_first_calls_late_in_its_session_is_still_followed():
     # An afternoon clinic first showed a number after 16:05 on 2026-11-20; here 18:00.
-    source = TwoPageSource(BLANK_LIST, detail_page())
+    source = TwoPageSource(BLANK_LIST, progress())
     _, gate = await running_visit(source)
     await tick_every_minute(gate, taipei(12, 30), taipei(17, 59))
-    source.listed, source.detail = PAGE, detail_page(current=25, highest=25)
+    source.listed, source.detail = PAGE, progress(current=25, highest=25)
     await tick_every_minute(gate, taipei(18, 0), taipei(18, 2))
     assert await kinds(gate) == ["near"]
 
 
 @pytest.mark.asyncio
 async def test_a_visit_whose_clinic_never_called_ends_at_the_end_of_the_day():
-    source = TwoPageSource(BLANK_LIST, detail_page())
+    source = TwoPageSource(BLANK_LIST, progress())
     database, gate = await running_visit(source)
     await tick_every_minute(gate, taipei(12, 30), taipei(23, 59))
     (state,) = database.connection.execute("SELECT state FROM visits").fetchone()

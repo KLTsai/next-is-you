@@ -63,7 +63,7 @@ from next_is_you.ntuh_detail import (
     ProgressObservation,
     parse_detail_page,
 )
-from next_is_you.source_samples import _page_status
+from next_is_you.page_markers import page_status
 from next_is_you.persistence import TAIPEI
 
 # Both hosts serve the same application; this one is what the owner opens and
@@ -372,9 +372,9 @@ def parse_light_table(html: str) -> tuple[str, list[ListRow]]:
         collector.close()
     except (ValueError, AssertionError):
         return "schema", []
-    marker = _page_status(" ".join(collector.text).casefold())
+    marker = page_status(" ".join(collector.text).casefold())
     if marker is not None:
-        return marker.value, []
+        return marker, []
     if not collector.cards:
         return "schema", []
     rows = []
@@ -553,9 +553,9 @@ def parse_schedule(html: str, today: date) -> tuple[str, list[ScheduleRow]]:
         collector.close()
     except (ValueError, AssertionError):
         return "schema_drift", []
-    marker = _page_status(" ".join(collector.text).casefold())
+    marker = page_status(" ".join(collector.text).casefold())
     if marker is not None:
-        return marker.value, []
+        return marker, []
     if not collector.rows:
         return "schema_drift", []
     return "ok", collector.rows

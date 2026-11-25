@@ -38,7 +38,8 @@ through one interface and one dispatcher:
   offers a roster only for `FULL_SCHEDULE` hospitals; everything else degrades to
   manual entry.
 - **`source_samples.py`** - offline parsers that turn a *captured* response
-  sample into a normalized observation, with no transport. This is a
+  sample into a normalized observation, with no transport. Today it holds only
+  the Shin Kong parsers; NTUH is read by `ntuh_reader.py`. This is a
   source-verification tool (see Issue #44), **not** the live adapter layer. Do
   not add a live hospital here.
 

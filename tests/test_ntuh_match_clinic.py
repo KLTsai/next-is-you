@@ -18,13 +18,16 @@ from next_is_you.domain import (
     MatchKind,
     MatchQuery,
 )
+from ntuh_reads import schedule
 from test_ntuh_reader import (
-    PAGE,
     SCHEDULE_FIRST_VISIT,
     SCHEDULE_FIXTURE,
     FakeSource,
     reader,
 )
+
+# This module serves NTUH reader values (#205).
+pytestmark = pytest.mark.usefixtures("serve_reader_values")
 
 TAIPEI = timezone(timedelta(hours=8))
 TODAY_EVE = datetime(2026, 11, 9, 14, 0, tzinfo=TAIPEI)
@@ -91,7 +94,9 @@ async def test_a_date_past_the_schedule_is_not_yet_published_without_a_request()
 
 @pytest.mark.asyncio
 async def test_a_source_failure_is_unavailable_with_its_reason() -> None:
-    match = await reader(FakeSource(PAGE)).match_clinic(
+    # The schedule page did not read as a schedule.
+    unreadable = schedule(status="schema_drift")
+    match = await reader(FakeSource(schedule=unreadable)).match_clinic(
         query("03/合成醫師甲/角膜"), TODAY_EVE
     )
     assert match == ClinicMatch(MatchKind.UNAVAILABLE, reason="schema_drift")

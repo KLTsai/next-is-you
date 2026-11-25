@@ -12,19 +12,22 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from ntuh_reads import ListRead, card, listing, of_doctor, plus, with_rows
 from test_ntuh_reader import (
     DAY,
     PAGE,
     SCHEDULE_FIXTURE,
     SCHEDULE_FIRST_VISIT,
     FakeSource,
-    _card,
     counts,
     gate_with_visit,
     page_with,
     seed_ntuh_at,
     taipei,
 )
+
+# This module serves NTUH reader values (#205).
+pytestmark = pytest.mark.usefixtures("serve_reader_values")
 
 SCHEDULE_FORM = "11/合成醫師丙/角膜"
 TAIPEI = timezone(timedelta(hours=8))
@@ -33,16 +36,16 @@ TAIPEI = timezone(timedelta(hours=8))
 class SwitchableSource(FakeSource):
     """A source whose light table changes between reads, whatever the read count."""
 
-    def __init__(self, page: str, **kwargs) -> None:
+    def __init__(self, page: ListRead, **kwargs) -> None:
         super().__init__(page, **kwargs)
         self._page = page
 
     @property
-    def page(self) -> str:
+    def page(self) -> ListRead:
         return self._page
 
     @page.setter
-    def page(self, page: str) -> None:
+    def page(self, page: ListRead) -> None:
         self._page = self.script[0] = page
 
 
@@ -97,10 +100,6 @@ MORNING_CLINIC = "03/合成醫師甲/角膜"
 VISIT_DAY = SCHEDULE_FIRST_VISIT
 
 
-def card_page(*cards: str) -> str:
-    return PAGE.split('<div class="col-md-3', 1)[0] + "".join(cards) + "</div></div>"
-
-
 async def started_three_days_ahead(source, *, patient: int = 14):
     database, gate = await gate_with_visit(source)
     await seed_ntuh_at(
@@ -122,7 +121,7 @@ async def started_three_days_ahead(source, *, patient: int = 14):
 @pytest.mark.asyncio
 async def test_a_visit_started_three_days_ahead_reaches_a_near_reminder() -> None:
     source = SwitchableSource(
-        card_page(_card("03 診", "合成醫師甲", "普通門診", "012")),
+        listing(card("03 診", "合成醫師甲", "普通門診", "012")),
         schedule=SCHEDULE_FIXTURE,
     )
     database, gate = await started_three_days_ahead(source)
@@ -138,7 +137,7 @@ async def test_a_visit_started_three_days_ahead_reaches_a_near_reminder() -> Non
 @pytest.mark.asyncio
 async def test_a_doctor_absent_on_the_day_needs_attention_with_the_reason() -> None:
     source = SwitchableSource(
-        card_page(_card("05 診", "合成醫師己", "普通門診", "012")),
+        listing(card("05 診", "合成醫師己", "普通門診", "012")),
         schedule=SCHEDULE_FIXTURE,
     )
     database, gate = await started_three_days_ahead(source)
@@ -164,7 +163,7 @@ async def test_an_unlisted_card_sends_nothing_before_the_session_start() -> None
     # A card that is not listed when the reads begin at 08:00 is not a failed read
     # until the published start. The family must not get a LINE message before it.
     source = SwitchableSource(
-        card_page(_card("05 診", "合成醫師己", "普通門診", "")),
+        listing(card("05 診", "合成醫師己", "普通門診", "")),
         schedule=SCHEDULE_FIXTURE,
     )
     database, gate = await started_three_days_ahead(source)
@@ -184,7 +183,7 @@ async def test_an_unlisted_card_counts_as_unusable_once_the_session_has_started(
     # Past the published morning start (09:00), a card that is still missing is
     # an unusable read, and three of them reach the family's unavailable message.
     source = SwitchableSource(
-        card_page(_card("05 診", "合成醫師己", "普通門診", "")),
+        listing(card("05 診", "合成醫師己", "普通門診", "")),
         schedule=SCHEDULE_FIXTURE,
     )
     database, gate = await started_three_days_ahead(source)
@@ -199,7 +198,7 @@ async def test_an_unlisted_card_counts_as_unusable_once_the_session_has_started(
 @pytest.mark.asyncio
 async def test_a_substitute_card_runs_the_visit_and_marks_it() -> None:
     source = SwitchableSource(
-        card_page(_card("03 診", "住院醫師(代)", "普通門診", "012")),
+        listing(card("03 診", "住院醫師(代)", "普通門診", "012")),
         schedule=SCHEDULE_FIXTURE,
     )
     database, gate = await started_three_days_ahead(source)
@@ -213,7 +212,7 @@ async def test_a_substitute_card_runs_the_visit_and_marks_it() -> None:
 @pytest.mark.asyncio
 async def test_a_substitute_card_before_the_first_number_is_marked_not_silent() -> None:
     source = SwitchableSource(
-        card_page(_card("03 診", "住院醫師(代)", "普通門診", "")),
+        listing(card("03 診", "住院醫師(代)", "普通門診", "")),
         schedule=SCHEDULE_FIXTURE,
     )
     database, gate = await started_three_days_ahead(source)
@@ -227,9 +226,9 @@ async def test_a_substitute_card_before_the_first_number_is_marked_not_silent() 
 @pytest.mark.asyncio
 async def test_two_cards_that_could_match_send_nothing_from_a_guess() -> None:
     source = SwitchableSource(
-        card_page(
-            _card("03 診", "合成醫師甲", "普通門診", "012"),
-            _card("03 診", "合成醫師甲", "醫師約診", "013"),
+        listing(
+            card("03 診", "合成醫師甲", "普通門診", "012"),
+            card("03 診", "合成醫師甲", "醫師約診", "013"),
         ),
         schedule=SCHEDULE_FIXTURE,
     )
@@ -245,7 +244,7 @@ async def test_two_cards_that_could_match_send_nothing_from_a_guess() -> None:
 async def test_a_same_day_start_with_two_matching_cards_is_refused_without_a_guess() -> (
     None
 ):
-    source = FakeSource(PAGE + _card("11 診", "合成醫師丙", "普通門診", "031"))
+    source = FakeSource(plus(PAGE, card("11 診", "合成醫師丙", "普通門診", "031")))
     database, gate = await gate_with_visit(source)
     await seed_ntuh_at(database, gate, "v", DAY, clinic_code=SCHEDULE_FORM)
 
@@ -259,7 +258,9 @@ async def test_a_same_day_start_with_two_matching_cards_is_refused_without_a_gue
 
 @pytest.mark.asyncio
 async def test_same_day_start_maps_roster_change_ambiguity_to_typed_refusal() -> None:
-    source = FakeSource(PAGE, PAGE + _card("11 診", "合成醫師丙", "普通門診", "031"))
+    source = FakeSource(
+        PAGE, plus(PAGE, card("11 診", "合成醫師丙", "普通門診", "031"))
+    )
     database, gate = await gate_with_visit(source)
     await seed_ntuh_at(database, gate, "v", DAY, clinic_code=SCHEDULE_FORM)
 
@@ -271,7 +272,7 @@ async def test_same_day_start_maps_roster_change_ambiguity_to_typed_refusal() ->
 
 @pytest.mark.asyncio
 async def test_a_same_day_start_on_a_substitute_card_is_accepted_and_marked() -> None:
-    source = FakeSource(PAGE.replace("合成醫師丙", "住院醫師(代)"))
+    source = FakeSource(with_rows(PAGE, of_doctor("合成醫師丙"), doctor="住院醫師(代)"))
     database, gate = await gate_with_visit(source)
     repository = await seed_ntuh_at(database, gate, "v", DAY, clinic_code=SCHEDULE_FORM)
 

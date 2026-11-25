@@ -24,6 +24,9 @@ from next_is_you.hospital_registry import (
     capability_of,
 )
 
+# This module serves NTUH reader values (#205).
+pytestmark = pytest.mark.usefixtures("serve_reader_values")
+
 NOW = datetime(2026, 9, 27, 6, 0, tzinfo=timezone.utc)
 
 

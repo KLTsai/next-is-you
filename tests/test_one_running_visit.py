@@ -23,6 +23,9 @@ from test_ntuh_reader import (
     seed_ntuh_at,
 )
 
+# This module serves NTUH reader values (#205).
+pytestmark = pytest.mark.usefixtures("serve_reader_values")
+
 DRAFT_CLINIC = "03/合成醫師甲/角膜"
 RUNNING_CLINIC = "07/合成醫師丙/教學門診"
 REFUSED = {"error": "another_visit_running"}

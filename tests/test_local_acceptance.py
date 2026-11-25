@@ -16,8 +16,6 @@ import uvicorn
 
 from local_worker import loopback_listener
 from next_is_you.auth import CSRF_COOKIE_NAME
-from next_is_you.domain import ClinicScope, ClinicSession
-from next_is_you.source_samples import ParseStatus, parse_ntuh_fragment
 from next_is_you.identity import IdentityRepository
 from next_is_you.persistence import Statement, VisitRepository
 from next_is_you.send_gate import SystemSendGate
@@ -237,27 +235,6 @@ def test_local_http_acceptance_journey() -> None:
             )
             assert created.status_code == 201
             visit_id = created.json()["id"]
-
-            fixture_scope = ClinicScope(
-                hospital="ntuh-main",
-                visit_date=date(2026, 9, 27),
-                department_code="MED",
-                clinic_code="MED-101",
-                session=ClinicSession.AFTERNOON,
-                doctor_code="D-01",
-                room_code="101診",
-            )
-            fixture = (ROOT / "tests/fixtures/hospitals/ntuh_main.html").read_text()
-            parsed = parse_ntuh_fragment(
-                fixture,
-                fixture_scope,
-                observed_at="2026-09-27T13:01:00+08:00",
-            )
-            assert parsed.status is ParseStatus.MATCHED
-            assert parsed.observation is not None
-            assert parsed.observation.current_number == 82
-            assert parsed.observation.trustworthy_current is False
-            assert parsed.observation.is_comparable_to(fixture_scope) is False
 
             unavailable_start = await http.post(
                 f"/api/organizer/visits/{visit_id}/start", headers=headers

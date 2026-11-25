@@ -7,6 +7,10 @@ import pytest
 from screens import SCREENS
 from worktree_bootstrap import require_built_ui
 
+# `serve_reader_values` lives with the NTUH reader values it serves (#205); a
+# module that serves them turns it on with `pytest.mark.usefixtures`.
+pytest_plugins = ["ntuh_reads"]
+
 
 @pytest.fixture
 def built_ui() -> None:

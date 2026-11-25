@@ -6,9 +6,10 @@ a hospital through is the `HospitalReader` interface (`domain`), the
 modules it builds (for example `ntuh_reader`). This module instead turns a
 captured response sample into a normalized `QueueObservation` with no transport
 code, which is what pre-reader source verification (for example Issue #44's
-evidence for a new hospital) runs against. Neither parser can make a request,
-and observations stay untrusted until source freshness semantics are verified
-independently.
+evidence for a new hospital) runs against. Only Shin Kong samples are parsed
+here; NTUH pages are read by `ntuh_reader` and `ntuh_detail`. No parser here
+can make a request, and observations stay untrusted until source freshness
+semantics are verified independently.
 """
 
 from __future__ import annotations
@@ -16,10 +17,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from enum import StrEnum
-from html.parser import HTMLParser
 import json
 from typing import Any, Mapping, Sequence
 
+from next_is_you.page_markers import page_status
 from next_is_you.domain import (
     ClinicScope,
     ClinicSession,
@@ -58,17 +59,6 @@ _SESSIONS = {
     "afternoon": ClinicSession.AFTERNOON,
     "evening": ClinicSession.EVENING,
 }
-_NTUH_HEADERS = {
-    "date": {"visit date", "就診日期"},
-    "department": {"department code", "科別代碼"},
-    "session": {"session", "診次"},
-    "clinic": {"clinic code", "診間代碼"},
-    "doctor": {"doctor", "醫師代碼"},
-    "room": {"room", "診間"},
-    "current": {"current light", "目前燈號"},
-    "highest": {"highest called", "最高已叫號"},
-    "current_call_type": {"call type", "叫號類型"},
-}
 _SHIN_KONG_FIELDS = {
     "VisitDate",
     "ShiftName",
@@ -82,91 +72,6 @@ _SHIN_KONG_FIELDS = {
     "NextVisitSeq",
     "NextVisitSeqDesc",
 }
-_CHALLENGE_MARKERS = (
-    "captcha",
-    "challenge",
-    "robot check",
-    "驗證碼",
-    "安全驗證",
-    "機器人驗證",
-)
-_DENIAL_MARKERS = ("access denied", "forbidden", "拒絕存取", "無權限")
-
-
-def parse_ntuh_fragment(
-    fragment: str,
-    expected: ClinicScope,
-    *,
-    observed_at: str,
-    max_age: timedelta = DEFAULT_MAX_AGE,
-) -> ParseResult:
-    """Parse an NTUH-shaped HTML sample with identity columns on each row."""
-    if not _valid_scope(expected, "ntuh-main"):
-        return ParseResult(ParseStatus.INVALID_SCOPE, None, "scope_incomplete")
-    observed = _timestamp(observed_at)
-    if observed is None or max_age <= timedelta(0):
-        return ParseResult(ParseStatus.INVALID_SCOPE, None, "invalid_observation_time")
-
-    collector = _TableCollector()
-    try:
-        collector.feed(fragment)
-        collector.close()
-    except (ValueError, AssertionError):
-        return ParseResult(ParseStatus.SCHEMA_DRIFT, None, "malformed_html")
-    marker_status = _page_status(" ".join(collector.text).casefold())
-    if marker_status is not None:
-        return ParseResult(marker_status, None, marker_status.value)
-
-    tables_with_rows: list[tuple[dict[str, int], list[list[str]]]] = []
-    for table in collector.tables:
-        indexes = _header_indexes(table)
-        if indexes is None:
-            continue
-        header_index = next(i for i, row in enumerate(table) if _header_indexes([row]))
-        rows = table[header_index + 1 :]
-        tables_with_rows.append((indexes, rows))
-    if not tables_with_rows:
-        return ParseResult(ParseStatus.SCHEMA_DRIFT, None, "recognized_table_not_found")
-
-    matches: list[tuple[list[str], dict[str, int]]] = []
-    has_rows = False
-    for indexes, rows in tables_with_rows:
-        has_rows |= bool(rows)
-        matches.extend(
-            (row, indexes)
-            for row in rows
-            if _ntuh_scope_matches(row, indexes, expected)
-        )
-    if not has_rows:
-        return ParseResult(ParseStatus.EMPTY, None, "empty_rows")
-    if not matches:
-        return ParseResult(ParseStatus.NOT_FOUND, None, "exact_visit_not_found")
-    if len(matches) != 1:
-        return ParseResult(ParseStatus.AMBIGUOUS, None, "multiple_exact_rows")
-
-    row, indexes = matches[0]
-    current = _positive_integer(_cell(row, indexes, "current"))
-    highest = _positive_integer(_cell(row, indexes, "highest"))
-    updated_at = _timestamp(collector.updated_at)
-    if collector.updated_at is not None and updated_at is None:
-        return ParseResult(ParseStatus.SCHEMA_DRIFT, None, "invalid_source_timestamp")
-    if updated_at is not None and _is_stale(updated_at, observed, max_age):
-        return ParseResult(ParseStatus.STALE, None, "source_sample_stale")
-    observation = QueueObservation(
-        scope=expected,
-        observed_at=observed_at,
-        current_number=current,
-        highest_called_number=highest,
-        current_call_type=normalize_call_type(_cell(row, indexes, "current_call_type")),
-        source_updated_at=collector.updated_at,
-        trustworthy_current=False,
-    )
-    if current is None:
-        return ParseResult(ParseStatus.SCHEMA_DRIFT, None, "current_number_unusable")
-    reason = (
-        "freshness_unverified" if updated_at is None else "untrusted_source_semantics"
-    )
-    return ParseResult(ParseStatus.MATCHED, observation, reason)
 
 
 def parse_shin_kong_rows(
@@ -280,20 +185,6 @@ def _valid_scope(scope: ClinicScope, hospital: str) -> bool:
     )
 
 
-def _ntuh_scope_matches(
-    row: list[str], indexes: dict[str, int], scope: ClinicScope
-) -> bool:
-    return (
-        _source_date(_cell(row, indexes, "date")) == scope.visit_date
-        and _cell(row, indexes, "department") == scope.department_code
-        and _SESSIONS.get((_cell(row, indexes, "session") or "").casefold())
-        == scope.session
-        and _cell(row, indexes, "clinic") == scope.clinic_code
-        and _cell(row, indexes, "doctor") == scope.doctor_code
-        and _cell(row, indexes, "room") == scope.room_code
-    )
-
-
 def _shin_kong_scope_matches(row: Mapping[str, Any], scope: ClinicScope) -> bool:
     return (
         _source_date(row.get("VisitDate")) == scope.visit_date
@@ -304,24 +195,6 @@ def _shin_kong_scope_matches(row: Mapping[str, Any], scope: ClinicScope) -> bool
         and _source_text(row.get("ClinicName")) == scope.room_code
         and _source_text(row.get("DoctorEmpNo")) == scope.doctor_code
     )
-
-
-def _header_indexes(table: list[list[str]]) -> dict[str, int] | None:
-    for row in table:
-        indexes: dict[str, int] = {}
-        for index, value in enumerate(row):
-            normalized = value.strip().casefold()
-            for field, aliases in _NTUH_HEADERS.items():
-                if normalized in aliases:
-                    indexes[field] = index
-        if set(indexes) == set(_NTUH_HEADERS):
-            return indexes
-    return None
-
-
-def _cell(row: list[str], indexes: dict[str, int], field: str) -> str | None:
-    index = indexes[field]
-    return _source_text(row[index]) if index < len(row) else None
 
 
 def _source_text(value: Any) -> str | None:
@@ -371,52 +244,5 @@ def _is_stale(updated: datetime, observed: datetime, max_age: timedelta) -> bool
 
 
 def _page_status(text: str) -> ParseStatus | None:
-    if any(marker in text for marker in _CHALLENGE_MARKERS):
-        return ParseStatus.CHALLENGE
-    if any(marker in text for marker in _DENIAL_MARKERS):
-        return ParseStatus.DENIED
-    return None
-
-
-class _TableCollector(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.tables: list[list[list[str]]] = []
-        self.text: list[str] = []
-        self.updated_at: str | None = None
-        self._table: list[list[str]] | None = None
-        self._depth = 0
-        self._row: list[str] | None = None
-        self._cell: list[str] | None = None
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attributes = dict(attrs)
-        if attributes.get("data-updated-at"):
-            self.updated_at = attributes["data-updated-at"]
-        if tag == "table":
-            self._depth += 1
-            if self._table is None:
-                self._table = []
-                self.tables.append(self._table)
-        elif tag == "tr" and self._table is not None and self._depth == 1:
-            self._row = []
-        elif tag in {"th", "td"} and self._row is not None and self._depth == 1:
-            self._cell = []
-
-    def handle_data(self, data: str) -> None:
-        self.text.append(data)
-        if self._cell is not None and self._depth == 1:
-            self._cell.append(data)
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in {"th", "td"} and self._cell is not None and self._row is not None:
-            self._row.append(" ".join("".join(self._cell).split()))
-            self._cell = None
-        elif tag == "tr" and self._row is not None and self._table is not None:
-            if self._row:
-                self._table.append(self._row)
-            self._row = None
-        elif tag == "table" and self._depth:
-            self._depth -= 1
-            if self._depth == 0:
-                self._table = None
+    marker = page_status(text)
+    return None if marker is None else ParseStatus(marker)

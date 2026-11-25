@@ -62,6 +62,10 @@ _Avoid_: Max number, current light
 Whether a clinic has called a number since its session started. A hospital's page can keep the numbers of an earlier session, so a current light on it alone does not say so.
 _Avoid_: Started, open, active
 
+**Clinic ended**:
+The product's own judgment that a clinic has finished its session: after it has called in this session, the hospital's page has shown nothing new for an hour of readable pages. Hospitals never say so themselves, and a blank light alone does not mean it. Time when the page cannot be read does not count. Shown to users as 門診看起來已結束.
+_Avoid_: Finished, closed, blank, 完診
+
 **Check in**:
 A patient telling the clinic they have arrived, by card or at the desk. Some clinics see patients in the order they checked in instead of by patient number. Shown to users as 報到.
 _Avoid_: Arrive, register, 掛號

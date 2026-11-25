@@ -63,6 +63,7 @@ ALLOWLIST = (
     "preview_urls",
     "keep_vars",
     "vars.NIY006_LOCAL_TEST_MODE",
+    "vars.NIY_LIVE",
 )
 
 

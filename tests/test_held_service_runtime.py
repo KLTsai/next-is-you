@@ -126,9 +126,10 @@ def test_held_native_configuration_and_recovery_hold_persist_across_restart(
         assert status == 200
         assert json.loads(before) == {
             "held": True,
-            "configuration_hold": True,
+            "live": False,
             "recovery_hold": False,
             "hospital_reader_available": False,
+            "line_unavailable_reason": "not_live",
         }
         # Invitation persistence exercises real local D1 without inventing
         # consent or using any production synthetic control endpoint.

@@ -10,6 +10,7 @@ from typing import Protocol
 
 
 LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push"
+LINE_BOT_INFO_URL = "https://api.line.me/v2/bot/info"
 LINE_USER_ID_PATTERN = re.compile(r"^U[0-9a-f]{32}$")
 
 
@@ -77,13 +78,41 @@ class WorkersLineFriendshipClient:
             return FriendshipResult(None)
 
     async def _fetch(self, url: str, options: dict[str, object]):
-        if self._fetcher is not None:
-            return await self._fetcher(url, options)
-        from js import Object
-        from js import fetch
-        from pyodide.ffi import to_js
+        return await _workers_fetch(self._fetcher, url, options)
 
-        return await fetch(url, to_js(options, dict_converter=Object.fromEntries))
+
+class LineBotInfoClient(Protocol):
+    async def basic_id(self, channel_access_token: str) -> str | None: ...
+
+
+class WorkersLineBotInfoClient:
+    """Name the Official Account a channel access token belongs to.
+
+    Answers the account's basic ID (for example "@123abcde"), or None when LINE
+    does not answer with one, which never counts as a match.
+    """
+
+    def __init__(self, fetcher=None) -> None:
+        self._fetcher = fetcher
+
+    async def basic_id(self, channel_access_token: str) -> str | None:
+        try:
+            response = await self._fetch(
+                LINE_BOT_INFO_URL,
+                {
+                    "method": "GET",
+                    "headers": {"Authorization": f"Bearer {channel_access_token}"},
+                },
+            )
+            if not response.ok:
+                return None
+            value = json.loads(await response.text()).get("basicId")
+            return value if isinstance(value, str) and value else None
+        except Exception:
+            return None
+
+    async def _fetch(self, url: str, options: dict[str, object]):
+        return await _workers_fetch(self._fetcher, url, options)
 
 
 class WorkersLinePushTransport:
@@ -179,6 +208,17 @@ class LinePushClient:
             request_id=response.request_id,
             accepted_request_id=response.accepted_request_id,
         )
+
+
+async def _workers_fetch(fetcher, url: str, options: dict[str, object]):
+    """Fetch with an injected fetcher, or with the Workers fetch API."""
+    if fetcher is not None:
+        return await fetcher(url, options)
+    from js import Object
+    from js import fetch
+    from pyodide.ffi import to_js
+
+    return await fetch(url, to_js(options, dict_converter=Object.fromEntries))
 
 
 def _read_header(response, name: str) -> str | None:

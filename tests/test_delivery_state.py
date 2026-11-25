@@ -311,6 +311,16 @@ def test_guard_accepts_rolling_back_to_an_earlier_version():
     assert out.startswith("Accepted: v0.3.0 at aaa1111")
 
 
+def test_guard_refuses_rolling_back_past_the_first_live_version():
+    assert_refused(
+        run_guard("rollback_before_live", "v0.3.0"),
+        "production is live since v0.3.1, and v0.3.0 (aaa1111) is older. "
+        "Deploying it would make production not live again, "
+        "and going live cannot be undone.",
+        "Choose v0.3.1 or a newer version.",
+    )
+
+
 def test_guard_accepts_rolling_back_to_a_version_made_before_this_design():
     code, out, _ = run_guard("rollback_pre_design", "v0.2.0")
     assert code == 0

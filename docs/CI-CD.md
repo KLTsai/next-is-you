@@ -118,7 +118,9 @@ On a push to `main`, the same run deploys that commit to staging once every gate
 has passed. The `Deploy staging` job needs all seven gates, the `Staging
 scope` job and the `Staging order` job, and it deploys `github.sha`, the pushed commit, never the branch
 head. Re-running an earlier run therefore returns staging to that earlier
-commit. The job builds, applies the staging D1 migrations, then runs
+commit. The job first runs `scripts/delivery_state.py live-check staging`, which
+refuses a commit older than staging's first live commit (#237), then builds,
+applies the staging D1 migrations, and runs
 `pywrangler deploy --config wrangler.staging.jsonc --keep-vars`. It uses the `staging` environment, so GitHub records a deployment
 for that commit; that record, not any tag, is the source of truth for what
 staging is showing. The job summary also names the commit and a `Version` line
@@ -126,9 +128,10 @@ from `git describe --tags --match 'v*'`, for example `v0.4.0-3-gefa2eb5`: three
 commits after `v0.4.0`. Staging runs a commit, not a version, so read the line
 as a distance from the last version, never as a release staging runs.
 
-Staging is unchanged in what it may do: its configuration still holds sends, has
-no LINE access token, and reads no hospital data (see
-[Evidence boundaries](#evidence-boundaries)).
+Staging is not live: its committed config sets `NIY_LIVE` to `"false"`, so it
+reads no hospital data and sends no LINE message, and it has no LINE access
+token (see [Evidence boundaries](#evidence-boundaries) and the [pre-live
+checklist](PRE-LIVE-CHECKLIST.md#how-an-environment-is-made-live)).
 
 Skips are decided on the `Deploy staging` job, not by path filters, so a skipped
 deployment still leaves a successful run:
@@ -508,12 +511,15 @@ The guard refuses, with one reason and the action that clears it, when:
 | --- | --- |
 | The version is unknown | Enter an existing version. |
 | Its commit is not on `main` | Do not promote it; merge the release PR to cut a new version. |
+| Production is live and the version is older than its first live version | Choose that version or a newer one. Going live cannot be undone. |
 | Its checks failed | Re-run that commit's pipeline run if the failure is not real, otherwise fix `main` and release a new version. |
 | Its checks are still running | Wait, then run Promote again. |
 | Staging is showing a different commit, earlier or later | Re-run that commit's pipeline run so staging shows it, check it, then run Promote again. If staging deployment is paused, resume it first. |
 
-On accept, the `Deploy` job checks out the exact commit the guard resolved,
-applies production migrations, deploys production, and then publishes the
+On accept, the `Deploy` job runs `scripts/delivery_state.py live-check
+production` from the run's own commit (so re-running the job of an old run is
+checked too), then checks out the exact commit the guard resolved, applies
+production migrations, deploys production, and then publishes the
 GitHub Release. The Release step runs only after a successful deployment and is
 keyed on the Release being absent or a draft: a draft made by Release Please is
 published with its changelog notes; a Release that is already published (a
@@ -832,9 +838,17 @@ Two things put a version out of reach:
   refuses them. `v0.2.2` is the earliest version Promote can return to.
 - GitHub lets a run be re-run for 30 days after it first ran. A version older
   than that can no longer be put on staging.
+- Once an environment is live, a version older than its first live version is
+  refused by the promote guard and by both deploy jobs of any run created after
+  #237 merged, with a `Refused:` line that names that version (#237, [pre-live
+  checklist](PRE-LIVE-CHECKLIST.md#how-an-environment-is-made-live)). A run
+  created before #237 merged has no live check, so it must not be re-run on a
+  live environment. Going live cannot be undone.
 
 For those versions, and whenever Promote itself is unusable, the native
-procedure is the only path:
+procedure is the only path. It skips the live check too: on a live environment,
+never use it to return to a version older than that environment's first live
+version, because that version is not live and would stop all reading and sending.
 
 ```sh
 uv run python -m pywrangler deployments list --config wrangler.production.jsonc

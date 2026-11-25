@@ -46,6 +46,7 @@
   "keep_vars": true,
   "vars": {
     "NIY_ENVIRONMENT": "production",
-    "NIY006_LOCAL_TEST_MODE": "0"
+    "NIY006_LOCAL_TEST_MODE": "0",
+    "NIY_LIVE": "false"
   }
 }

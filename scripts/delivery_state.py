@@ -823,15 +823,20 @@ def _is_at_or_after(ancestor: str, commit: str) -> bool:
     raise FactUnreadable(fact, result.stderr.strip() or "git merge-base failed")
 
 
-def read_live_floor(environment: str, tags: dict[str, str]) -> LiveFloor | None:
-    """Where the environment became live, or None while it never has."""
+def read_live_floor(
+    environment: str, read_tags: Callable[[], dict[str, str]]
+) -> LiveFloor | None:
+    """Where the environment became live, or None while it never has.
+
+    Only production's floor is a version tag, so only it reads the tags.
+    """
     first = _first_live_commit(LIVE_CONFIGS[environment])
     if first is None:
         return None
     if environment == "staging":
         return LiveFloor(environment, first)
     carrying = sorted(
-        (tag for tag, commit in tags.items() if _is_at_or_after(first, commit)),
+        (tag for tag, commit in read_tags().items() if _is_at_or_after(first, commit)),
         key=_version_key,
     )
     return LiveFloor(environment, first, carrying[0]) if carrying else None
@@ -864,7 +869,7 @@ def read_guard_snapshot(version: str) -> Snapshot:
     main = _read_main()
     tags = _read_tags()
     commit = tags.get(normalize_version(version))
-    floor = read_live_floor("production", tags)
+    floor = read_live_floor("production", lambda: tags)
     commits = {}
     if commit:
         facts = _read_commit_facts(commit)
@@ -947,7 +952,7 @@ def run_live_check(environment: str, commit: str, out: TextIO, err: TextIO) -> i
     Needs a full clone with tags and an origin remote to list them from.
     """
     try:
-        floor = read_live_floor(environment, _read_tags())
+        floor = read_live_floor(environment, _read_tags)
         refused = before_live(floor, commit)
     except FactUnreadable as error:
         err.write(

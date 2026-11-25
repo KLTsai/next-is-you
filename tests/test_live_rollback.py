@@ -160,6 +160,15 @@ def test_an_environment_that_was_never_live_accepts_anything(tmp_path, monkeypat
         assert out.startswith("Accepted: ")
 
 
+def test_staging_is_decided_from_the_clone_alone(history):
+    # Staging's floor is a commit, not a version tag, so an unreachable origin
+    # does not stop its check.
+    git(Path.cwd(), "remote", "set-url", "origin", "/nonexistent/origin.git")
+    assert live_check("staging", history["unrelated"])[0] == 1
+    assert live_check("staging", history["v0.3.0"])[0] == 0
+    assert live_check("production", history["v0.3.0"])[0] == 2
+
+
 def test_an_unreadable_commit_stops_the_check_without_a_verdict(history):
     code, out, err = live_check("staging", "0" * 40)
     assert code == 2
@@ -170,7 +179,7 @@ def test_an_unreadable_commit_stops_the_check_without_a_verdict(history):
 def test_the_guard_snapshot_marks_a_version_before_production_went_live(
     history, monkeypatch
 ):
-    floor = delivery_state.read_live_floor("production", delivery_state._read_tags())
+    floor = delivery_state.read_live_floor("production", delivery_state._read_tags)
     assert floor == delivery_state.LiveFloor(
         "production", history["production live"], "v0.3.0"
     )

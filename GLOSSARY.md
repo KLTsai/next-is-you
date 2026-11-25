@@ -112,8 +112,12 @@ _Avoid_: Pre-flight sweep, preflight, sweep
 A deployed environment that reads real hospitals and sends real LINE reminders. Each environment starts not live and is made live once, after its own pre-live gates pass, and is never made not live again; to stop sending, use a send interruption. Expired data is cleaned up either way. Shown to users as 已開通 and 未開通.
 _Avoid_: Send hold, configuration hold, production hold, go-live
 
+**Send record**:
+What the system keeps about each running visit and each message it has sent or is sending, and relies on to decide what to send next. Only the system's own steps change it. Shown to users as 發送紀錄.
+_Avoid_: Ledger, 帳本
+
 **Send interruption**:
-A stop on all sending in one environment. The system enters it when its record of what it has sent was changed by something outside its own control, such as a restore or a migration, or when it could not write down the result of a send; the captain can also set it by hand before a restore or rollback. Only the captain ends it, by resuming sending after checking. Visits keep their state through it: it pauses them, it does not stop them. A LINE request whose outcome is merely unknown is retried, not interrupted. Shown to users as LINE 通知暫停發送.
+A stop on all sending in one environment. The system enters it when its send record was changed by something outside its own control, such as a restore or a migration, or when it could not write down the result of a send; the captain can also set it by hand before a restore or rollback. Only the captain ends it, by resuming sending after checking. Visits keep their state through it: it pauses them, it does not stop them. A LINE request whose outcome is merely unknown is retried, not interrupted. Shown to users as LINE 通知暫停發送.
 _Avoid_: Recovery hold, reconciliation hold, safety stop, brake
 
 **Resume sending**:

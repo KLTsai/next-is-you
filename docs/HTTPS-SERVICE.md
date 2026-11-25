@@ -444,7 +444,9 @@ already started may settle first. If Stop fails, retry and inspect the saved
 state. It is not a retraction of an accepted LINE notification.
 
 To hold the whole service, the signed-in owner sets recovery hold through the
-authorized status API. These application actions use the current session's CSRF
+authorized status API. Why the send interruption exists, what enters it and the
+step-by-step send flow are in
+[ADR 0007](adr/0007-send-interruption-guards-the-send-record.md). These application actions use the current session's CSRF
 cookie without displaying it:
 
 ```js

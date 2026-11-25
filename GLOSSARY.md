@@ -55,11 +55,11 @@ The number a clinic is showing as now being called. It is not the front of the q
 _Avoid_: Called number, current number, progress
 
 **Highest called**:
-The largest number a clinic has called so far today. A patient number below it has had its call, whether or not the patient has been seen. Shown to users as 已叫最大號.
+The number a hospital's page labels 已叫最大號. What it means depends on the clinic: at NTUH, in 眼科 it is the last number called, so a patient number below it has had its call; in 內科, 骨科, 外科部 and 神經部 it is the last of the called next numbers, which may not have been called yet. Shown to users as 已叫最大號.
 _Avoid_: Max number, current light
 
 **Called in this session**:
-Whether a clinic has called a number since its session started. A hospital's page can keep the numbers of an earlier session, so a current light on it alone does not say so.
+Whether a clinic has called a number since its session started. A hospital's page can keep the numbers of an earlier session, so a current light on it alone does not say so. Before the session opens, the clinic's page already exists, with a blank light and its list of patient numbers.
 _Avoid_: Started, open, active
 
 **Clinic ended**:
@@ -75,7 +75,7 @@ A patient number whose call came while the patient had not checked in. The patie
 _Avoid_: Skipped, missed, expired
 
 **Called next**:
-The few numbers a hospital says it will call after the current one, when it says so. A number listed there is about to be called, whatever its place by number. Shown to users as 預計叫號.
+The few numbers a hospital lists as about to be called, when it says so (up to three at NTUH, where outside 眼科 the first is usually the current light itself). A number listed there is about to be called, whatever its place by number. Shown to users as 預計叫號.
 _Avoid_: Next number, queue
 
 **People ahead**:

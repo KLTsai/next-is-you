@@ -2,6 +2,8 @@
 
 Read-only map of `main` at 27b9841, 2026-11-24. Labels: **Observed** (read from code or docs, cited file:line), **Inference** (my reasoning), **Unconfirmed** (no source settles it). Paths are relative to the repo root.
 
+**Update 2026-11-25:** 內科 now measures 7.68 M characters (485 clinics), and 外科部 at 3.95 M is also over the cap (#205, #243). The reader's schedule host `registration.ntuh.gov.tw` was confirmed to serve the page on 2026-11-25; earlier captures used `reg.ntuh.gov.tw`.
+
 ## 1. The one fetch-and-parse function
 
 Every schedule read goes through one chain in `src/next_is_you/ntuh_reader.py`:

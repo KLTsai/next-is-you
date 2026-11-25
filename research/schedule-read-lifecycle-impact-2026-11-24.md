@@ -5,6 +5,8 @@ Written 2026-11-24. Read only: from code at `27b9841` (main), tests, `docs/NTUH-
 - **Option A:** one streamed GET of `showAll`, with the unused modal markup (and white space) dropped before parsing, all in one invocation.
 - **Option B:** one GET whose bytes are stored in Durable Object SQLite. Later alarm steps each scan one slice. The whole read fails if the clinic count does not match.
 
+**Update 2026-11-25:** 內科 now measures 7.68 M characters (485 clinics), not 6.9 M, and 外科部 at 3.95 M is also refused. The committed fixtures are the 2026-11-25 pages, with 內科 485, 骨科 126 and 眼科 136 clinics, not 439, 129 and 118 (#205, #243). The reader's schedule host is `registration.ntuh.gov.tw`, not `reg.`; both serve the page.
+
 ## 0. Facts that decide most of the answers
 
 1. **Only days 1 to 14 ahead read the clinic schedule page.** On the visit day the picker and Start use the light table (`DeptLightTable`), not `RegDeptSchedule` (**Code**: `ntuh_reader.py` `list_clinics` and `match_clinic` branch on `days_ahead == 0` to `_list_today_roster`). Visit-day monitoring reads the light table and the detail page. Neither A nor B touches anything that happens on the visit day itself.

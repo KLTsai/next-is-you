@@ -123,7 +123,12 @@ Staging is used by the captain alone. No family member is invited to it.
     whether it stays on the same host and path) is recorded before its rule changes.
   - If the real appointment does not show both reminders, #22 is verified again
     on an appointment in 內科 `MED` or 骨科 `ORTH` (#180), because ophthalmology
-    can call too far out of number order to show them.
+    can call too far out of number order to show them. A 內科 fallback cannot be
+    read until #188 lands: its clinic schedule page (7.68 million characters on
+    2026-11-25) is over the reader's cap and reads as unavailable. 骨科 fits. In
+    both, 已叫最大號 is the last of 預計叫號 rather than the last number called
+    (`docs/NTUH-READER.md`), so "ahead of the highest called" means something
+    else there.
   - Edge cases (passed, check-in order, unavailable source, number gone from the
     list) are covered by fixtures.
 - [ ] #131: the security baseline, grilled after #22 passes and finished before

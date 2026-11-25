@@ -60,7 +60,7 @@ def test_every_capture_names_its_capture_and_holds_only_the_page() -> None:
     # Clinic schedule captures (`schedule_*`) share this folder and this scan.
     paths = sorted(CAPTURES.glob("*.html"))
     pages = [path.name for path in paths if not path.name.startswith("schedule_")]
-    assert len(pages) == 26
+    assert len(pages) == 56
     for path in paths:
         text = path.read_text(encoding="utf-8")
         assert _NAMED_CAPTURE.fullmatch(text.split("\n", 1)[0].rstrip("\r")), path.name

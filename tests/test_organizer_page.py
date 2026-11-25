@@ -119,6 +119,7 @@ def test_closing_a_page_while_a_poll_is_answered_leaves_playwright_usable(
     controls = playwright.request.new_context()
     try:
         origin = f"http://127.0.0.1:{server.server_port}"
+        # A protocol test about closing a page mid-poll, not a layout test: one screen.
         page = browser.new_context(**SCREENS["desktop"]).new_page()
         organizer = OrganizerPage(page, RehearsalBackend(origin, controls), touch=False)
         page.goto(origin)

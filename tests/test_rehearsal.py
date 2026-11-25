@@ -948,7 +948,7 @@ def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fie
                 date_box = page.locator("input[name=date]").bounding_box()
                 assert department_box and date_box
                 assert abs(department_box["height"] - date_box["height"]) < 1
-                if screen is PHONE:
+                if screen.get("is_mobile"):
                     assert abs(department_box["x"] - date_box["x"]) < 1
                     assert abs(department_box["width"] - date_box["width"]) < 1
                 else:

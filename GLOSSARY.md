@@ -129,7 +129,7 @@ A stop on all sending in one environment. The system enters it when its send rec
 _Avoid_: Recovery hold, reconciliation hold, safety stop, brake
 
 **Resume sending**:
-The captain ending a send interruption once they have checked what happened. Running visits that are still valid carry on; it never brings back a stopped visit. Shown to users as 恢復發送 LINE 通知.
+The captain ending a send interruption once they have checked what happened. Running visits that are still valid carry on; it never brings back an ended visit. Shown to users as 恢復發送 LINE 通知.
 _Avoid_: Release, unhold, end interruption
 
 **Reading stop**:

@@ -112,6 +112,18 @@ _Avoid_: Pre-flight sweep, preflight, sweep
 
 ### Sending
 
+**LINE message**:
+Any message the system sends someone on LINE: a reminder, an unavailable message, or a notice to an organizer about a visit problem. A send interruption stops all of them. Shown to users as LINE 通知.
+_Avoid_: Push, alert, notification, 提醒
+
+**Reminder**:
+A LINE message telling one recipient, from what the hospital's page shows, where the patient stands in the clinic's queue and what to do now: check in, walk to the clinic, wait at its door, or ask at the desk. There are eight kinds, and each is sent to a recipient at most once per visit. When several kinds become due in one read, only the most urgent is sent; the others are skipped, which counts as sent, so they are never sent later. Shown to users as 進度通知.
+_Avoid_: Alert, notification, near reminder, 提醒, 叫號通知
+
+**Reminder cap**:
+At most eight reminders and unavailable messages together, per recipient and visit. Skipped reminders, retries of the same message and notices to an organizer do not count. It is a safety limit: a visit's normal course stays below it. Not shown to users.
+_Avoid_: Message limit, quota (LINE's monthly allowance is a different limit)
+
 **Live**:
 A deployed environment that reads real hospitals and sends real LINE reminders. Each environment starts not live and is made live once, after its own pre-live gates pass, and is never made not live again; to stop sending, use a send interruption. Expired data is cleaned up either way. Shown to users as 已開通 and 未開通.
 _Avoid_: Send hold, configuration hold, production hold, go-live

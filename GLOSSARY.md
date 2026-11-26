@@ -121,7 +121,7 @@ _Avoid_: Pre-flight sweep, preflight, sweep
 ### Sending
 
 **LINE message**:
-Any message the system sends someone on LINE: a reminder, an unavailable message, or a notice to an organizer about a visit problem. A send interruption stops all of them. Shown to users as LINE 通知.
+Any message the system sends someone on LINE: a reminder, an unavailable message, a notice to an organizer about a visit problem, or an alert to the captain. A send interruption stops all of them except the alert to the captain. Shown to users as LINE 通知.
 _Avoid_: Push, alert, notification, 提醒
 
 **Reminder**:

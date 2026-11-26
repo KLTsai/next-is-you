@@ -12,12 +12,14 @@ We decided on 2026-11-25, in the captain's grilling, that a visit's states are `
 
 - **One shared end reason for the system's ends.** Rejected: the page could not show "the number is no longer on the list" and "no change for an hour" as different sentences.
 - **Keep `stopped` and `expired`, and add a reason.** Rejected: the state names would lie (`stopped` with `day_over`, or `stopped` for an end nobody pressed), and every reader would have to check two fields to know why a visit ended.
+- **Reopen an ended visit for correction, as stopped and expired visits could.** Rejected (captain, 2026-11-26, #247): it only spares the reminders the visit already sent, such as a check-in reminder sent before the organizer pressed Stop by mistake, and for `day_over` the reopened visit would be on another day, a new visit in all but name. A repeated reminder is an accepted price for an ended visit that stays ended and one transition fewer.
 
 ## Rules that follow
 
 - `ended` only ever refers to the visit. The glossary's judgment that a clinic finished stays **Clinic ended**, and its end reason is `clinic_quiet`, never `clinic_ended`. `stopped` and `expired` are retired as visit states.
 - `stopping` stays only for the organizer's Stop waiting for a message already in flight. An end with nothing in flight, such as removing the last recipient (#244), goes straight to `ended`.
 - A visit sent back to draft because the hospital confirmed a mismatch (#148) has not ended and has no end reason; it carries an attention reason. It goes from `active` straight to `draft`, never through `stopping`.
+- An ended visit is final, whatever its end reason: it is never reopened or returned to draft. To follow the clinic again, the organizer sets up a new visit (captain, 2026-11-26, #247).
 - The 48-hour deletion counts from ended-at, the same for every reason.
 - Ending a visit cancels its `pending` and `unknown` reminders because the visit ended. Returning it to draft for a confirmed mismatch cancels them too: an `unknown` reminder retried later could reach the family with the clinic the hospital just said is wrong (captain, 2026-11-26, #249).
 - A cancelled reminder records, when it is cancelled, the code of its cause: the visit's end reason, or the confirmed-mismatch attention reason that returned it to draft. The record is for looking back at why a reminder was not sent; no one is shown it. It reuses those two vocabularies and adds no third (captain, 2026-11-26, #249). Pointing to the visit's current reason instead was rejected: a draft corrected and started again no longer carries the attention reason, so the reminder would lose its cause.

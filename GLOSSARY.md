@@ -70,6 +70,14 @@ _Avoid_: Started, open, active
 The product's own judgment that a clinic has finished its session: after it has called in this session, the hospital's page has shown nothing new for an hour of readable pages. Hospitals never say so themselves, and a blank light alone does not mean it. Time when the page cannot be read does not count. Shown to users as 門診看起來已結束.
 _Avoid_: Finished, closed, blank, 完診
 
+**Clinic memory**:
+What the reader has learnt from today's pages about one clinic, the same for every visit on that clinic: whether it has called in this session, its highest called so far, when its page last changed, its last known check-in position. Kept for the day only. Facts about one patient are reminder memory, never clinic memory. Not shown to users.
+_Avoid_: Reader state, clinic timeline, entry
+
+**Reminder memory**:
+What the reminder rules remember about one visit's patient between reads, such as the patient's previous own status or whether the patient number was ever seen. It reads clinic memory's answers and never works them out again. Not shown to users.
+_Avoid_: Visit state, alert state
+
 **Check in**:
 A patient telling the clinic they have arrived, by card or at the desk. Some clinics see patients in the order they checked in instead of by patient number. Shown to users as 報到.
 _Avoid_: Arrive, register, 掛號

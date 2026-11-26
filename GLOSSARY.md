@@ -7,11 +7,11 @@ The language used to build and deliver Next is you, a reminder service for hospi
 ### People
 
 **Organizer**:
-The person who sets up reminders: signs in with LINE, invites recipients, drafts a visit, and presses Start and Stop. Only LINE accounts the captain has allowed can be organizers. Shown to users as 設定者.
+The person who sets up reminders: signs in with LINE, invites recipients, drafts a visit, and presses Start and Stop. Only LINE accounts the captain has allowed can be organizers, and every organizer sees and manages every visit and recipient. Each organizer is told on LINE about every visit's problems, once they are a friend of the environment's official account. Shown to users as 設定者.
 _Avoid_: Owner, user, manager, 管理者
 
 **Recipient**:
-A family member who accepted an invitation and agreed to receive reminders on LINE. An organizer may also be a recipient with the same LINE account. On a visit, the recipients chosen for it are shown to users as 通知對象.
+A family member who accepted an invitation and agreed to receive reminders on LINE. Every organizer is also a recipient with the same LINE account, without an invitation: signing in as an organizer counts as agreeing. Like any recipient, an organizer gets reminders only for the visits they are added to. On a visit, the recipients chosen for it are shown to users as 通知對象.
 _Avoid_: Member, subscriber, audience, 成員
 
 **Recipient list**:

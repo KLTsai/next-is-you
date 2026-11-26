@@ -55,7 +55,7 @@ The number a patient was given for one clinic on one day, which the clinic calls
 _Avoid_: Ticket, queue number, 燈號 (alone)
 
 **Current light**:
-The number a clinic is showing as now being called. It is not the front of the queue: patients sent away for tests and patients who missed their call come back in between. Shown to users as 目前燈號.
+The number a clinic is showing as now being called. It is not the front of the queue: patients sent away for tests and patients who missed their call come back in between. In a clinic that sees patients in check-in order it is the patient number being seen, and says nothing about who comes next. A blank light means only that no number is shown now: before the first call, between calls, or after the clinic ended. Shown to users as 目前燈號.
 _Avoid_: Called number, current number, progress
 
 **Highest called**:
@@ -91,7 +91,7 @@ A mark on a visit telling its organizer that the visit has a problem only they c
 _Avoid_: Organizer attention, warning, alert
 
 **Confirmed mismatch**:
-A problem the hospital's own pages state outright: the clinic is not scheduled or is cancelled that day, or the doctor is unambiguously in another room or session. The system stops the visit and returns it to draft. Anything less than certain is an unconfirmed problem instead. Shown to users as 院方確認不符.
+A problem the hospital's own pages state outright: the clinic is not scheduled or is cancelled that day, or the doctor is unambiguously in another room or session. The system returns the visit to draft for the organizer to correct; the visit has not ended, and reminders not yet confirmed as sent are cancelled. Anything less than certain is an unconfirmed problem instead. Shown to users as 院方確認不符.
 _Avoid_: Setup problem, hard failure, invalid visit
 
 **Unconfirmed problem**:

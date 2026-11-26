@@ -17,6 +17,7 @@ We decided on 2026-11-25, in the captain's grilling, that a visit's states are `
 
 - `ended` only ever refers to the visit. The glossary's judgment that a clinic finished stays **Clinic ended**, and its end reason is `clinic_quiet`, never `clinic_ended`. `stopped` and `expired` are retired as visit states.
 - `stopping` stays only for the organizer's Stop waiting for a message already in flight. An end with nothing in flight, such as removing the last recipient (#244), goes straight to `ended`.
-- A visit sent back to draft because the hospital confirmed a mismatch (#148) has not ended and has no end reason; it carries an attention reason.
+- A visit sent back to draft because the hospital confirmed a mismatch (#148) has not ended and has no end reason; it carries an attention reason. It goes from `active` straight to `draft`, never through `stopping`.
 - The 48-hour deletion counts from ended-at, the same for every reason.
-- Ending a visit cancels its `pending` and `unknown` reminders because the visit ended. They point to the visit's end reason; there is no second reason vocabulary for reminders.
+- Ending a visit cancels its `pending` and `unknown` reminders because the visit ended. Returning it to draft for a confirmed mismatch cancels them too: an `unknown` reminder retried later could reach the family with the clinic the hospital just said is wrong (captain, 2026-11-26, #249).
+- A cancelled reminder records, when it is cancelled, the code of its cause: the visit's end reason, or the confirmed-mismatch attention reason that returned it to draft. The record is for looking back at why a reminder was not sent; no one is shown it. It reuses those two vocabularies and adds no third (captain, 2026-11-26, #249). Pointing to the visit's current reason instead was rejected: a draft corrected and started again no longer carries the attention reason, so the reminder would lose its cause.

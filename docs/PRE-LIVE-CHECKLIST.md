@@ -88,8 +88,9 @@ Staging is used by the captain alone. No family member is invited to it.
   and its slices).
 - [ ] #139: the agreed words on screen. Here because #160, and through it #142,
   builds on its texts.
-- [ ] #142: the live switch, captain-only interrupt and resume (the banner's
-  恢復發送 LINE 通知 button), the interruption alert and the last tick time.
+- [ ] #142: the live switch, captain-only interrupt and resume (the two-press
+  恢復發送 LINE 通知 on the paused-service panel, #160 and #241), the
+  interruption alert and the last tick time.
 - [x] Hospital access rules are written in
   [ADDING-A-HOSPITAL.md](ADDING-A-HOSPITAL.md#source-access-rules). The
   hospital is not contacted. Evidence: that section, as amended by #181
@@ -124,7 +125,10 @@ Staging is used by the captain alone. No family member is invited to it.
      does not move;
   4. open the date calendar and a dropdown, and wait 5 seconds: each stays open;
   5. on a phone, type Chinese with the input method in use (bopomofo): another
-     candidate can still be picked after 5 seconds.
+     candidate can still be picked after 5 seconds;
+  6. on the captain's phone, open the page from a LINE alert inside LINE's own
+     browser (#240): sign in, the paused-service panel opens, its buttons are
+     not covered by LINE's toolbar, and a resume takes two presses.
 
   Record for each: browser and version, device and OS version, date.
 - [ ] Only NTUH Main (`ntuh-main`) is offered.
@@ -172,9 +176,9 @@ Staging is used by the captain alone. No family member is invited to it.
     can call too far out of number order to show them. A 內科 fallback cannot be
     read until #188 lands: its clinic schedule page (7.68 million characters on
     2026-11-25) is over the reader's cap and reads as unavailable. 骨科 fits. In
-    both, 已叫最大號 is the last of 預計叫號 rather than the last number called
-    (`docs/NTUH-READER.md`), so "ahead of the highest called" means something
-    else there.
+    both, the page's 已叫最大號 is usually a number still waiting rather than
+    the last number called, so the reader reports no highest called there
+    (#248), and reminders that need it are not sent.
   - Edge cases (passed, check-in order, unavailable source, number gone from the
     list) are covered by fixtures.
 - [ ] #131: the security baseline, grilled after #22 passes and finished before
@@ -196,8 +200,8 @@ Staging is used by the captain alone. No family member is invited to it.
 1. Record a restore point if the version applies migrations (#111).
 2. Promote.
 3. The captain checks production's send interruption (in place since
-   2026-10-27) on the organizer page banner and resumes sending with
-   恢復發送 LINE 通知.
+   2026-10-27) on the organizer page's paused-service panel and resumes sending
+   with 恢復發送 LINE 通知, pressed twice.
 4. The captain sets up the first visit with themself as a recipient and
    confirms it reaches the handset.
 5. The captain invites family members as recipients. The captain stays the only

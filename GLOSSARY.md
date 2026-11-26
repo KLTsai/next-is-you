@@ -59,7 +59,7 @@ The number a clinic is showing as now being called. It is not the front of the q
 _Avoid_: Called number, current number, progress
 
 **Highest called**:
-The number a hospital's page labels 已叫最大號. What it means depends on the clinic: at NTUH, in 眼科 it is the last number called, so a patient number below it has had its call; in 內科, 骨科, 外科部 and 神經部 it is the last of the called next numbers, which may not have been called yet. Shown to users as 已叫最大號.
+The highest patient number a clinic is known to have called. A hospital's page may show a number labelled 已叫最大號, but that number is only the highest called when the page itself proves it was called: it is being seen, or it is no longer listed. Otherwise there is no highest called, whatever the page labels it; at NTUH, outside 眼科 the labelled number is usually one of the called next numbers and may not have been called yet. The same rule holds for every hospital and department. Shown to users as 已叫最大號.
 _Avoid_: Max number, current light
 
 **Called in this session**:
@@ -131,6 +131,14 @@ _Avoid_: Recovery hold, reconciliation hold, safety stop, brake
 **Resume sending**:
 The captain ending a send interruption once they have checked what happened. Running visits that are still valid carry on; it never brings back a stopped visit. Shown to users as 恢復發送 LINE 通知.
 _Avoid_: Release, unhold, end interruption
+
+**Reading stop**:
+A stop on reading one hospital in one environment, because the hospital refused to be read or sent the reading elsewhere. A refusal holds until the captain clears it, after checking; a redirect holds until the day ends. It is not a send interruption: sending goes on for other hospitals, and clearing one never ends the other. Shown to users as <醫院>暫停讀取, cleared with 恢復讀取<醫院>.
+_Avoid_: Source stop, hospital block, refusal (alone)
+
+**Paused service**:
+A send interruption or a reading stop, as the organizer page lists them together. Shown to users as 暫停中的服務.
+_Avoid_: Notice, outage
 
 ### Delivery
 

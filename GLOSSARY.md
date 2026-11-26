@@ -11,8 +11,12 @@ The person who sets up reminders: signs in with LINE, invites recipients, drafts
 _Avoid_: Owner, user, manager, 管理者
 
 **Recipient**:
-A family member who accepted an invitation and agreed to receive reminders on LINE. An organizer may also be a recipient with the same LINE account.
-_Avoid_: Member, subscriber, audience
+A family member who accepted an invitation and agreed to receive reminders on LINE. An organizer may also be a recipient with the same LINE account. On a visit, the recipients chosen for it are shown to users as 通知對象.
+_Avoid_: Member, subscriber, audience, 成員
+
+**Recipient list**:
+Everyone who has accepted an organizer's invitations: the people the organizer chooses a visit's recipients from. Removing someone from it removes them from every visit, while removing a recipient from one visit leaves them on the list. Shown to users as 通知名單.
+_Avoid_: Member list, family list, 家庭成員, 成員管理
 
 **Pending invitee**:
 Someone who signed in with LINE from an invitation but has not pressed 確認加入 yet. Not a recipient: nothing is sent to them and the organizer's list does not show them. A new invitation always works for them. They can confirm only while that sign-in lasts (four hours); after that they are erased.

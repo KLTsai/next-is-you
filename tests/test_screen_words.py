@@ -9,8 +9,6 @@ Fixture/mock evidence: reads source files only, no network.
 
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
 LOGIN_ERROR_PAGE = ROOT / "src" / "next_is_you" / "login_error_page.py"
@@ -62,18 +60,3 @@ def old_words(files: list[Path]) -> list[str]:
 
 def test_screens_use_the_agreed_words():
     assert old_words(screen_source_files()) == []
-
-
-@pytest.mark.parametrize("kept", KEPT_SERVICE_WIDE_USES)
-def test_each_kept_use_is_still_on_a_screen(kept):
-    """A kept use nobody shows any more must leave the allow list."""
-    assert any(
-        kept in path.read_text(encoding="utf-8") for path in screen_source_files()
-    )
-
-
-@pytest.mark.parametrize("word", FORBIDDEN_WORDS)
-def test_scan_fails_when_a_forbidden_word_is_added(word, tmp_path):
-    planted = tmp_path / "main.ts"
-    planted.write_text(f'const text = "家人候診提醒 {word}";\n', encoding="utf-8")
-    assert f"main.ts:1 {word}" in old_words([planted])

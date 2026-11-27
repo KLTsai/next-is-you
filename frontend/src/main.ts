@@ -310,7 +310,7 @@ function clinicSectionMarkup(
     const detailRows = (chosen?.details ?? [])
       .map((detail) => `<div><dt>${escapeHtml(detail.label)}</dt><dd>${escapeHtml(detail.value)}</dd></div>`)
       .join("");
-    const detailList = detailRows ? `<dl class="clinic-details" aria-label="院方公布的這個診的資料">${detailRows}</dl>` : "";
+    const detailList = detailRows ? `<dl class="clinic-details" aria-label="院方公布的此診的資料">${detailRows}</dl>` : "";
     return `<label class="field"><span>醫師 / 診間</span><select name="clinic_code" required><option value="" ${selectedClinic ? "" : "selected"}>請選擇醫師</option>${options}</select><input type="hidden" name="session" value="${escapeHtml(chosen?.session ?? "")}">${detailList}<small>${helper}</small>${errorMarkup("clinic_code")}</label>`;
   }
 

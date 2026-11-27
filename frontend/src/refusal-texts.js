@@ -75,7 +75,7 @@ export const REFUSAL_TEXTS = Object.freeze({
   visit_date_out_of_schedule_window: { text: unpublishedDayText, action: "wait_for_schedule" },
   start_on_visit_day_only: { text: visitDayOnlyText, action: "start_on_visit_day" },
   hospital_cannot_find_clinic: {
-    text: "院方目前查不到這個診。如果還沒開診，請開診後再試；否則請核對診間代碼。",
+    text: "院方目前查不到此診。如果還沒開診，請開診後再試；否則請核對診間代碼。",
     action: "check_clinic_code",
   },
   hospital_page_unreachable: {

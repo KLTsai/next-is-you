@@ -75,6 +75,13 @@ def _property(value: Any, key: str, default: Any = None) -> Any:
     return getattr(value, key, default)
 
 
+# `Statement.operation` of the writes the send gate does not save straight to its
+# send record (ADR 0007). One changes nothing the record's digest covers. A send
+# result is saved only after the gate has checked what changed during the request.
+OUTSIDE_SEND_RECORD = "outside_send_record"
+SEND_RESULT = "send_result"
+
+
 # A pending invitee (signed in from an invitation, 確認加入 not yet pressed) can
 # only press it while the sign-in from that invitation lasts, so the row is
 # erased once that sign-in has lapsed (#134).
@@ -191,6 +198,7 @@ class VisitRepository:
                 Statement(
                     "UPDATE visits SET latest_source_read_status = ?, latest_source_read_reason = ? WHERE id = ?",
                     (status, reason, visit_id),
+                    OUTSIDE_SEND_RECORD,
                 )
             )
             == 1
@@ -682,6 +690,7 @@ class VisitRepository:
                     """UPDATE outbound_events SET outcome = ?, settled_at = ?, error_code = ?
                     WHERE id = ? AND attempt_count = ? AND outcome = 'in_flight'""",
                     (outcome, iso_utc(now), error_code, event_id, attempt_count),
+                    SEND_RESULT,
                 )
             )
             == 1
@@ -1023,6 +1032,7 @@ class VisitRepository:
                     """UPDATE visits SET preflight_last_checked_date = ?
                     WHERE id = ? AND state = 'draft'""",
                     (today.isoformat(), visit_id),
+                    OUTSIDE_SEND_RECORD,
                 )
             )
             == 1

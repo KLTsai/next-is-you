@@ -296,8 +296,8 @@ The repository is public and the deploy jobs hold `CLOUDFLARE_API_TOKEN`
 - **Promote's token starts empty.** `promote.yml` sets `permissions: {}`, and a
   job gets only what it declares.
 - **Secret scanning and push protection** are repository settings under
-  **Settings -> Code security**, which only the captain changes. To read what
-  is on:
+  **Settings -> Advanced Security**, which only the captain changes. To read
+  what is on:
 
   ```sh
   gh api repos/KLTsai/next-is-you --jq .security_and_analysis

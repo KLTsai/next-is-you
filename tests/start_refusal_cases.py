@@ -116,31 +116,31 @@ START_REFUSAL_CASES: tuple[StartRefusalCase, ...] = (
     ),
     StartRefusalCase(
         code="visit_not_found",
-        text="找不到這筆提醒，請重新載入。",
+        text="找不到這筆追蹤，請重新載入。",
         # A visit deleted for real leaves no card once the page reloads the
         # list, so only the gate loses it and the card stays to show the text.
         arrange=lambda journey, case: journey.hide_visits_from_gate(),
     ),
     StartRefusalCase(
         code="invalid_lifecycle_state",
-        text="提醒狀態已變更，請重新載入。",
+        text="這筆追蹤的狀態已變更，請重新載入。",
         visit_day=TODAY,
         now=CUTOFF,
     ),
     StartRefusalCase(
         code="another_visit_running",
         # The second sentence is the link to the running visit's card.
-        text="目前已有一個看診在監控中，請先停止它再開始這一個。 前往監控中的看診",
+        text="目前已有一筆追蹤在進行中，請先停止它再開始這一筆。 前往進行中的叫號追蹤",
         arrange=another_visit_is_running,
     ),
     StartRefusalCase(
         code="ineligible_recipients",
-        text="通知對象已無法接收提醒，請重新選擇。",
+        text="通知對象已無法接收 LINE 通知，請重新選擇。",
         arrange=lambda journey, case: journey.deactivate_recipient(),
     ),
     StartRefusalCase(
         code="scheduler_held",
-        text="排程暫停中，提醒維持草稿。",
+        text="排程暫停中，維持草稿。",
         arrange=lambda journey, case: journey.diverge_send_record(),
     ),
     StartRefusalCase(
@@ -151,7 +151,7 @@ START_REFUSAL_CASES: tuple[StartRefusalCase, ...] = (
     # The clinic schedule's answers.
     StartRefusalCase(
         code="clinic_ambiguous",
-        text="院方今天有多個門診符合，系統不猜，不會發提醒。請重新選擇門診。",
+        text="院方今天有多個門診符合，系統不猜，不會發 LINE 通知。請重新選擇門診。",
         hospital=full_schedule_registration(
             ClinicMatch(MatchKind.UNAVAILABLE, reason="ambiguous_match")
         ),
@@ -186,7 +186,7 @@ START_REFUSAL_CASES: tuple[StartRefusalCase, ...] = (
     # The visit-day clinic read of a full-schedule hospital.
     StartRefusalCase(
         code="observation_unavailable",
-        text="目前沒有可用的可信院方觀察，提醒維持草稿。",
+        text="目前沒有可用的可信院方觀察，維持草稿。",
         hospital=full_schedule_registration(
             read=lambda scope, now: ReadFailed("unavailable", "timeout")
         ),
@@ -194,7 +194,7 @@ START_REFUSAL_CASES: tuple[StartRefusalCase, ...] = (
     ),
     StartRefusalCase(
         code="observation_stale",
-        text="院方觀察已過期，提醒維持草稿。",
+        text="院方觀察已過期，維持草稿。",
         hospital=full_schedule_registration(
             read=lambda scope, now: usable_read(scope, now - timedelta(minutes=3))
         ),
@@ -202,7 +202,7 @@ START_REFUSAL_CASES: tuple[StartRefusalCase, ...] = (
     ),
     StartRefusalCase(
         code="observation_scope_mismatch",
-        text="院方觀察與所選診次不符，提醒維持草稿。",
+        text="院方觀察與所選診次不符，維持草稿。",
         hospital=full_schedule_registration(
             read=lambda scope, now: usable_read(replace(scope, clinic_code="B-34"), now)
         ),
@@ -210,7 +210,7 @@ START_REFUSAL_CASES: tuple[StartRefusalCase, ...] = (
     ),
     StartRefusalCase(
         code="observation_untrusted",
-        text="院方資料尚未通過可信度檢查，提醒維持草稿。",
+        text="院方資料尚未通過可信度檢查，維持草稿。",
         hospital=full_schedule_registration(
             read=lambda scope, now: replace(
                 usable_read(scope, now), trustworthy_current=False
@@ -220,7 +220,7 @@ START_REFUSAL_CASES: tuple[StartRefusalCase, ...] = (
     ),
     StartRefusalCase(
         code="observation_invalid",
-        text="院方資料無效，提醒維持草稿。",
+        text="院方資料無效，維持草稿。",
         hospital=full_schedule_registration(
             read=lambda scope, now: replace(
                 usable_read(scope, now), observed_at="not a time"

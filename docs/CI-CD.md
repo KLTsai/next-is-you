@@ -280,6 +280,29 @@ separate Worker, D1 database, and Durable Object namespace. It does not make
 the URL network-private. Use a separately approved custom domain and Cloudflare
 Access policy if network-level access control is required.
 
+## What the workflows trust
+
+The repository is public and the deploy jobs hold `CLOUDFLARE_API_TOKEN`
+(#214).
+
+- **Actions are pinned to commits.** Every `uses:` in `.github/workflows/`
+  names a full commit SHA, with its release in a comment
+  (`# v7.0.1`), because a tag can be moved. A test in
+  `tests/test_workflow_supply_chain.py` fails on any other form.
+- **Dependabot keeps the pins current.** `.github/dependabot.yml` checks the
+  actions weekly, and only the actions. Its pull requests are titled `ci: ...`,
+  so they propose no release. They change workflows, so they merge like any
+  other pull request that does.
+- **Promote's token starts empty.** `promote.yml` sets `permissions: {}`, and a
+  job gets only what it declares.
+- **Secret scanning and push protection** are repository settings under
+  **Settings -> Code security**, which only the captain changes. To read what
+  is on:
+
+  ```sh
+  gh api repos/KLTsai/next-is-you --jq .security_and_analysis
+  ```
+
 ## Required setup
 
 ### Cloudflare staging resources

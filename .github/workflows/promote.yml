@@ -16,6 +16,9 @@ on:
         required: true
         type: string
 
+# The token gets nothing by default. A job that needs access declares it.
+permissions: {}
+
 concurrency:
   group: production-deploy
   cancel-in-progress: false
@@ -50,7 +53,7 @@ jobs:
       REQUESTED_VERSION: ${{ inputs.version }}
     steps:
       # Full history and tags: the guard finds where production went live.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Ask the promote guard
@@ -94,7 +97,7 @@ jobs:
     steps:
       # This run's own commit, so the live check below is this run's script,
       # not the promoted version's copy (which may predate live-check).
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -106,17 +109,17 @@ jobs:
         shell: bash
         run: python3 scripts/delivery_state.py live-check production "$COMMIT" | tee -a "$GITHUB_STEP_SUMMARY"
       # The exact commit the guard accepted, never the head of main.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.guard.outputs.commit }}
           fetch-depth: 0
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: "0.12.3"
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: npm

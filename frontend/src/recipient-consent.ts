@@ -19,7 +19,7 @@ function csrfFromCookie(): string {
 
 function errorTextFor(status: number): string {
   if (status === 409) return "這個帳號已經加入過，或目前無法完成確認。可以關閉這個頁面了。";
-  if (status === 401 || status === 403) return "這個邀請連結已經失效，請聯絡管理者重新發送邀請連結。";
+  if (status === 401 || status === 403) return "這個邀請連結已經失效，請聯絡設定者重新發送邀請連結。";
   return "目前無法完成加入，請稍後再試一次。";
 }
 
@@ -28,13 +28,13 @@ function render(): void {
   if (state === "joined") {
     app.innerHTML = `<section class="panel consent-panel" aria-labelledby="consent-heading">
       <p class="eyebrow">家人候診提醒</p><h1 id="consent-heading">已加入</h1>
-      <div role="status"><p class="message">已加入，可以關閉這個頁面了。</p><p class="message">如果你也是管理者，不帶邀請連結再次使用 LINE 登入，就會回到管理者畫面。</p></div>
+      <div role="status"><p class="message">已加入，可以關閉這個頁面了。</p><p class="message">如果你也是設定者，不帶邀請連結再次使用 LINE 登入，就會回到設定者畫面。</p></div>
     </section>`;
     return;
   }
   app.innerHTML = `<section class="panel consent-panel" aria-labelledby="consent-heading">
     <p class="eyebrow">家人候診提醒</p><h1 id="consent-heading">確認加入通知</h1>
-    <p class="intro">加入後，當家人候診號碼快叫到時，你會收到這個家庭的 LINE 提醒訊息。管理者可以隨時將你從通知名單中移除。</p>
+    <p class="intro">加入後，當家人候診號碼快叫到時，你會收到這個家庭的 LINE 通知。設定者可以隨時將你從通知名單中移除。</p>
     ${state === "error" ? `<p class="message message-warning" role="alert">${escapeHtml(errorMessage)}</p>` : ""}
     <button class="primary-button" id="confirm-join" type="button" ${state === "submitting" ? "disabled" : ""}>${state === "submitting" ? "處理中…" : "確認加入"}</button>
   </section>`;

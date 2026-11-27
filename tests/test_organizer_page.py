@@ -35,6 +35,8 @@ from worktree_bootstrap import require_frontend_toolchain
 
 REQUEST_FAILED_TEXT = "操作未完成，請重新載入後再試。"
 INVITATION_LINK = re.compile(r"/auth/line\?invite=.+")
+STOP_HINT = "看完診或不需要時按，停止後無法恢復。"
+STOPPED_TEXT = "已停止追蹤，不會再發新的 LINE 通知。"
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -288,7 +290,7 @@ def test_saving_a_draft_shows_the_result_and_keeps_the_scroll_position(organizer
     organizer.fill_visit_form()
     with organizer.keeps_scroll_position(organizer.button("建立草稿")) as save:
         organizer.press(save)
-        organizer.expect_status("草稿已建立。建立草稿不會啟動監控或傳送通知。")
+        organizer.expect_status("草稿已建立。建立草稿不會開始追蹤或傳送通知。")
         expect(drafts).to_have_count(before + 1)
         expect(organizer.button("建立草稿")).to_be_enabled()
     organizer.press(organizer.button("展開草稿"))
@@ -302,13 +304,38 @@ def test_starting_a_visit_shows_the_result_and_keeps_the_scroll_position(organiz
     with organizer.keeps_scroll_position(organizer.start_button(draft)) as start:
         organizer.press(start)
         organizer.expect_status("服務已回覆啟動成功。")
-        expect(organizer.state(draft)).to_have_text("監控中")
+        expect(organizer.state(draft)).to_have_text("追蹤中")
+
+
+def test_a_running_visit_is_named_with_the_agreed_words_through_its_stop(organizer):
+    [visit] = organizer.open("active")
+    expect(organizer.heading("叫號追蹤")).to_be_visible()
+    running = organizer.page.get_by_role("heading", name=re.compile(r"^進行中 \d+$"))
+    expect(running).to_be_visible()
+    members_heading = organizer.heading("通知名單")
+    # One line, also on a phone.
+    assert organizer.box(members_heading)["height"] <= 40
+    expect(organizer.state(visit)).to_have_text("追蹤中")
+    stop = organizer.stop_button(visit)
+    expect(stop).to_have_text("停止追蹤")
+    expect(stop).to_have_accessible_description(STOP_HINT)
+    hint = organizer.card(visit).get_by_text(STOP_HINT, exact=True)
+    expect(hint).to_be_visible()
+    layout = organizer.stop_layout(visit)
+    # The button keeps one line's height, with the hint directly under it.
+    assert layout["height"] <= 60, layout
+    assert 0 <= layout["gap"] <= 12, layout
+
+    organizer.press(stop)
+    expect(organizer.state(visit)).to_have_text("已停止")
+    expect(organizer.page.locator("#app > .message")).to_have_text(STOPPED_TEXT)
+    expect(organizer.card(visit).get_by_role("status")).to_have_text(STOPPED_TEXT)
 
 
 def test_creating_an_invitation_shows_the_link_and_keeps_the_scroll_position(organizer):
     organizer.open("stopped")
     organizer.field("member_label").fill("媽媽")
-    with organizer.keeps_scroll_position(organizer.button("邀請新成員")) as invite:
+    with organizer.keeps_scroll_position(organizer.button("邀請家人")) as invite:
         organizer.press(invite)
         link = organizer.page.get_by_label("邀請連結（限一次使用）")
         expect(link).to_have_value(INVITATION_LINK)
@@ -329,11 +356,11 @@ def test_a_pending_start_check_says_so_and_ignores_repeat_presses(organizer):
         expect(start).to_have_text("重新檢查中…")
         expect(organizer.card(draft)).to_contain_text("正在檢查可信院方觀察…")
         organizer.expect_repeat_presses_ignored(start, "POST", "/start")
-        expect(organizer.state(draft)).not_to_have_text("監控中")
+        expect(organizer.state(draft)).not_to_have_text("追蹤中")
         # One visit may run at a time, so the start succeeds once this one is over.
         organizer.backend.settle_stop()
         expect(organizer.state(stopping)).to_have_text("已停止")
-    expect(organizer.state(draft)).to_have_text("監控中")
+    expect(organizer.state(draft)).to_have_text("追蹤中")
 
 
 def test_a_pending_stop_request_says_so_and_ignores_repeat_presses(organizer):
@@ -361,7 +388,7 @@ def test_a_pending_invitation_says_so_and_ignores_repeat_presses(organizer):
         expect(invite).to_have_text("建立邀請中…")
         expect(organizer.field("member_label")).to_have_value("媽媽")
         organizer.expect_repeat_presses_ignored(invite, "POST", "/invitations")
-    expect(invite).to_have_text("邀請新成員")
+    expect(invite).to_have_text("邀請家人")
 
 
 # Failure, and recovery without a reload
@@ -380,7 +407,7 @@ def test_a_failed_start_gives_its_reason_and_the_next_start_works(organizer):
 
     organizer.backend.set_source_readable(True)
     organizer.press(organizer.start_button(draft))
-    expect(organizer.state(draft)).to_have_text("監控中")
+    expect(organizer.state(draft)).to_have_text("追蹤中")
     expect(alert).to_have_count(0)
     assert organizer.entered() == entered
     organizer.expect_never_reloaded()
@@ -407,7 +434,7 @@ def test_a_failed_refresh_says_so_and_the_next_refresh_works(organizer):
 def test_a_failed_invitation_says_so_and_the_next_invitation_works(organizer):
     organizer.open("stopped")
     entered = organizer.enter_everything()
-    invite = organizer.button("邀請新成員")
+    invite = organizer.button("邀請家人")
     with organizer.failing("POST", "/invitations"):
         organizer.press(invite)
         alert = organizer.page.get_by_role("alert")
@@ -430,7 +457,7 @@ def test_a_failed_save_says_so_and_the_next_save_works(organizer):
         assert organizer.entered() == entered
 
     organizer.press(organizer.button("建立草稿"))
-    organizer.expect_status("草稿已建立。建立草稿不會啟動監控或傳送通知。")
+    organizer.expect_status("草稿已建立。建立草稿不會開始追蹤或傳送通知。")
     organizer.expect_never_reloaded()
 
 
@@ -440,13 +467,13 @@ def test_a_failed_save_says_so_and_the_next_save_works(organizer):
 def test_cancelling_a_correction_leaves_the_stopped_visit_as_it_was(organizer):
     [visit] = organizer.open("stopped")
     organizer.press(organizer.card(visit).get_by_role("button", name="修正後重新檢查"))
-    expect(organizer.heading("修正已停止的提醒")).to_be_visible()
+    expect(organizer.heading("修正已停止的追蹤")).to_be_visible()
     number = organizer.field("patient_number")
     expect(number).to_have_value("85")
     number.fill("99")
     organizer.press(organizer.button("取消修正"))
 
-    expect(organizer.heading("建立候診提醒")).to_be_visible()
+    expect(organizer.heading("建立叫號追蹤")).to_be_visible()
     expect(number).to_have_value("")
     expect(organizer.state(visit)).to_have_text("已停止")
     expect(organizer.card(visit)).to_contain_text("85")
@@ -465,7 +492,7 @@ def test_stopping_a_running_visit_follows_it_until_it_has_stopped(organizer):
     expect(organizer.state(visit)).to_have_text("停止中")
 
     with organizer.failing("GET", "/api/organizer/visits"):
-        organizer.expect_status(f"提醒狀態更新失敗，將自動重試。{REQUEST_FAILED_TEXT}")
+        organizer.expect_status(f"狀態更新失敗，將自動重試。{REQUEST_FAILED_TEXT}")
         expect(organizer.state(visit)).to_have_text("停止中")
 
     organizer.backend.settle_stop()

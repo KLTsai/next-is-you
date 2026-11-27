@@ -86,13 +86,13 @@ Daily use is browser-only. The owner's stable origin is a fixed `workers.dev` UR
 3. Press **Start**.
 4. Close the browser. Once live operation is authorized, the service will continue watching the queue on its one-minute schedule.
 
-If the owner also joined as a family member with the same LINE account, signing in with LINE again without an invitation link returns to the manager view.
+If the owner also joined as a family member with the same LINE account, signing in with LINE again without an invitation link returns to the organizer view.
 
 Today, pressing Start initiates neither live hospital queue reads nor live LINE reminder sends; both remain held pending the [Issue #22 pilot](https://github.com/KLTsai/next-is-you/issues/22). The flow above describes the intended behavior once the pilot authorizes live operation.
 
 To stop or hold:
 
-- **Stop a reminder**: in the UI, open the active reminder and confirm **停止提醒**. A notification already in flight may settle before Stop confirms. See the [stop and recovery notes in the HTTPS service doc](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback).
+- **Stop a reminder**: in the UI, open the active reminder and confirm **停止追蹤**. A notification already in flight may settle before Stop confirms. See the [stop and recovery notes in the HTTPS service doc](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback).
 - **Hold the whole service** (when the system is misbehaving): the owner, signed in, sets recovery hold through the authorized status API. The exact console snippet lives in the [HTTPS service stop and recovery section](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback). Recovery hold survives Worker restarts and must be set before any restore or code rollback.
 - **Rollback the deployment**: the captain runs **Promote** with an earlier version number, as described in the [rollback section of the CI/CD guide](docs/CI-CD.md#rollback). Rollback restores code only. If Promote itself is unusable, fall back to the native Wrangler procedure in the [stop, failure recovery and rollback section](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback). Either way, only roll back to a version compatible with the current schema and preserved SQLite class; rollback never reverses a D1 migration, and this README deliberately does not restate the exact commands.
 

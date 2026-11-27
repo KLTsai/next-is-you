@@ -92,7 +92,7 @@ def test_start_with_unusable_invitation_shows_plain_page():
         store = SQLiteStore()
         async with client_for(make_app(store)) as http:
             response = await http.get("/auth/line", params={"invite": "nope"})
-        assert_plain_page(response, 410, "邀請連結已失效", "聯絡管理者重新發送邀請連結")
+        assert_plain_page(response, 410, "邀請連結已失效", "聯絡設定者重新發送邀請連結")
 
     run(scenario())
 
@@ -206,12 +206,12 @@ def test_callback_for_an_invitation_used_in_the_meantime_shows_plain_page():
                 params={"code": "c", "state": state_of(second_start)},
             )
         assert joined.status_code == 303
-        assert_plain_page(response, 410, "邀請連結已失效", "聯絡管理者重新發送邀請連結")
+        assert_plain_page(response, 410, "邀請連結已失效", "聯絡設定者重新發送邀請連結")
 
     run(scenario())
 
 
-def test_callback_for_an_account_that_is_not_the_manager_shows_plain_page():
+def test_callback_for_an_account_that_is_not_an_organizer_shows_plain_page():
     async def scenario():
         async with client_for(make_app(SQLiteStore())) as http:
             start = await http.get("/auth/line")
@@ -219,7 +219,7 @@ def test_callback_for_an_account_that_is_not_the_manager_shows_plain_page():
                 "/auth/line/callback",
                 params={"code": "c", "state": state_of(start)},
             )
-        assert_plain_page(response, 403, "不是管理者", "邀請連結")
+        assert_plain_page(response, 403, "不是設定者", "邀請連結")
 
     run(scenario())
 

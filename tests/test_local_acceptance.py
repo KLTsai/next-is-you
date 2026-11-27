@@ -457,14 +457,14 @@ def test_local_browser_acceptance_journey(screen: dict) -> None:
                 page.locator('input[name="patient_number"]').fill("5")
                 first_draft.get_by_role("button", name="修正草稿").click()
                 page.get_by_text(
-                    "目前設定尚未儲存。請先儲存或取消修正，再開啟其他提醒。", exact=True
+                    "目前設定尚未儲存。請先儲存或取消修正，再開啟其他追蹤。", exact=True
                 ).wait_for()
                 page.get_by_role("button", name="清除未儲存草稿").click()
                 assert page.locator('input[name="patient_number"]').input_value() == ""
 
-                first_draft.get_by_role("button", name="重新檢查並開始提醒").click()
+                first_draft.get_by_role("button", name="重新檢查並開始").click()
                 page.get_by_text(
-                    "目前沒有可用的可信院方觀察，提醒維持草稿。"
+                    "目前沒有可用的可信院方觀察，維持草稿。"
                 ).first.wait_for()
                 assert "草稿" in first_draft.locator(".state").inner_text()
 
@@ -521,7 +521,7 @@ def test_local_browser_acceptance_journey(screen: dict) -> None:
                 page.locator('select[name="session"]').select_option("evening")
                 page.get_by_role("button", name="儲存草稿").click()
                 page.get_by_text(
-                    "草稿修改已儲存。請在提醒清單重新檢查並開始。", exact=True
+                    "草稿修改已儲存。請在已儲存草稿按「重新檢查並開始」。", exact=True
                 ).wait_for()
                 # The saved message renders before the list reload completes, so
                 # wait for the card to reflect the new session rather than asserting
@@ -535,8 +535,8 @@ def test_local_browser_acceptance_journey(screen: dict) -> None:
                     data={"current_number": 82, "trustworthy": True},
                 )
                 assert configured.status == 200
-                first_draft.get_by_role("button", name="重新檢查並開始提醒").click()
-                page.get_by_text("監控中", exact=True).wait_for()
+                first_draft.get_by_role("button", name="重新檢查並開始").click()
+                page.get_by_text("追蹤中", exact=True).wait_for()
                 assert (
                     page.locator("#saved-drafts-list article.visit-card").count() == 1
                 )
@@ -556,7 +556,7 @@ def test_local_browser_acceptance_journey(screen: dict) -> None:
                 # A send interruption pauses running visits without stopping
                 # them: the notice shows on the running visit, not on a draft,
                 # and is gone once sending resumes.
-                interruption_text = "發送中斷中，提醒暫停"
+                interruption_text = "LINE 通知暫停發送"
                 running_card = page.locator(
                     "section.visits:not(.saved-drafts) article.visit-card"
                 )
@@ -570,7 +570,7 @@ def test_local_browser_acceptance_journey(screen: dict) -> None:
                 assert held_status == 204
                 page.get_by_role("button", name="重新整理").click()
                 expect(running_card.get_by_text(interruption_text)).to_have_count(1)
-                assert running_card.locator(".state").inner_text() == "監控中"
+                assert running_card.locator(".state").inner_text() == "追蹤中"
                 assert page.get_by_text(interruption_text).count() == 1
                 resumed_status = page.evaluate(
                     """async (csrf) => (await fetch('/api/organizer/scheduler/resume', {
@@ -599,13 +599,13 @@ def test_local_browser_acceptance_journey(screen: dict) -> None:
 
                 stop_route = "**/api/organizer/visits/*/stop"
                 page.route(stop_route, lambda route: route.abort())
-                first_visit.get_by_role("button", name="停止提醒").click()
+                first_visit.get_by_role("button", name="停止追蹤").click()
                 page.get_by_text("連線失敗，請確認服務後重試。", exact=True).wait_for()
-                assert first_visit.locator(".state").inner_text() == "監控中"
-                assert first_visit.get_by_role("button", name="停止提醒").is_visible()
+                assert first_visit.locator(".state").inner_text() == "追蹤中"
+                assert first_visit.get_by_role("button", name="停止追蹤").is_visible()
                 page.unroute(stop_route)
 
-                first_visit.get_by_role("button", name="停止提醒").click()
+                first_visit.get_by_role("button", name="停止追蹤").click()
                 first_visit.locator(".inline-state").filter(
                     has_text="已停止"
                 ).wait_for()
@@ -614,7 +614,7 @@ def test_local_browser_acceptance_journey(screen: dict) -> None:
                 page.wait_for_function(
                     "document.querySelector('input[name=patient_number]')?.value === '85'"
                 )
-                assert page.locator("#setup-heading").inner_text() == "修正已停止的提醒"
+                assert page.locator("#setup-heading").inner_text() == "修正已停止的追蹤"
                 assert page.locator(
                     'input[name="recipient_ids"][value="selected-family"]'
                 ).is_checked()
@@ -631,7 +631,7 @@ def test_local_browser_acceptance_journey(screen: dict) -> None:
                 )
                 page.get_by_role("button", name="儲存修正並回到草稿").click()
                 page.get_by_text(
-                    "修正已儲存為草稿。請在提醒清單重新檢查並開始。", exact=True
+                    "修正已儲存為草稿。請在已儲存草稿按「重新檢查並開始」。", exact=True
                 ).wait_for()
                 assert (
                     first_draft.locator('h3[id^="visit-"]').get_attribute("id")

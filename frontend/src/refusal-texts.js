@@ -12,7 +12,7 @@ import { unpublishedDayNotice } from "./schedule-window.js";
 // Shown for a not-yet-published day when the refusal lacks the hospital name or
 // end date to compose the full notice (catalog not loaded, hospital retired):
 // reloading would not help, so say what is true without them.
-const UNPUBLISHED_DAY_FALLBACK = "院方還沒公布這一天的門診表，公布後再開始提醒。";
+const UNPUBLISHED_DAY_FALLBACK = "院方還沒公布這一天的門診表，公布後再開始追蹤。";
 
 // Start refusal for a hospital that publishes no clinic schedule. The backend
 // decides which one applies; the frontend only words it.
@@ -29,33 +29,33 @@ function unpublishedDayText({ hospitalName, scheduleEnd, releaseTime, visitDate 
 
 export const REFUSAL_TEXTS = Object.freeze({
   service_unavailable: { text: "目前無法使用提醒服務。", action: "retry_later" },
-  visit_not_found: { text: "找不到這筆提醒，請重新載入。", action: "reload" },
-  invalid_lifecycle_state: { text: "提醒狀態已變更，請重新載入。", action: "reload" },
+  visit_not_found: { text: "找不到這筆追蹤，請重新載入。", action: "reload" },
+  invalid_lifecycle_state: { text: "這筆追蹤的狀態已變更，請重新載入。", action: "reload" },
   another_visit_running: {
-    text: "目前已有一個看診在監控中，請先停止它再開始這一個。",
+    text: "目前已有一筆追蹤在進行中，請先停止它再開始這一筆。",
     action: "stop_running_visit",
   },
   ineligible_recipients: {
-    text: "通知對象已無法接收提醒，請重新選擇。",
+    text: "通知對象已無法接收 LINE 通知，請重新選擇。",
     action: "pick_recipients",
   },
-  scheduler_held: { text: "排程暫停中，提醒維持草稿。", action: "retry_later" },
+  scheduler_held: { text: "排程暫停中，維持草稿。", action: "retry_later" },
   observation_unavailable: {
-    text: "目前沒有可用的可信院方觀察，提醒維持草稿。",
+    text: "目前沒有可用的可信院方觀察，維持草稿。",
     action: "retry_later",
   },
-  observation_stale: { text: "院方觀察已過期，提醒維持草稿。", action: "retry_later" },
+  observation_stale: { text: "院方觀察已過期，維持草稿。", action: "retry_later" },
   observation_scope_mismatch: {
-    text: "院方觀察與所選診次不符，提醒維持草稿。",
+    text: "院方觀察與所選診次不符，維持草稿。",
     action: "retry_later",
   },
   observation_untrusted: {
-    text: "院方資料尚未通過可信度檢查，提醒維持草稿。",
+    text: "院方資料尚未通過可信度檢查，維持草稿。",
     action: "retry_later",
   },
-  observation_invalid: { text: "院方資料無效，提醒維持草稿。", action: "retry_later" },
+  observation_invalid: { text: "院方資料無效，維持草稿。", action: "retry_later" },
   clinic_ambiguous: {
-    text: "院方今天有多個門診符合，系統不猜，不會發提醒。請重新選擇門診。",
+    text: "院方今天有多個門診符合，系統不猜，不會發 LINE 通知。請重新選擇門診。",
     action: "pick_again",
   },
   visit_date_past: { text: "看診日期已過，請選擇今天或之後的日期。", action: "pick_date" },

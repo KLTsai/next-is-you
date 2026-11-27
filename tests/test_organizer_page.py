@@ -316,7 +316,12 @@ def test_a_running_visit_is_named_with_the_agreed_words_through_its_stop(organiz
     stop = organizer.stop_button(visit)
     expect(stop).to_have_text("停止追蹤")
     expect(stop).to_have_accessible_description(STOP_HINT)
-    expect(organizer.card(visit).get_by_text(STOP_HINT, exact=True)).to_be_visible()
+    hint = organizer.card(visit).get_by_text(STOP_HINT, exact=True)
+    expect(hint).to_be_visible()
+    button_box, hint_box = stop.bounding_box(), hint.bounding_box()
+    # The button keeps one line's height, with the hint directly under it.
+    assert button_box["height"] <= 60, button_box
+    assert 0 <= hint_box["y"] - (button_box["y"] + button_box["height"]) <= 12
 
     organizer.press(stop)
     expect(organizer.state(visit)).to_have_text("已停止")

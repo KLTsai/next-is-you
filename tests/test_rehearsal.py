@@ -47,7 +47,7 @@ def control(page, origin, operation, data=None):
     return response.json() if response.status != 204 else {}
 
 
-def test_rehearsal_empty_dashboard_keeps_reminder_status_list_visible(tmp_path, screen):
+def test_rehearsal_empty_dashboard_keeps_the_running_section_visible(tmp_path, screen):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context(**screen)
@@ -64,9 +64,9 @@ def test_rehearsal_empty_dashboard_keeps_reminder_status_list_visible(tmp_path, 
             with rehearsal(tmp_path) as origin:
                 page.goto(origin)
                 page.get_by_role("button", name="本機合成測試登入").click()
-                status_list = page.get_by_role("region", name="進行中")
-                expect(status_list).to_be_visible()
-                expect(status_list).to_contain_text("目前沒有進行中的叫號追蹤")
+                running_section = page.get_by_role("region", name="進行中")
+                expect(running_section).to_be_visible()
+                expect(running_section).to_contain_text("目前沒有進行中的叫號追蹤")
         finally:
             context.close()
             browser.close()
@@ -1188,7 +1188,7 @@ def test_setup_form_shows_the_readers_label_and_the_chosen_clinics_details(
             browser.close()
 
 
-def test_rehearsal_joined_family_member_is_told_how_to_return_to_the_manager_view(
+def test_rehearsal_joined_family_member_is_told_how_to_return_to_the_organizer_view(
     tmp_path,
 ):
     with sync_playwright() as playwright:

@@ -14,6 +14,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
 LOGIN_ERROR_PAGE = ROOT / "src" / "next_is_you" / "login_error_page.py"
+SOURCE_SUFFIXES = {".html", ".ts", ".js", ".css"}
 
 # The uses of 提醒 that name the whole service, not one visit or one message.
 KEPT_SERVICE_WIDE_USES = (
@@ -35,7 +36,9 @@ FORBIDDEN_WORDS = (
 
 def screen_source_files() -> list[Path]:
     pages = sorted(FRONTEND.glob("*.html"))
-    scripts = sorted(path for path in (FRONTEND / "src").rglob("*") if path.is_file())
+    scripts = sorted(
+        path for path in (FRONTEND / "src").rglob("*") if path.suffix in SOURCE_SUFFIXES
+    )
     assert pages, "no frontend page found; the scan would pass vacuously"
     assert scripts, "no frontend source found; the scan would pass vacuously"
     return [*pages, *scripts, LOGIN_ERROR_PAGE]

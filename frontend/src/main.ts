@@ -41,6 +41,8 @@ const sessionNames: Record<OrganizerVisit["session"], string> = {
   afternoon: "午診",
   evening: "晚診",
 };
+// One sentence for the Stop confirmation and the stopped card.
+const ORGANIZER_STOPPED_TEXT = "已停止追蹤，不會再發新的 LINE 通知。";
 const sourceReasons: Record<string, string> = {
   none: "來源資料已核對",
   no_observation: "尚無院方觀察",
@@ -462,7 +464,7 @@ function visitCard(item: OrganizerVisit): string {
     ${active ? `<div class="stop-row"><div><p>${pendingStop ? "停止請求處理中…" : "追蹤中。停止確認後，系統會停止後續檢查與通知。"}</p><small>停止完成前，狀態仍以服務回覆為準。</small></div><div class="stop-action"><button class="stop-button" type="button" data-stop="${escapeHtml(item.id)}" aria-describedby="stop-hint-${escapeHtml(item.id)}" ${pendingStop ? "disabled" : ""}>${pendingStop ? "停止中" : "停止追蹤"}</button><small id="stop-hint-${escapeHtml(item.id)}">看完診或不需要時按，停止後無法恢復。</small></div></div>` : ""}
     ${interruptionNotice ? `<p class="inline-state send-interruption" role="status">${escapeHtml(interruptionNotice)}</p>` : ""}
     ${item.state === "stopping" ? `<p class="inline-state" role="status">停止已送出，正在等候關閉確認。</p>` : ""}
-    ${item.state === "stopped" ? `<p class="inline-state" role="status">已停止追蹤，不會再發新的 LINE 通知。</p>` : ""}
+    ${item.state === "stopped" ? `<p class="inline-state" role="status">${ORGANIZER_STOPPED_TEXT}</p>` : ""}
     ${item.state === "expired" ? `<p class="inline-state" role="status">這筆追蹤已結束。修正日期或診次並儲存後，可重新檢查並啟動同一筆追蹤。</p>` : ""}
     ${pendingStart ? `<p class="inline-state" role="status">正在檢查可信院方觀察…</p>` : ""}
     ${startFailures.has(item.id) && !pendingStart && item.state === "draft" ? `<p class="inline-state inline-error" role="alert">${escapeHtml(startFailures.get(item.id)?.text ?? "")}${runningVisitLink(item)}</p>` : ""}
@@ -984,7 +986,7 @@ function bindActions(): void {
       visits = visits.map((visit) => visit.id === id
         ? { ...visit, state: result.state }
         : visit);
-      message = result.state === "stopped" ? "已停止追蹤，不會再發新的 LINE 通知。" : "停止請求已送出，正在等候關閉確認。";
+      message = result.state === "stopped" ? ORGANIZER_STOPPED_TEXT : "停止請求已送出，正在等候關閉確認。";
     } catch (error) {
       message = errorText(error);
     } finally {

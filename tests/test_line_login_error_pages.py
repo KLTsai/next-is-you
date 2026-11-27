@@ -211,7 +211,7 @@ def test_callback_for_an_invitation_used_in_the_meantime_shows_plain_page():
     run(scenario())
 
 
-def test_callback_for_an_account_that_is_not_the_manager_shows_plain_page():
+def test_callback_for_an_account_that_is_not_an_organizer_shows_plain_page():
     async def scenario():
         async with client_for(make_app(SQLiteStore())) as http:
             start = await http.get("/auth/line")

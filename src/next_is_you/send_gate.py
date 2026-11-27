@@ -20,6 +20,8 @@ from next_is_you.persistence import CloudflareD1Store, VisitRepository
 from next_is_you.storage import TAIPEI, Statement
 from next_is_you.visit_lifecycle import (
     ACTIVE,
+    STOPPED,
+    STOPPING,
     can_reopen_for_correction,
     can_start,
     can_stop,
@@ -50,6 +52,7 @@ from next_is_you.hospital_registry import (
     require_registered,
 )
 from next_is_you.ntuh_reader import WorkersFetcher
+from next_is_you.refusal_catalog import RefusalCode
 from next_is_you.scheduler import LifecycleCounts, OutboxScheduler, TickPlan
 
 try:
@@ -202,7 +205,16 @@ class SystemSendGate(_DurableObjectBase):
             )
 
     async def stop_visit(self, visit_id: str, now: str | None = None) -> str | None:
-        timestamp = _datetime(now)
+        """Stop a visit: its new state, a refusal code, or None when it is gone.
+
+        A refusal code the catalog does not list raises.
+        """
+        answer = await self._stop_visit(visit_id, _datetime(now))
+        if answer is None or answer in {STOPPING, STOPPED}:
+            return answer
+        return RefusalCode(answer).value
+
+    async def _stop_visit(self, visit_id: str, timestamp: datetime) -> str | None:
         async with self._stop_transition_lock:
             event_id = await self.ctx.storage.get("inflight_event_id")
             repository = self._repository()
@@ -210,7 +222,7 @@ class SystemSendGate(_DurableObjectBase):
                 str(event_id), visit_id
             ):
                 if not await self._check_ledger():
-                    return "scheduler_held"
+                    return RefusalCode.SCHEDULER_HELD
                 await self.ctx.storage.put("inflight_stop_visit_id", visit_id)
                 if await repository.lifecycle.request_stop_during_send(visit_id):
                     await self._save_ledger()
@@ -224,7 +236,7 @@ class SystemSendGate(_DurableObjectBase):
             if visit is None:
                 return None
             if not can_stop(visit["state"]):
-                return "invalid_lifecycle_state"
+                return RefusalCode.INVALID_LIFECYCLE_STATE
             state = await repository.lifecycle.stop(visit_id, timestamp)
             await self._save_ledger()
             return state
@@ -293,12 +305,15 @@ class SystemSendGate(_DurableObjectBase):
         polls them on visit day. A started visit brings the next alarm within a
         minute, so the reader's cadence starts now (ADR 0005). While any other
         visit is active or stopping, Start is refused first with
-        `another_visit_running` and stores nothing.
+        `another_visit_running` and stores nothing. A refusal code the catalog
+        does not list raises.
         """
         timestamp = _datetime(now)
         result = await self._start_visit(visit_id, timestamp)
         if result.get("state") == ACTIVE:
             await self._set_alarm(timestamp + ACTIVE_ALARM_DELAY, only_if_earlier=True)
+        if "error" in result:
+            result["error"] = RefusalCode(result["error"]).value
         return result
 
     async def _start_visit(self, visit_id: str, timestamp: datetime) -> dict[str, Any]:
@@ -306,31 +321,31 @@ class SystemSendGate(_DurableObjectBase):
             repository = self._repository()
             visit = await repository.get_visit(visit_id)
             if visit is None:
-                return {"error": "visit_not_found"}
+                return {"error": RefusalCode.VISIT_NOT_FOUND}
             if not can_start(visit["state"]):
-                return {"error": "invalid_lifecycle_state"}
+                return {"error": RefusalCode.INVALID_LIFECYCLE_STATE}
             # One running visit at a time (#172): the tick is not split per
             # visit yet, so a second one would exceed the Free plan CPU limit.
             # Checked under the gate lock before anything is read or stored.
             if await repository.has_other_running_visit(visit_id):
-                return {"error": "another_visit_running"}
+                return {"error": RefusalCode.ANOTHER_VISIT_RUNNING}
             visit_date = date.fromisoformat(str(visit["visit_date"]))
             today = timestamp.astimezone(TAIPEI).date()
             if visit_date < today:
                 await repository.set_source_read(
                     visit_id, "scope_mismatch", "scope_mismatch"
                 )
-                return {"error": "visit_date_past"}
+                return {"error": RefusalCode.VISIT_DATE_PAST}
             if timestamp >= visit_cutoff(visit_date):
-                return {"error": "invalid_lifecycle_state"}
+                return {"error": RefusalCode.INVALID_LIFECYCLE_STATE}
             if not await self._check_ledger():
-                return {"error": "scheduler_held"}
+                return {"error": RefusalCode.SCHEDULER_HELD}
             reader = await self._reader()
             if reader is None:
                 await repository.set_source_read(
                     visit_id, "unavailable", "no_observation"
                 )
-                return {"error": "observation_unavailable"}
+                return {"error": RefusalCode.OBSERVATION_UNAVAILABLE}
 
             current_number_only = (
                 isinstance(reader, RegistryHospitalReader)
@@ -348,7 +363,7 @@ class SystemSendGate(_DurableObjectBase):
                 # what today is; a refusal here changes nothing.
                 if visit_date > today:
                     return {
-                        "error": "start_on_visit_day_only",
+                        "error": RefusalCode.START_ON_VISIT_DAY_ONLY,
                         "visit_date": visit_date.isoformat(),
                     }
                 clinic_code = str(visit["clinic_code"])
@@ -363,7 +378,7 @@ class SystemSendGate(_DurableObjectBase):
                 substitute_doctor = bool(preflight.get("substitute_doctor"))
                 if visit_date > today:
                     if not await repository.lifecycle.start(visit_id, timestamp):
-                        return {"error": "ineligible_recipients"}
+                        return {"error": RefusalCode.INELIGIBLE_RECIPIENTS}
                     await repository.set_source_read(
                         visit_id, "unavailable", "no_observation"
                     )
@@ -390,7 +405,7 @@ class SystemSendGate(_DurableObjectBase):
                 )
             except (ValueError, TypeError, KeyError):
                 await repository.set_source_read(visit_id, "invalid", "invalid_data")
-                return {"error": "observation_invalid"}
+                return {"error": RefusalCode.OBSERVATION_INVALID}
             observation = await reader.observe_for_start(scope, timestamp)
             if (
                 clinic_identified
@@ -402,7 +417,7 @@ class SystemSendGate(_DurableObjectBase):
                 # clinic calls. A situation no one has observed yet sends nothing
                 # and is recorded by the reader, so it does not refuse Start either.
                 if not await repository.lifecycle.start(visit_id, timestamp):
-                    return {"error": "ineligible_recipients"}
+                    return {"error": RefusalCode.INELIGIBLE_RECIPIENTS}
                 await repository.set_source_read(
                     visit_id,
                     *(observation.source_read or ("unavailable", "no_observation")),
@@ -417,7 +432,7 @@ class SystemSendGate(_DurableObjectBase):
                 )
                 await repository.set_source_read(visit_id, status, reason)
                 if reason == "ambiguous_match":
-                    return {"error": "clinic_ambiguous"}
+                    return {"error": RefusalCode.CLINIC_AMBIGUOUS}
                 if current_number_only:
                     return {"error": _current_number_only_error(observation)}
                 return {"error": _START_ERRORS[status]}
@@ -426,23 +441,23 @@ class SystemSendGate(_DurableObjectBase):
                     visit_id, "unavailable", "no_observation"
                 )
                 if current_number_only:
-                    return {"error": "hospital_page_unreachable"}
-                return {"error": "observation_unavailable"}
+                    return {"error": RefusalCode.HOSPITAL_PAGE_UNREACHABLE}
+                return {"error": RefusalCode.OBSERVATION_UNAVAILABLE}
             try:
                 observed_at = _datetime(observation.observed_at)
             except (AttributeError, TypeError, ValueError):
                 await repository.set_source_read(visit_id, "invalid", "invalid_data")
-                return {"error": "observation_invalid"}
+                return {"error": RefusalCode.OBSERVATION_INVALID}
             if observed_at > timestamp or timestamp - observed_at > timedelta(
                 minutes=2
             ):
                 await repository.set_source_read(visit_id, "stale", "stale_sample")
-                return {"error": "observation_stale"}
+                return {"error": RefusalCode.OBSERVATION_STALE}
             if observation.scope != scope:
                 await repository.set_source_read(
                     visit_id, "scope_mismatch", "scope_mismatch"
                 )
-                return {"error": "observation_scope_mismatch"}
+                return {"error": RefusalCode.OBSERVATION_SCOPE_MISMATCH}
             if (
                 not observation.trustworthy_current
                 or isinstance(observation.current_number, bool)
@@ -452,9 +467,9 @@ class SystemSendGate(_DurableObjectBase):
                 await repository.set_source_read(
                     visit_id, "untrusted", "untrusted_source"
                 )
-                return {"error": "observation_untrusted"}
+                return {"error": RefusalCode.OBSERVATION_UNTRUSTED}
             if not await repository.lifecycle.start(visit_id, timestamp):
-                return {"error": "ineligible_recipients"}
+                return {"error": RefusalCode.INELIGIBLE_RECIPIENTS}
             await repository.update_observation(
                 visit_id,
                 current_number=observation.current_number,
@@ -495,7 +510,7 @@ class SystemSendGate(_DurableObjectBase):
             session_enum = ClinicSession(str(visit["clinic_session"]))
         except (ValueError, TypeError, KeyError):
             await repository.set_source_read(visit_id, "invalid", "invalid_data")
-            return {"error": "observation_invalid"}
+            return {"error": RefusalCode.OBSERVATION_INVALID}
 
         clinic_code = str(visit["clinic_code"])
 
@@ -512,7 +527,9 @@ class SystemSendGate(_DurableObjectBase):
         if match.kind is MatchKind.NOT_YET_PUBLISHED:
             # Nothing to check against yet: the draft is valid and merely
             # early, so it is kept unchanged (ticket #101), matching the sweep.
-            refusal: dict[str, Any] = {"error": "visit_date_out_of_schedule_window"}
+            refusal: dict[str, Any] = {
+                "error": RefusalCode.VISIT_DATE_OUT_OF_SCHEDULE_WINDOW
+            }
             if match.schedule_end is not None:
                 refusal["schedule_end"] = match.schedule_end.isoformat()
             if match.release_time is not None:
@@ -522,30 +539,30 @@ class SystemSendGate(_DurableObjectBase):
             await repository.set_source_read(
                 visit_id, "scope_mismatch", "scope_mismatch"
             )
-            return {"error": "doctor_not_scheduled"}
+            return {"error": RefusalCode.DOCTOR_NOT_SCHEDULED}
         if match.kind is MatchKind.NOT_APPLICABLE:
             # Start has no schedule to consult for this hospital, so it cannot
             # admit the draft: fail closed like any unavailable schedule.
             await repository.set_source_read(visit_id, "unavailable", "no_observation")
-            return {"error": "schedule_unavailable"}
+            return {"error": RefusalCode.SCHEDULE_UNAVAILABLE}
         if match.kind is MatchKind.UNAVAILABLE:
             if match.reason == "visit_date_past":
                 await repository.set_source_read(
                     visit_id, "scope_mismatch", "scope_mismatch"
                 )
-                return {"error": "visit_date_past"}
+                return {"error": RefusalCode.VISIT_DATE_PAST}
             if match.reason == "scope_mismatch":
                 await repository.set_source_read(
                     visit_id, "scope_mismatch", "scope_mismatch"
                 )
-                return {"error": "observation_scope_mismatch"}
+                return {"error": RefusalCode.OBSERVATION_SCOPE_MISMATCH}
             if match.reason == "invalid_data":
                 await repository.set_source_read(visit_id, "invalid", "invalid_data")
-                return {"error": "observation_invalid"}
+                return {"error": RefusalCode.OBSERVATION_INVALID}
             if match.reason == "ambiguous_match":
                 # Several of the day's cards fit, so no card is guessed.
                 await repository.set_source_read(visit_id, "invalid", "ambiguous_match")
-                return {"error": "clinic_ambiguous"}
+                return {"error": RefusalCode.CLINIC_AMBIGUOUS}
             source_reason_map = {
                 "no_observation": "no_observation",
                 "schema_drift": "schema_drift",
@@ -557,7 +574,7 @@ class SystemSendGate(_DurableObjectBase):
             }
             source_reason = source_reason_map.get(match.reason, "no_observation")
             await repository.set_source_read(visit_id, "unavailable", source_reason)
-            return {"error": "schedule_unavailable"}
+            return {"error": RefusalCode.SCHEDULE_UNAVAILABLE}
 
         if (
             visit_date == today
@@ -1082,15 +1099,17 @@ _START_WAITS = frozenset(
 )
 
 _START_ERRORS = {
-    "unavailable": "observation_unavailable",
-    "stale": "observation_stale",
-    "scope_mismatch": "observation_scope_mismatch",
-    "untrusted": "observation_untrusted",
-    "invalid": "observation_invalid",
+    "unavailable": RefusalCode.OBSERVATION_UNAVAILABLE,
+    "stale": RefusalCode.OBSERVATION_STALE,
+    "scope_mismatch": RefusalCode.OBSERVATION_SCOPE_MISMATCH,
+    "untrusted": RefusalCode.OBSERVATION_UNTRUSTED,
+    "invalid": RefusalCode.OBSERVATION_INVALID,
 }
 
 
-def _current_number_only_error(observation: ReadSkipped | ReadFailed) -> str:
+def _current_number_only_error(
+    observation: ReadSkipped | ReadFailed,
+) -> RefusalCode:
     """Split a refused Start read into "cannot find the clinic" and "unreachable".
 
     A skipped read means the hospital answered but the clinic is not open yet or
@@ -1099,13 +1118,13 @@ def _current_number_only_error(observation: ReadSkipped | ReadFailed) -> str:
     """
     if isinstance(observation, ReadSkipped):
         if observation.reason in {"clinic_not_started", "clinic_ended"}:
-            return "hospital_cannot_find_clinic"
-        return "hospital_page_unreachable"
+            return RefusalCode.HOSPITAL_CANNOT_FIND_CLINIC
+        return RefusalCode.HOSPITAL_PAGE_UNREACHABLE
     if observation.reason in {"empty_result", "scope_mismatch", "ambiguous_match"}:
-        return "hospital_cannot_find_clinic"
+        return RefusalCode.HOSPITAL_CANNOT_FIND_CLINIC
     if observation.status == "unavailable":
-        return "hospital_page_unreachable"
-    return _START_ERRORS.get(observation.status, "observation_unavailable")
+        return RefusalCode.HOSPITAL_PAGE_UNREACHABLE
+    return _START_ERRORS.get(observation.status, RefusalCode.OBSERVATION_UNAVAILABLE)
 
 
 def _test_progress_fields(progress: Mapping[str, Any]) -> dict[str, Any]:

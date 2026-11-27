@@ -270,6 +270,21 @@ function errorMarkup(field: string): string {
     : "";
 }
 
+// A field named by its visible label alone and described by its helper text.
+// The label wraps nothing else, so neither `afterControl` (a preview or a detail
+// list) nor an error joins the field's name.
+function describedFieldMarkup(
+  name: string,
+  label: string,
+  control: (attributes: string) => string,
+  help: string,
+  afterControl = "",
+): string {
+  const id = `field-${name}`;
+  const helpId = `${id}-help`;
+  return `<div class="field"><label for="${id}">${label}</label>${control(`id="${id}" name="${name}" aria-describedby="${helpId}"`)}${afterControl}<small id="${helpId}">${help}</small>${errorMarkup(name)}</div>`;
+}
+
 // The manual clinic-code parse preview, labelled from the catalog so it carries
 // no hard-coded hospital format. Returned separately so it can be patched in
 // place on input without re-rendering (and destroying) the whole form.
@@ -314,8 +329,14 @@ function clinicSectionMarkup(
     const detailRows = (chosen?.details ?? [])
       .map((detail) => `<div><dt>${escapeHtml(detail.label)}</dt><dd>${escapeHtml(detail.value)}</dd></div>`)
       .join("");
-    const detailList = detailRows ? `<dl class="clinic-details" aria-label="院方公布的此診的資料">${detailRows}</dl>` : "";
-    return `<label class="field"><span>醫師 / 診間</span><select name="clinic_code" required><option value="" ${selectedClinic ? "" : "selected"}>請選擇醫師</option>${options}</select><input type="hidden" name="session" value="${escapeHtml(chosen?.session ?? "")}">${detailList}<small>${helper}</small>${errorMarkup("clinic_code")}</label>`;
+    const detailList = detailRows ? `<dl class="clinic-details" role="group" aria-label="院方公布的此診的資料">${detailRows}</dl>` : "";
+    return describedFieldMarkup(
+      "clinic_code",
+      "醫師 / 診間",
+      (attributes) => `<select ${attributes} required><option value="" ${selectedClinic ? "" : "selected"}>請選擇醫師</option>${options}</select><input type="hidden" name="session" value="${escapeHtml(chosen?.session ?? "")}">`,
+      helper,
+      detailList,
+    );
   }
 
   // Manual entry: a day the hospital has not published, past date (defensive),
@@ -347,9 +368,16 @@ function clinicSectionMarkup(
   const sessionOptions = (["morning", "afternoon", "evening"] as const)
     .map((value) => `<option value="${value}" ${selectedSession === value ? "selected" : ""}>${sessionNames[value]}</option>`)
     .join("");
+  const codeField = describedFieldMarkup(
+    "clinic_code",
+    "診間代碼",
+    (attributes) => `<input ${attributes} maxlength="64" value="${escapeHtml(selectedClinic)}" autocomplete="off" required>`,
+    "比對忽略大小寫、空白、標點；上面的即時預覽顯示系統讀到的內容供你核對。",
+    preview,
+  );
   return `<p class="edit-notice">${escapeHtml(notice)}</p>
     <p class="source-ref">${sourceLinkMarkup(entry.source_url)}<small>${formatHint}</small></p>
-    <label class="field"><span>診間代碼</span><input name="clinic_code" maxlength="64" value="${escapeHtml(selectedClinic)}" autocomplete="off" required>${preview}<small>比對忽略大小寫、空白、標點；上面的即時預覽顯示系統讀到的內容供你核對。</small>${errorMarkup("clinic_code")}</label>
+    ${codeField}
     <label class="field"><span>診次</span><select name="session" required>${sessionOptions}</select>${errorMarkup("session")}</label>`;
 }
 
@@ -395,7 +423,12 @@ function formMarkup(): string {
     const departmentField = `<label class="field"><span>科別</span><select name="department_code" required>${deptPrompt}${deptOptions}</select>${errorMarkup("department_code")}</label>`;
     const dateField = `<label class="field"><span>看診日期</span><input name="date" type="date" value="${escapeHtml(selectedDate)}" required>${errorMarkup("date")}</label>`;
     const clinicSection = clinicSectionMarkup(entry, selectedDept, selectedDate, selectedClinic, selectedSession);
-    const patientField = `<label class="field"><span>掛號序號</span><input name="patient_number" type="text" inputmode="numeric" pattern="[1-9][0-9]{0,5}" maxlength="6" title="請輸入 1 到 999999 的數字" value="${escapeHtml(formValue("patient_number", initialPatientNumber ?? ""))}" required><small>僅供這筆追蹤使用；已儲存草稿會顯示序號，方便辨識。</small>${errorMarkup("patient_number")}</label>`;
+    const patientField = describedFieldMarkup(
+      "patient_number",
+      "掛號序號",
+      (attributes) => `<input ${attributes} type="text" inputmode="numeric" pattern="[1-9][0-9]{0,5}" maxlength="6" title="請輸入 1 到 999999 的數字" value="${escapeHtml(formValue("patient_number", initialPatientNumber ?? ""))}" required>`,
+      "僅供這筆追蹤使用；已儲存草稿會顯示序號，方便辨識。",
+    );
     body = `<div class="form-grid">${departmentField}${dateField}</div>${clinicSection}${patientField}`;
   }
 

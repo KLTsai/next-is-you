@@ -23,6 +23,7 @@ import pytest
 from playwright.sync_api import expect, sync_playwright
 
 from organizer_page import (
+    CLINIC,
     UNREADABLE_SOURCE_TEXT,
     FakeBackend,
     OrganizerPage,
@@ -279,6 +280,95 @@ def test_a_doctor_chosen_from_the_published_clinics_survives_repaints(organizer)
     organizer.wait_for_repaints(2)
     expect(doctors).to_have_value(chosen)
     assert organizer.form_values() == entered
+
+
+# Setup form
+
+
+def test_the_note_before_the_day_is_chosen_stands_apart_from_the_next_field(organizer):
+    organizer.open("stopped")
+    form = organizer.page.locator("#visit-form")
+    note = form.get_by_text("請先選擇科別與看診日期。", exact=True)
+    expect(note).to_be_visible()
+    next_label = form.get_by_text("掛號序號", exact=True)
+    gap = organizer.box(next_label)["top"] - organizer.box(note)["bottom"]
+    assert gap >= 8
+
+
+def test_the_official_source_link_looks_the_same_on_the_form_as_on_a_card(organizer):
+    [visit] = organizer.open("stopped")
+    organizer.field("date").fill(visit_day())
+    expect(organizer.field("clinic_code")).to_be_visible()
+    name = "開啟院方官方來源（新分頁）"
+    on_card = organizer.card(visit).get_by_role("link", name=name)
+    on_form = organizer.page.locator("#visit-form").get_by_role("link", name=name)
+    for style in ("color", "font-weight"):
+        expected = on_card.evaluate(
+            "(link, style) => getComputedStyle(link).getPropertyValue(style)", style
+        )
+        expect(on_form).to_have_css(style, expected)
+    # Only the words are the link, as on the card, not the whole row.
+    row = organizer.page.locator("#visit-form .source-ref")
+    assert organizer.box(on_form)["width"] < organizer.box(row)["width"]
+
+
+PATIENT_NUMBER_HELP = "僅供這筆追蹤使用；已儲存草稿會顯示序號，方便辨識。"
+CLINIC_CODE_HELP = (
+    "比對忽略大小寫、空白、標點；上面的即時預覽顯示系統讀到的內容供你核對。"
+)
+DOCTOR_HELP = (
+    "只列出該日該科排班的醫師；診間與診次自動帶入。"
+    "院方可能調整排班，系統每天會重新核對，按開始時也會再核對一次。"
+)
+
+
+def expect_named(field, name, help_text):
+    """The field is called by its visible name alone; its helper describes it."""
+    expect(field).to_have_accessible_name(name)
+    expect(field).to_have_accessible_description(help_text)
+
+
+def press_field_name(organizer, name, field):
+    form = organizer.page.locator("#visit-form")
+    organizer.press(form.get_by_text(name, exact=True))
+    expect(field).to_be_focused()
+
+
+def test_the_typed_clinic_and_number_fields_are_named_by_their_names_alone(organizer):
+    organizer.open("stopped")
+    number = organizer.field("patient_number")
+    expect_named(number, "掛號序號", PATIENT_NUMBER_HELP)
+    organizer.field("date").fill(visit_day())
+    clinic = organizer.field("clinic_code")
+    expect_named(clinic, "診間代碼", CLINIC_CODE_HELP)
+    clinic.fill(CLINIC)
+    expect(organizer.page.locator("#clinic-preview")).to_be_visible()
+    expect_named(clinic, "診間代碼", CLINIC_CODE_HELP)
+    press_field_name(organizer, "診間代碼", clinic)
+    press_field_name(organizer, "掛號序號", number)
+
+
+def test_the_published_doctor_field_is_named_by_its_name_alone(organizer):
+    doctors = open_with_field(organizer, "clinic_code", published=True)
+    expect_named(doctors, "醫師 / 診間", DOCTOR_HELP)
+    doctors.select_option(index=1)
+    details = organizer.page.get_by_role(
+        "group", name="院方公布的此診的資料", exact=True
+    )
+    expect(details).to_be_visible()
+    expect(details).to_contain_text("合成醫師乙")
+    expect_named(doctors, "醫師 / 診間", DOCTOR_HELP)
+    press_field_name(organizer, "醫師 / 診間", doctors)
+
+    # The list offers only published clinics and the browser asks for one, so
+    # the page's own error shows only once that browser check is taken away.
+    doctors.select_option("")
+    organizer.field("patient_number").fill("88")
+    doctors.evaluate("field => { field.required = false; }")
+    organizer.press(organizer.button("建立草稿"))
+    error = organizer.page.locator("#visit-form").get_by_role("alert")
+    expect(error).to_have_text("請選擇醫師。")
+    expect_named(doctors, "醫師 / 診間", DOCTOR_HELP)
 
 
 # Success

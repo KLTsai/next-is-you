@@ -577,6 +577,24 @@ class OrganizerPage:
             if answer:
                 return answer[0]
 
+    def box(self, locator) -> dict:
+        """The element's box on the screen, measured between repaints."""
+        return self._on_page(
+            locator, "element => element.getBoundingClientRect().toJSON()"
+        )
+
+    def stop_layout(self, visit_id: str) -> dict:
+        """The Stop button's height and the gap to its hint, from one paint."""
+        return self._on_page(
+            self.card(visit_id),
+            """card => {
+                const button = card.querySelector(".stop-button");
+                const hint = card.querySelector(".stop-action small");
+                const box = button.getBoundingClientRect();
+                return { height: box.height, gap: hint.getBoundingClientRect().top - box.bottom };
+            }""",
+        )
+
     def is_off_screen(self, locator) -> bool:
         return self._on_page(
             locator,

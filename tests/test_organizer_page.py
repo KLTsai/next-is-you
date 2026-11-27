@@ -314,17 +314,17 @@ def test_a_running_visit_is_named_with_the_agreed_words_through_its_stop(organiz
     expect(running).to_be_visible()
     members_heading = organizer.heading("通知名單")
     # One line, also on a phone.
-    assert members_heading.bounding_box()["height"] <= 40
+    assert organizer.box(members_heading)["height"] <= 40
     expect(organizer.state(visit)).to_have_text("追蹤中")
     stop = organizer.stop_button(visit)
     expect(stop).to_have_text("停止追蹤")
     expect(stop).to_have_accessible_description(STOP_HINT)
     hint = organizer.card(visit).get_by_text(STOP_HINT, exact=True)
     expect(hint).to_be_visible()
-    button_box, hint_box = stop.bounding_box(), hint.bounding_box()
+    layout = organizer.stop_layout(visit)
     # The button keeps one line's height, with the hint directly under it.
-    assert button_box["height"] <= 60, button_box
-    assert 0 <= hint_box["y"] - (button_box["y"] + button_box["height"]) <= 12
+    assert layout["height"] <= 60, layout
+    assert 0 <= layout["gap"] <= 12, layout
 
     organizer.press(stop)
     expect(organizer.state(visit)).to_have_text("已停止")

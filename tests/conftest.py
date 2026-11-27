@@ -23,7 +23,7 @@ def built_ui() -> None:
 # time, so `npm test` leaves them out and `npm run test:all` runs them. The
 # markers come from the module source, so a new test in such a module, or a
 # new module that uses them, is marked without editing this file.
-BROWSER_MODULE_MARKERS = ("sync_playwright", "pywrangler")
+BROWSER_MODULE_MARKERS = ("sync_playwright", "pywrangler", "run_in_browser")
 
 
 def _is_browser_module(path: Path, cache: dict[Path, bool]) -> bool:

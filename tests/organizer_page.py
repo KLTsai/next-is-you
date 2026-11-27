@@ -26,7 +26,7 @@ from playwright.sync_api import expect
 
 RECIPIENT_ID = "synthetic-recipient"
 CLINIC = "SYN-1 診/合成醫師甲/門診約診"
-UNREADABLE_SOURCE_TEXT = "目前沒有可用的可信院方觀察，提醒維持草稿。"
+UNREADABLE_SOURCE_TEXT = "目前沒有可用的可信院方觀察，維持草稿。"
 
 
 def _published_clinic(session: str, doctor: str, label: str) -> dict:

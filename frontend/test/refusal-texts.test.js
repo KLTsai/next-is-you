@@ -9,7 +9,7 @@ test("visitErrorMessage maps the backend's Start-time error codes to user-facing
   assert.equal(visitErrorMessage("visit_date_out_of_schedule_window"), "");
   assert.ok(visitErrorMessage("visit_date_past").includes("看診日期已過"));
   assert.ok(visitErrorMessage("clinic_combo_mismatch").includes("組合"));
-  assert.equal(visitErrorMessage("observation_unavailable"), "目前沒有可用的可信院方觀察，提醒維持草稿。");
+  assert.equal(visitErrorMessage("observation_unavailable"), "目前沒有可用的可信院方觀察，維持草稿。");
   assert.equal(visitErrorMessage("not_a_refusal_code"), "");
   assert.equal(visitErrorMessage("toString"), "");
   assert.equal(visitErrorMessage(""), "");
@@ -75,11 +75,11 @@ test("startRefusalMessage falls back to a plain notice, never the reload hint, w
   assert.equal(startRefusalMessage({ code: "not_a_refusal_code" }), "");
   assert.equal(
     startRefusalMessage({ code: "visit_date_out_of_schedule_window", hospitalName: "合成醫院", visitDate: "2026-12-05" }),
-    "院方還沒公布這一天的門診表，公布後再開始提醒。",
+    "院方還沒公布這一天的門診表，公布後再開始追蹤。",
   );
   assert.equal(
     startRefusalMessage({ code: "visit_date_out_of_schedule_window", scheduleEnd: "2026-12-01", visitDate: "2026-12-05" }),
-    "院方還沒公布這一天的門診表，公布後再開始提醒。",
+    "院方還沒公布這一天的門診表，公布後再開始追蹤。",
   );
 });
 
@@ -97,7 +97,7 @@ test("a refused Start for a hospital with no clinic schedule names the visit day
 test("a refused Start while another visit runs tells the organizer to stop it first", () => {
   assert.equal(
     startRefusalMessage({ code: "another_visit_running" }),
-    "目前已有一個看診在監控中，請先停止它再開始這一個。",
+    "目前已有一筆追蹤在進行中，請先停止它再開始這一筆。",
   );
 });
 

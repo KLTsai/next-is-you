@@ -3,7 +3,7 @@ export const SOURCE_STATUSES = Object.freeze(["usable", "unavailable", "stale", 
 
 const STATE_LABELS = Object.freeze({
   draft: "草稿",
-  active: "監控中",
+  active: "追蹤中",
   stopping: "停止中",
   stopped: "已停止",
   expired: "已結束",
@@ -41,7 +41,7 @@ export function canRequestStart(visit) {
 
 // Not an attention reason: it is the environment's state, so it never clears a
 // visit's own reasons and disappears the moment sending resumes.
-const SEND_INTERRUPTION_NOTICE = "發送中斷中，提醒暫停";
+const SEND_INTERRUPTION_NOTICE = "LINE 通知暫停發送";
 
 export function sendInterruptionNotice(visit, sendingInterrupted) {
   return sendingInterrupted === true && visit?.state === "active" ? SEND_INTERRUPTION_NOTICE : null;

@@ -15,16 +15,16 @@ class LoginFailure:
     next_step: str
 
 
-UNAVAILABLE = LoginFailure(503, "LINE 登入目前無法使用。", "請稍後再試，或聯絡管理者。")
+UNAVAILABLE = LoginFailure(503, "LINE 登入目前無法使用。", "請稍後再試，或聯絡設定者。")
 INVITATION_INVALID = LoginFailure(
     410,
     "這個邀請連結已失效、過期，或已經被使用過。",
-    "請聯絡管理者重新發送邀請連結。",
+    "請聯絡設定者重新發送邀請連結。",
 )
 NOT_VERIFIED = LoginFailure(
     401,
     "無法確認你的 LINE 登入。",
-    "請重新開啟邀請連結再試一次；如果你是管理者，請重新開啟管理者登入頁。",
+    "請重新開啟邀請連結再試一次；如果你是設定者，請重新開啟設定者登入頁。",
 )
 FRIENDSHIP_UNVERIFIABLE = LoginFailure(
     503,
@@ -38,8 +38,8 @@ FRIENDSHIP_MISSING = LoginFailure(
 )
 NOT_MANAGER = LoginFailure(
     403,
-    "這個 LINE 帳號不是管理者。",
-    "如果你是受邀的家人，請使用管理者給你的邀請連結。",
+    "這個 LINE 帳號不是設定者。",
+    "如果你是受邀的家人，請使用設定者給你的邀請連結。",
 )
 
 

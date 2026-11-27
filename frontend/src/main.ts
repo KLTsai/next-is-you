@@ -47,14 +47,14 @@ const sourceReasons: Record<string, string> = {
   timeout: "院方來源逾時",
   stale_sample: "來源資料已過期",
   untrusted_source: "來源可信度尚未確認",
-  scope_mismatch: "來源診次與提醒不相符",
+  scope_mismatch: "來源診次與所選診次不相符",
   empty_result: "來源沒有可用資料",
   schema_drift: "來源格式無法辨識",
   access_denied: "來源拒絕讀取",
-  ambiguous_match: "有多個門診符合，系統不猜，不會發提醒。請重新選擇門診",
+  ambiguous_match: "有多個門診符合，系統不猜，不會發 LINE 通知。請重新選擇門診",
   invalid_data: "來源資料無效",
-  card_not_found: "今天院方名單上找不到這一診，系統會繼續找。請向診間確認",
-  substitute_doctor: "今天由其他醫師代診，提醒照常。請確認是否仍要前往",
+  card_not_found: "今天院方名單上找不到此診，系統會繼續找。請向診間確認",
+  substitute_doctor: "今天由其他醫師代診，追蹤照常。請確認是否仍要前往",
 };
 
 let recipients: Recipient[] = [];
@@ -75,7 +75,7 @@ let editing: { visit: OrganizerVisit; mode: "update" | "correct" } | null = null
 let formValues: Record<string, string | string[]> | null = null;
 let initialPatientNumber: string | null = null;
 let discardFormOnNextRender = false;
-// What the organizer has typed in 成員稱呼. Every re-render rebuilds the field, so
+// What the organizer has typed in 稱呼. Every re-render rebuilds the field, so
 // the text lives here and is written back into it.
 let memberLabelDraft = "";
 const pendingStops = new Set<string>();
@@ -103,7 +103,7 @@ function text(value: string | number | null | undefined): string {
 
 function recipientLabel(recipient: Recipient): string {
   const label = recipient.display_name.trim();
-  return label || `成員 · ${recipient.id.slice(0, 6)}`;
+  return label || `未命名 · ${recipient.id.slice(0, 6)}`;
 }
 
 function hospitalEntry(hospital: string): HospitalCatalogEntry | undefined {
@@ -158,7 +158,7 @@ function errorText(error: unknown): string {
   // come from the setup endpoints, not from Start.
   const labels: Record<string, string> = {
     invalid_request: "資料不完整或格式不正確，請檢查後再試。",
-    hospital_unsupported: "這家醫院目前無法設定提醒，請改選其他醫院。",
+    hospital_unsupported: "這家醫院目前無法設定叫號追蹤，請改選其他醫院。",
   };
   if (error.status === 401 || error.status === 403) return "登入已失效或目前帳號沒有管理權限。";
   const refusalText = visitErrorMessage(error.code, { visitDate: error.visitDate });
@@ -184,8 +184,8 @@ function startFailureText(error: unknown, item: OrganizerVisit): string {
 
 function renderLogin(): string {
   return `<section class="panel login-panel" aria-labelledby="login-heading">
-    <p class="eyebrow">管理者登入</p><h1 id="login-heading">登入以管理家人提醒</h1>
-    <p class="intro">只有已授權的管理者能查看或修改提醒。請使用已設定的 LINE Login。</p>
+    <p class="eyebrow">設定者登入</p><h1 id="login-heading">登入以管理家人提醒</h1>
+    <p class="intro">只有已授權的設定者能查看或修改叫號追蹤。請使用已設定的 LINE Login。</p>
     ${message ? `<p class="message message-warning" role="status">${escapeHtml(message)}</p>` : ""}
     <div class="login-actions"><a class="primary-button link-button" href="/auth/line">使用 LINE Login</a>${localTestMode ? '<button class="secondary-button" id="synthetic-login" type="button">本機合成測試登入</button>' : ""}</div>
     ${localTestMode ? '<p class="gate-note">本機合成測試登入不會呼叫 LINE。</p>' : ""}
@@ -253,7 +253,7 @@ function hasUnsavedFormChanges(): boolean {
 
 function blockNavigationWithUnsavedChanges(): boolean {
   if (!hasUnsavedFormChanges()) return false;
-  message = "目前設定尚未儲存。請先儲存或取消修正，再開啟其他提醒。";
+  message = "目前設定尚未儲存。請先儲存或取消修正，再開啟其他追蹤。";
   renderDashboard();
   return true;
 }
@@ -365,8 +365,8 @@ function formMarkup(): string {
 
   const correctionIsExpired = item?.state === "expired";
   const formTitle = editing?.mode === "correct"
-    ? correctionIsExpired ? "修正已結束的提醒" : "修正已停止的提醒"
-    : item ? "修正草稿" : "建立候診提醒";
+    ? correctionIsExpired ? "修正已結束的追蹤" : "修正已停止的追蹤"
+    : item ? "修正草稿" : "建立叫號追蹤";
   const submitLabel = formSaving ? "儲存中…" : editing?.mode === "correct" ? "儲存修正並回到草稿" : item ? "儲存草稿" : "建立草稿";
   const showCancel = Boolean(item) || (!item && formValues !== null && hasUnsavedFormChanges());
   const cancelLabel = item ? "取消修正" : "清除未儲存草稿";
@@ -380,7 +380,7 @@ function formMarkup(): string {
 
   let body: string;
   if (!entry || capability === "unsupported") {
-    body = `<div class="state-off" role="status"><p class="state-off-title">此醫院尚未支援自動候診監控</p><p>目前無法取得這家醫院的即時候診進度，待來源確認後開通。</p></div>`;
+    body = `<div class="state-off" role="status"><p class="state-off-title">此醫院尚未支援叫號追蹤</p><p>目前無法取得這家醫院的即時候診進度，待來源確認後開通。</p></div>`;
   } else {
     const deptOptions = departments
       .map((dept) => `<option value="${escapeHtml(dept.code)}" ${selectedDept === dept.code ? "selected" : ""}>${escapeHtml(dept.display_name)}</option>`)
@@ -389,7 +389,7 @@ function formMarkup(): string {
     const departmentField = `<label class="field"><span>科別</span><select name="department_code" required>${deptPrompt}${deptOptions}</select>${errorMarkup("department_code")}</label>`;
     const dateField = `<label class="field"><span>看診日期</span><input name="date" type="date" value="${escapeHtml(selectedDate)}" required>${errorMarkup("date")}</label>`;
     const clinicSection = clinicSectionMarkup(entry, selectedDept, selectedDate, selectedClinic, selectedSession);
-    const patientField = `<label class="field"><span>掛號序號</span><input name="patient_number" type="text" inputmode="numeric" pattern="[1-9][0-9]{0,5}" maxlength="6" title="請輸入 1 到 999999 的數字" value="${escapeHtml(formValue("patient_number", initialPatientNumber ?? ""))}" required><small>僅供這筆提醒使用；已儲存草稿會顯示序號，方便辨識。</small>${errorMarkup("patient_number")}</label>`;
+    const patientField = `<label class="field"><span>掛號序號</span><input name="patient_number" type="text" inputmode="numeric" pattern="[1-9][0-9]{0,5}" maxlength="6" title="請輸入 1 到 999999 的數字" value="${escapeHtml(formValue("patient_number", initialPatientNumber ?? ""))}" required><small>僅供這筆追蹤使用；已儲存草稿會顯示序號，方便辨識。</small>${errorMarkup("patient_number")}</label>`;
     body = `<div class="form-grid">${departmentField}${dateField}</div>${clinicSection}${patientField}`;
   }
 
@@ -399,8 +399,8 @@ function formMarkup(): string {
   const submitDisabled = formSaving || rosterPending || !entry || capability === "unsupported" || hospitals.length === 0;
 
   return `<section class="panel" aria-labelledby="setup-heading">
-    <div class="panel-heading"><div><p class="eyebrow">提醒設定</p><h2 id="setup-heading">${formTitle}</h2></div><span class="step-count">${item ? formatVisitState(item.state) : "新草稿"}</span></div>
-    ${item ? `<p class="edit-notice" role="status">你正在修改已儲存的${editing?.mode === "correct" ? correctionIsExpired ? "已結束提醒" : "已停止提醒" : "草稿"}。畫面上的變更尚未儲存；取消會捨棄這次編輯，儲存後仍須重新檢查才能開始提醒。</p>` : `<p class="intro">先建立草稿，再由提醒清單檢查並開始。建立或儲存草稿不會啟動監控，也不會傳送通知。</p>`}
+    <div class="panel-heading"><div><p class="eyebrow">草稿設定</p><h2 id="setup-heading">${formTitle}</h2></div><span class="step-count">${item ? formatVisitState(item.state) : "新草稿"}</span></div>
+    ${item ? `<p class="edit-notice" role="status">你正在修改${editing?.mode === "correct" ? correctionIsExpired ? "已結束的追蹤" : "已停止的追蹤" : "已儲存的草稿"}。畫面上的變更尚未儲存；取消會捨棄這次編輯，儲存後仍須重新檢查才能開始追蹤。</p>` : `<p class="intro">先建立草稿，再在已儲存草稿檢查並開始。建立或儲存草稿不會開始追蹤，也不會傳送通知。</p>`}
     <form id="visit-form" novalidate>
       <fieldset class="hospital-options"><legend>醫院</legend>${hospitalRadios}</fieldset>
       ${body}
@@ -408,7 +408,7 @@ function formMarkup(): string {
       <div class="action-row"><button class="primary-button" type="submit" ${submitDisabled ? "disabled" : ""}>${submitLabel}</button>${showCancel ? `<button class="secondary-button" id="cancel-edit" type="button" ${formSaving ? "disabled" : ""}>${cancelLabel}</button>` : ""}</div>
       ${formSaving ? `<p class="inline-state" role="status">正在儲存${editing?.mode === "correct" ? "修正" : "草稿"}…</p>` : ""}
     </form>
-    <p class="gate-note">儲存只會建立或更新草稿。提醒清單會顯示 API 提供的院方官方來源連結；連結不代表已查詢院方資料。</p>
+    <p class="gate-note">儲存只會建立或更新草稿。進行中的叫號追蹤會顯示院方官方來源連結；連結不代表已查詢院方資料。</p>
   </section>`;
 }
 
@@ -421,7 +421,7 @@ function runningVisitLink(item: OrganizerVisit): string {
   // Stop on a visit with a send in flight leaves it `stopping` until the send
   // settles, and that still blocks Start: say so instead of a bare retry.
   const stoppingNote = running.state === "stopping" ? " 它正在停止中，確認關閉後即可再開始。" : "";
-  return `${stoppingNote} <a class="running-visit-link" href="#visit-${escapeHtml(running.id)}">前往監控中的看診</a>`;
+  return `${stoppingNote} <a class="running-visit-link" href="#visit-${escapeHtml(running.id)}">前往進行中的叫號追蹤</a>`;
 }
 
 function visitCard(item: OrganizerVisit): string {
@@ -439,7 +439,7 @@ function visitCard(item: OrganizerVisit): string {
       const pendingRemoval = pendingRecipientRemovals.has(removalKey);
       const label = recipientLabel(recipient);
       return `<li><span>${escapeHtml(label)}</span>${canRemoveRecipients ? `<button class="recipient-remove-button" type="button" data-remove-visit="${escapeHtml(item.id)}" data-remove-recipient="${escapeHtml(recipient.id)}" aria-label="移除通知對象 ${escapeHtml(label)}" ${pendingStop || pendingRemoval || cannotRemoveLastRecipient ? "disabled" : ""}>${pendingRemoval ? "移除中…" : "移除"}</button>` : ""}</li>`;
-    }).join("")}</ul>${cannotRemoveLastRecipient ? `<p class="gate-note">至少保留一位通知對象，才能繼續提醒或日後重新啟動。</p>` : ""}</div>`
+    }).join("")}</ul>${cannotRemoveLastRecipient ? `<p class="gate-note">至少保留一位通知對象，才能繼續追蹤或日後重新啟動。</p>` : ""}</div>`
     : "沒有選取通知對象";
   const notification = item.notification;
   const sourceStatus = item.source_read?.status ?? "unavailable";
@@ -459,15 +459,15 @@ function visitCard(item: OrganizerVisit): string {
       <div><dt>來源狀態</dt><dd>${escapeHtml(formatSourceStatus(sourceStatus))} · ${escapeHtml(sourceReason)}</dd></div>
       <div><dt>訊息傳送結果</dt><dd>共 ${notification.count} 則；已接受 ${notification.accepted} 則；需留意 ${notification.issues} 則</dd></div>
     </dl>
-    ${active ? `<div class="stop-row"><div><p>${pendingStop ? "停止請求處理中…" : "監控中。停止確認後，系統會停止後續檢查與通知。"}</p><small>停止完成前，狀態仍以服務回覆為準。</small></div><button class="stop-button" type="button" data-stop="${escapeHtml(item.id)}" ${pendingStop ? "disabled" : ""}>${pendingStop ? "停止中" : "停止提醒"}</button></div>` : ""}
+    ${active ? `<div class="stop-row"><div><p>${pendingStop ? "停止請求處理中…" : "追蹤中。停止確認後，系統會停止後續檢查與通知。"}</p><small>停止完成前，狀態仍以服務回覆為準。</small></div><div class="stop-action"><button class="stop-button" type="button" data-stop="${escapeHtml(item.id)}" aria-describedby="stop-hint-${escapeHtml(item.id)}" ${pendingStop ? "disabled" : ""}>${pendingStop ? "停止中" : "停止追蹤"}</button><small id="stop-hint-${escapeHtml(item.id)}">看完診或不需要時按，停止後無法恢復。</small></div></div>` : ""}
     ${interruptionNotice ? `<p class="inline-state send-interruption" role="status">${escapeHtml(interruptionNotice)}</p>` : ""}
     ${item.state === "stopping" ? `<p class="inline-state" role="status">停止已送出，正在等候關閉確認。</p>` : ""}
-    ${item.state === "stopped" ? `<p class="inline-state" role="status">提醒已停止。</p>` : ""}
-    ${item.state === "expired" ? `<p class="inline-state" role="status">此提醒已結束。修正日期或診次並儲存後，可重新檢查並啟動同一筆提醒。</p>` : ""}
+    ${item.state === "stopped" ? `<p class="inline-state" role="status">已停止追蹤，不會再發新的 LINE 通知。</p>` : ""}
+    ${item.state === "expired" ? `<p class="inline-state" role="status">這筆追蹤已結束。修正日期或診次並儲存後，可重新檢查並啟動同一筆追蹤。</p>` : ""}
     ${pendingStart ? `<p class="inline-state" role="status">正在檢查可信院方觀察…</p>` : ""}
     ${startFailures.has(item.id) && !pendingStart && item.state === "draft" ? `<p class="inline-state inline-error" role="alert">${escapeHtml(startFailures.get(item.id)?.text ?? "")}${runningVisitLink(item)}</p>` : ""}
     <div class="visit-actions">
-      ${item.state === "draft" ? `<button class="secondary-button" type="button" data-edit="${escapeHtml(item.id)}">修正草稿</button><button class="primary-button" type="button" data-start="${escapeHtml(item.id)}" ${canRequestStart(item) && !pendingStart && editing?.visit.id !== item.id ? "" : "disabled"}>${pendingStart ? "重新檢查中…" : "重新檢查並開始提醒"}</button>` : ""}
+      ${item.state === "draft" ? `<button class="secondary-button" type="button" data-edit="${escapeHtml(item.id)}">修正草稿</button><button class="primary-button" type="button" data-start="${escapeHtml(item.id)}" ${canRequestStart(item) && !pendingStart && editing?.visit.id !== item.id ? "" : "disabled"}>${pendingStart ? "重新檢查中…" : "重新檢查並開始"}</button>` : ""}
       ${item.state === "stopped" ? `<button class="secondary-button" type="button" data-correct="${escapeHtml(item.id)}">修正後重新檢查</button>` : ""}
       ${item.state === "expired" ? `<button class="secondary-button" type="button" data-correct="${escapeHtml(item.id)}">修正後重新啟動</button>` : ""}
     </div>
@@ -477,16 +477,16 @@ function visitCard(item: OrganizerVisit): string {
 
 function membersPanel(): string {
   return `<section class="panel members-panel" aria-labelledby="members-heading">
-    <div class="panel-heading"><div><p class="eyebrow">成員管理</p><h2 id="members-heading">家庭成員</h2></div><div class="invite-controls"><label class="invite-label" for="member-label">成員稱呼</label><input id="member-label" type="text" maxlength="40" placeholder="例如：媽媽" value="${escapeHtml(memberLabelDraft)}"><button class="primary-button" id="invite-member" type="button" ${invitationCreating ? "disabled" : ""}>${invitationCreating ? "建立邀請中…" : "邀請新成員"}</button></div></div>
+    <div class="panel-heading"><h2 id="members-heading">通知名單</h2><div class="invite-controls"><label class="invite-label" for="member-label">稱呼</label><input id="member-label" type="text" maxlength="40" placeholder="例如：媽媽" value="${escapeHtml(memberLabelDraft)}"><button class="primary-button" id="invite-member" type="button" ${invitationCreating ? "disabled" : ""}>${invitationCreating ? "建立邀請中…" : "邀請家人"}</button></div></div>
     ${invitationError ? `<p class="message message-warning" role="alert">${escapeHtml(invitationError)}</p>` : ""}
     ${invitationUrl ? `<div class="invitation-link"><label for="invitation-url-input">邀請連結（限一次使用）</label><div class="invitation-link-row"><input id="invitation-url-input" type="text" readonly value="${escapeHtml(invitationUrl)}"><button class="secondary-button" id="copy-invitation" type="button">${copyFeedback || "複製連結"}</button></div><p class="gate-note">請自行透過你的 LINE 將這個連結傳送給家人；連結限一次使用，使用後即失效。</p></div>` : ""}
     ${recipients.length
       ? `<ul class="member-list">${recipients.map((recipient) => {
         const pending = pendingMemberWithdrawals.has(recipient.id);
         const label = recipientLabel(recipient);
-        return `<li><span>${escapeHtml(label)}</span><button class="recipient-remove-button" type="button" data-withdraw-member="${escapeHtml(recipient.id)}" aria-label="移除成員 ${escapeHtml(label)}" ${pending ? "disabled" : ""}>${pending ? "移除中…" : "移除"}</button></li>`;
+        return `<li><span>${escapeHtml(label)}</span><button class="recipient-remove-button" type="button" data-withdraw-member="${escapeHtml(recipient.id)}" aria-label="從通知名單移除 ${escapeHtml(label)}" ${pending ? "disabled" : ""}>${pending ? "移除中…" : "移除"}</button></li>`;
       }).join("")}</ul>`
-      : `<p class="empty-inline">目前沒有已加入的成員。</p>`}
+      : `<p class="empty-inline">通知名單目前沒有人。</p>`}
   </section>`;
 }
 
@@ -618,13 +618,13 @@ function renderDashboard(preserveCurrentForm = true): void {
   }
   const { drafts, reminders, reminderCount } = projectDashboardVisits(visits);
   const fieldFocus = captureFieldFocus();
-  app.innerHTML = `<div class="dashboard-top"><div><p class="eyebrow">安全的提醒管理</p><h1>看診提醒</h1></div><button class="secondary-button refresh-button" id="refresh" type="button" ${loading ? "disabled" : ""}>重新整理</button></div>
+  app.innerHTML = `<div class="dashboard-top"><h1>叫號追蹤</h1><button class="secondary-button refresh-button" id="refresh" type="button" ${loading ? "disabled" : ""}>重新整理</button></div>
     ${message ? `<p class="message" role="status">${escapeHtml(message)}</p>` : ""}
     ${refreshWarning ? `<p class="message message-warning" role="status">${escapeHtml(refreshWarning)}</p>` : ""}
     ${membersPanel()}
     ${formMarkup()}
-    <section class="visits saved-drafts" aria-labelledby="drafts-heading"><div class="section-heading"><div><p class="eyebrow">提醒設定</p><h2 id="drafts-heading">已儲存草稿 <span class="draft-count">${drafts.length}</span></h2></div><button class="secondary-button drafts-toggle" type="button" data-drafts-toggle aria-expanded="${!draftsCollapsed}" aria-controls="saved-drafts-list">${draftsCollapsed ? "展開草稿" : "收合草稿"}</button></div><div id="saved-drafts-list" class="draft-list" ${draftsCollapsed ? "hidden" : ""}>${drafts.length ? drafts.map(visitCard).join("") : `<div class="empty-state"><h3>尚無已儲存草稿</h3><p>建立草稿後，會顯示在這裡。</p></div>`}</div></section>
-    <section class="visits" aria-labelledby="visits-heading"><div class="section-heading"><div><p class="eyebrow">狀態與控制</p><h2 id="visits-heading">提醒清單 <span class="draft-count">${reminderCount}</span></h2></div></div>${reminders.length ? reminders.map(visitCard).join("") : `<div class="empty-state"><h3>尚無提醒狀態</h3><p>執行中、已停止或已結束的提醒會顯示在這裡。</p></div>`}</section>`;
+    <section class="visits saved-drafts" aria-labelledby="drafts-heading"><div class="section-heading"><div><p class="eyebrow">草稿設定</p><h2 id="drafts-heading">已儲存草稿 <span class="draft-count">${drafts.length}</span></h2></div><button class="secondary-button drafts-toggle" type="button" data-drafts-toggle aria-expanded="${!draftsCollapsed}" aria-controls="saved-drafts-list">${draftsCollapsed ? "展開草稿" : "收合草稿"}</button></div><div id="saved-drafts-list" class="draft-list" ${draftsCollapsed ? "hidden" : ""}>${drafts.length ? drafts.map(visitCard).join("") : `<div class="empty-state"><h3>尚無已儲存草稿</h3><p>建立草稿後，會顯示在這裡。</p></div>`}</div></section>
+    <section class="visits" aria-labelledby="visits-heading"><div class="section-heading"><div><p class="eyebrow">狀態與控制</p><h2 id="visits-heading">進行中 <span class="draft-count">${reminderCount}</span></h2></div></div>${reminders.length ? reminders.map(visitCard).join("") : `<div class="empty-state"><h3>目前沒有進行中的叫號追蹤</h3><p>開始追蹤後會顯示在這裡。</p></div>`}</section>`;
   bindActions();
   restoreFieldFocus(fieldFocus);
 }
@@ -688,7 +688,7 @@ async function loadDashboard(preserveSaveConfirmation = false, background = fals
   } catch (error) {
     if (error instanceof OrganizerApiError && (error.status === 401 || error.status === 403)) {
       authorized = false;
-      message = "請登入已授權的管理者帳號。";
+      message = "請登入已授權的設定者帳號。";
     } else {
       serviceStatus.textContent = "服務不可用";
       serviceStatus.className = "status status-pending";
@@ -696,7 +696,7 @@ async function loadDashboard(preserveSaveConfirmation = false, background = fals
         refreshWarning = "草稿已儲存，但清單更新失敗。請重新整理確認狀態。";
       } else if (authorized) {
         refreshWarning = visits.some((visit) => visit.state === "stopping")
-          ? `提醒狀態更新失敗，將自動重試。${errorText(error)}`
+          ? `狀態更新失敗，將自動重試。${errorText(error)}`
           : errorText(error);
       } else {
         message = errorText(error);
@@ -716,7 +716,7 @@ async function voidSyntheticLogin(): Promise<void> {
   try {
     const response = await fetch("/__niy006_test/organizer-session", { method: "POST", headers: { accept: "application/json" } });
     if (!response.ok) throw new Error("local synthetic login is not enabled");
-    message = "已建立本機合成管理者工作階段。";
+    message = "已建立本機合成設定者工作階段。";
     await loadDashboard();
   } catch {
     message = "本機合成登入未啟用。請只在 wrangler.niy006.test.jsonc 本機測試綁定中使用。";
@@ -744,7 +744,7 @@ function readForm(form: HTMLFormElement): VisitInput | null {
 }
 
 // Pre-submit validation for the mistake classes that must be caught before a
-// draft enters monitoring. Authoritative identity/freshness checks still run in
+// draft can be started. Authoritative identity/freshness checks still run in
 // the backend Start (fail-closed); this only improves the setup experience.
 function validateForm(form: HTMLFormElement): boolean {
   const data = new FormData(form);
@@ -806,7 +806,7 @@ function bindActions(): void {
     renderDashboard();
     try {
       await withdrawMember(id);
-      message = "已移除成員。";
+      message = "已從通知名單移除。";
     } catch (error) {
       message = errorText(error);
     } finally {
@@ -902,9 +902,9 @@ function bindActions(): void {
       initialPatientNumber = null;
       discardFormOnNextRender = true;
       message = previous?.mode === "correct"
-        ? "修正已儲存為草稿。請在提醒清單重新檢查並開始。"
-        : previous ? "草稿修改已儲存。請在提醒清單重新檢查並開始。"
-          : "草稿已建立。建立草稿不會啟動監控或傳送通知。";
+        ? "修正已儲存為草稿。請在已儲存草稿按「重新檢查並開始」。"
+        : previous ? "草稿修改已儲存。請在已儲存草稿按「重新檢查並開始」。"
+          : "草稿已建立。建立草稿不會開始追蹤或傳送通知。";
       renderDashboard(false);
       await loadDashboard(true);
       formSaving = false;
@@ -984,7 +984,7 @@ function bindActions(): void {
       visits = visits.map((visit) => visit.id === id
         ? { ...visit, state: result.state }
         : visit);
-      message = result.state === "stopped" ? "提醒已停止。" : "停止請求已送出，正在等候關閉確認。";
+      message = result.state === "stopped" ? "已停止追蹤，不會再發新的 LINE 通知。" : "停止請求已送出，正在等候關閉確認。";
     } catch (error) {
       message = errorText(error);
     } finally {

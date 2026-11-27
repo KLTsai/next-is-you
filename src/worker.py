@@ -608,13 +608,7 @@ def create_app(
         if gate is None:
             return _api_error("service_unavailable", 503)
         state = await gate.stop_visit(visit_id, iso_utc(_now(request)))
-        if state is None:
-            return _api_error("visit_not_found", 404)
-        if state == "invalid_lifecycle_state":
-            return _api_error("invalid_lifecycle_state", 409)
-        if state == "scheduler_held":
-            return _api_error("scheduler_held", 503)
-        return JSONResponse({"state": state})
+        return _stop_answer(state)
 
     @app.post("/api/organizer/visits/{visit_id}/correct")
     async def correct_organizer_visit(visit_id: str, request: Request) -> Response:
@@ -724,11 +718,7 @@ def create_app(
                 {"detail": "Visit send ordering is unavailable"}, status_code=503
             )
         state = await gate.stop_visit(visit_id, iso_utc(_now(request)))
-        if state is None:
-            return _api_error("visit_not_found", 404)
-        if state == "invalid_lifecycle_state":
-            return _api_error("invalid_lifecycle_state", 409)
-        return JSONResponse({"state": state})
+        return _stop_answer(state)
 
     @app.delete("/api/visits/{visit_id}/recipients/{recipient_id}", status_code=204)
     async def remove_visit_recipient(
@@ -1081,6 +1071,17 @@ def _bounded_code(value: Any) -> str:
 
 def _api_error(code: str, status_code: int, **details: str) -> JSONResponse:
     return JSONResponse({"error": {"code": code, **details}}, status_code=status_code)
+
+
+def _stop_answer(state: str | None) -> JSONResponse:
+    """What every Stop route answers for the send gate's outcome."""
+    if state is None:
+        return _api_error("visit_not_found", 404)
+    if state == "invalid_lifecycle_state":
+        return _api_error("invalid_lifecycle_state", 409)
+    if state == "scheduler_held":
+        return _api_error("scheduler_held", 503)
+    return JSONResponse({"state": state})
 
 
 def _binding(env: Any, name: str) -> str:

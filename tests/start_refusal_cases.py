@@ -236,7 +236,7 @@ START_REFUSAL_CASES: tuple[StartRefusalCase, ...] = (
     ),
     StartRefusalCase(
         code="hospital_cannot_find_clinic",
-        text="院方目前查不到這個診。如果還沒開診，請開診後再試；否則請核對診間代碼。",
+        text="院方目前查不到此診。如果還沒開診，請開診後再試；否則請核對診間代碼。",
         hospital=current_number_only_registration(None),
         visit_day=TODAY,
     ),

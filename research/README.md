@@ -27,6 +27,7 @@ The former local tickets are [inactive historical records](../docs/archive/ticke
 ## LINE research
 
 - [LINE rich menu progress button and the message quota](line-rich-menu-progress-button.md) (2026-11-20): whether a rich menu tap can return the current queue progress as a reply that does not count toward the monthly message quota, how postback, webhook and reply tokens fit together, Taiwan plan quotas from 2026-11-01, and what separate staging and production accounts mean for menus.
+- [LINE notice layout and animated icons](line-notice-layout-and-animated-icons-2026-11-27.md) (2026-11-27): how many full-width characters fit on one line of a LINE text bubble and in a notification preview, and whether LINE emoji or a Flex animated image can replace text. Stickers were excluded by the captain. Supporting evidence for #152; the characters-per-line figure is an estimate, not a handset measurement.
 
 ## Delivery and operations research
 

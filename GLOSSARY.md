@@ -99,7 +99,7 @@ The product's estimate of how many checked-in patients will be seen before the p
 _Avoid_: Position, wait time, queue length
 
 **Needs attention**:
-A mark on a visit telling its organizer that the visit has a problem only they can resolve, with the reason and what to do next. A visit can carry several reasons at once. Shown to users as 需要處理.
+A mark on a visit telling the organizers that the visit has a problem only an organizer can resolve, with the reason and what to do next. A visit can carry several reasons at once. Shown to users as 需要處理.
 _Avoid_: Organizer attention, warning, alert
 
 **Confirmed mismatch**:
@@ -125,7 +125,7 @@ _Avoid_: Pre-flight sweep, preflight, sweep
 ### Sending
 
 **LINE message**:
-Any message the system sends someone on LINE: a reminder, an unavailable message, a notice to an organizer about a visit problem, or an alert to the captain. A send interruption stops all of them except the alert to the captain. Shown to users as LINE 通知.
+Any message the system sends someone on LINE: a reminder, an unavailable message, an organizer notice, or an alert to the captain. A send interruption stops all of them except the alert to the captain. Shown to users as LINE 通知.
 _Avoid_: Push, alert, notification, 提醒
 
 **Reminder**:
@@ -133,8 +133,12 @@ A LINE message telling one recipient, from what the hospital's page shows, where
 _Avoid_: Alert, notification, near reminder, 提醒, 叫號通知
 
 **Reminder cap**:
-At most eight reminders and unavailable messages together, per recipient and visit. Skipped reminders, retries of the same message and notices to an organizer do not count. It is a safety limit: a visit's normal course stays below it. Not shown to users.
+At most eight reminders and unavailable messages together, per recipient and visit. Skipped reminders, retries of the same message and organizer notices do not count. It is a safety limit: a visit's normal course stays below it. Not shown to users.
 _Avoid_: Message limit, quota (LINE's monthly allowance is a different limit)
+
+**Organizer notice**:
+A LINE message telling every organizer about one needs-attention reason on one visit: a first notice when the reason is found, a final notice if it is still unresolved shortly before the visit, or a recovery notice when a site problem it reported has cleared. At most two per visit and reason, for the visit's whole life. It is not a reminder and does not count toward the reminder cap; a send interruption stops it. Not named to users.
+_Avoid_: Push, re-notify, organizer alert, notice (alone)
 
 **Live**:
 A deployed environment that reads real hospitals and sends real LINE reminders. Each environment starts not live and is made live once, after its own pre-live gates pass, and is never made not live again; to stop sending, use a send interruption. Expired data is cleaned up either way. Shown to users as 已開通 and 未開通.

@@ -27,6 +27,7 @@ from organizer_page import (
     FakeBackend,
     OrganizerPage,
     RehearsalBackend,
+    lapsing_day,
     visit_day,
 )
 from screens import SCREENS
@@ -384,6 +385,50 @@ def test_a_failed_start_gives_its_reason_and_the_next_start_works(organizer):
     expect(alert).to_have_count(0)
     assert organizer.entered() == entered
     organizer.expect_never_reloaded()
+
+
+def expect_start_refusal_without_its_card(organizer, day, text):
+    """The organizer reads which visit and why, until the next refresh."""
+    alert = organizer.page.get_by_role("alert")
+    expect(alert).to_contain_text(text)
+    expect(alert).to_contain_text(day)
+    expect(alert).to_contain_text("午診")
+    expect(alert).to_be_in_viewport()
+    organizer.press(organizer.button("重新整理"))
+    expect(alert).to_have_count(0)
+    organizer.expect_never_reloaded()
+
+
+def test_starting_a_draft_that_was_deleted_meanwhile_says_why(organizer):
+    organizer.open("stopped")
+    draft = organizer.backend.add_lapsing_draft()
+    organizer.press(organizer.button("重新整理"))
+    organizer.press(organizer.button("展開草稿"))
+    start = organizer.start_button(draft)
+    expect(start).to_be_enabled()
+
+    organizer.backend.expire_lapsing_drafts()
+    organizer.press(start)
+
+    expect(organizer.card(draft)).to_have_count(0)
+    expect_start_refusal_without_its_card(
+        organizer, lapsing_day(), "找不到這筆提醒，請重新載入。"
+    )
+
+
+def test_starting_a_draft_that_was_started_meanwhile_says_why(organizer):
+    [draft] = organizer.open("draft")
+    organizer.press(organizer.button("展開草稿"))
+    start = organizer.start_button(draft)
+    expect(start).to_be_enabled()
+
+    organizer.backend.start_elsewhere(draft)
+    organizer.press(start)
+
+    expect(organizer.state(draft)).to_have_text("監控中")
+    expect_start_refusal_without_its_card(
+        organizer, visit_day(), "提醒狀態已變更，請重新載入。"
+    )
 
 
 def test_a_failed_refresh_says_so_and_the_next_refresh_works(organizer):

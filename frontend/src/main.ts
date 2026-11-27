@@ -81,6 +81,10 @@ let memberLabelDraft = "";
 const pendingStops = new Set<string>();
 const pendingStarts = new Set<string>();
 const startFailures = new Map<string, { text: string; code: string }>();
+// A refused Start whose draft card left the list with the reload (the visit was
+// deleted, or is no longer a draft). Shown above the drafts, naming the visit,
+// until the organizer's next action.
+let departedStartFailure: { visit: string; text: string } | null = null;
 const pendingRecipientRemovals = new Set<string>();
 let stoppingRefreshTimer: number | null = null;
 let backgroundRepaintTimer: number | null = null;
@@ -424,6 +428,12 @@ function runningVisitLink(item: OrganizerVisit): string {
   return `${stoppingNote} <a class="running-visit-link" href="#visit-${escapeHtml(running.id)}">前往監控中的看診</a>`;
 }
 
+// The next action makes the last one's outcome old news.
+function clearActionOutcome(): void {
+  message = "";
+  departedStartFailure = null;
+}
+
 function visitCard(item: OrganizerVisit): string {
   const stateKey = visitStatusKey(item);
   const active = item.state === "active";
@@ -623,7 +633,7 @@ function renderDashboard(preserveCurrentForm = true): void {
     ${refreshWarning ? `<p class="message message-warning" role="status">${escapeHtml(refreshWarning)}</p>` : ""}
     ${membersPanel()}
     ${formMarkup()}
-    <section class="visits saved-drafts" aria-labelledby="drafts-heading"><div class="section-heading"><div><p class="eyebrow">提醒設定</p><h2 id="drafts-heading">已儲存草稿 <span class="draft-count">${drafts.length}</span></h2></div><button class="secondary-button drafts-toggle" type="button" data-drafts-toggle aria-expanded="${!draftsCollapsed}" aria-controls="saved-drafts-list">${draftsCollapsed ? "展開草稿" : "收合草稿"}</button></div><div id="saved-drafts-list" class="draft-list" ${draftsCollapsed ? "hidden" : ""}>${drafts.length ? drafts.map(visitCard).join("") : `<div class="empty-state"><h3>尚無已儲存草稿</h3><p>建立草稿後，會顯示在這裡。</p></div>`}</div></section>
+    <section class="visits saved-drafts" aria-labelledby="drafts-heading"><div class="section-heading"><div><p class="eyebrow">提醒設定</p><h2 id="drafts-heading">已儲存草稿 <span class="draft-count">${drafts.length}</span></h2></div><button class="secondary-button drafts-toggle" type="button" data-drafts-toggle aria-expanded="${!draftsCollapsed}" aria-controls="saved-drafts-list">${draftsCollapsed ? "展開草稿" : "收合草稿"}</button></div>${departedStartFailure ? `<p class="inline-state inline-error departed-start-failure" role="alert">${escapeHtml(departedStartFailure.visit)}<br>${escapeHtml(departedStartFailure.text)}</p>` : ""}<div id="saved-drafts-list" class="draft-list" ${draftsCollapsed ? "hidden" : ""}>${drafts.length ? drafts.map(visitCard).join("") : `<div class="empty-state"><h3>尚無已儲存草稿</h3><p>建立草稿後，會顯示在這裡。</p></div>`}</div></section>
     <section class="visits" aria-labelledby="visits-heading"><div class="section-heading"><div><p class="eyebrow">狀態與控制</p><h2 id="visits-heading">提醒清單 <span class="draft-count">${reminderCount}</span></h2></div></div>${reminders.length ? reminders.map(visitCard).join("") : `<div class="empty-state"><h3>尚無提醒狀態</h3><p>執行中、已停止或已結束的提醒會顯示在這裡。</p></div>`}</section>`;
   bindActions();
   restoreFieldFocus(fieldFocus);
@@ -763,6 +773,20 @@ function validateForm(form: HTMLFormElement): boolean {
   return Object.keys(formErrors).length === 0;
 }
 
+// A refusal is shown on its draft card. When the reload after Start took that
+// card away, say it where the drafts are and bring it into view.
+function showDepartedStartFailure(item: OrganizerVisit): void {
+  const failure = startFailures.get(item.id);
+  if (!failure || visits.some((visit) => visit.id === item.id && visit.state === "draft")) return;
+  startFailures.delete(item.id);
+  departedStartFailure = {
+    visit: `${item.date} · ${item.department_code} · ${item.clinic_code} · ${sessionNames[item.session]}`,
+    text: failure.text,
+  };
+  renderDashboard();
+  document.querySelector(".departed-start-failure")?.scrollIntoView({ block: "nearest" });
+}
+
 function bindActions(): void {
   document.querySelector<HTMLInputElement>("#member-label")?.addEventListener("input", (event) => {
     memberLabelDraft = (event.target as HTMLInputElement).value;
@@ -802,7 +826,7 @@ function bindActions(): void {
     const id = button.dataset.withdrawMember;
     if (!id || pendingMemberWithdrawals.has(id)) return;
     pendingMemberWithdrawals.add(id);
-    message = "";
+    clearActionOutcome();
     renderDashboard();
     try {
       await withdrawMember(id);
@@ -820,7 +844,7 @@ function bindActions(): void {
     document.querySelector<HTMLButtonElement>("[data-drafts-toggle]")?.focus();
   });
   document.querySelector<HTMLButtonElement>("#refresh")?.addEventListener("click", () => {
-    message = "";
+    clearActionOutcome();
     refreshWarning = "";
     void loadDashboard();
   });
@@ -829,7 +853,7 @@ function bindActions(): void {
     formValues = null;
     initialPatientNumber = null;
     formErrors = {};
-    message = "";
+    clearActionOutcome();
     renderDashboard(false);
   });
   // Reveal-drivers re-render so dependent fields appear and the roster is
@@ -888,7 +912,7 @@ function bindActions(): void {
     formErrors = {};
     if (formSaving) return;
     formSaving = true;
-    message = "";
+    clearActionOutcome();
     refreshWarning = "";
     renderDashboard();
     try {
@@ -920,7 +944,7 @@ function bindActions(): void {
     const item = visits.find((visit) => visit.id === button.dataset.edit);
     if (!item) return;
     if (blockNavigationWithUnsavedChanges()) return;
-    message = "";
+    clearActionOutcome();
     button.disabled = true;
     try {
       const correction = await getVisitCorrection(item.id);
@@ -938,7 +962,7 @@ function bindActions(): void {
     const item = visits.find((visit) => visit.id === button.dataset.correct);
     if (!item) return;
     if (blockNavigationWithUnsavedChanges()) return;
-    message = "";
+    clearActionOutcome();
     button.disabled = true;
     try {
       const correction = await getVisitCorrection(item.id);
@@ -958,7 +982,7 @@ function bindActions(): void {
     if (!id || !item || !canRequestStart(item)) return;
     pendingStarts.add(id);
     startFailures.delete(id);
-    message = "";
+    clearActionOutcome();
     renderDashboard();
     try {
       const result = await startVisit(id);
@@ -971,13 +995,14 @@ function bindActions(): void {
     } finally {
       pendingStarts.delete(id);
       await loadDashboard();
+      showDepartedStartFailure(item);
     }
   }));
   document.querySelectorAll<HTMLButtonElement>("[data-stop]").forEach((button) => button.addEventListener("click", async () => {
     const id = button.dataset.stop;
     if (!id || pendingStops.has(id)) return;
     pendingStops.add(id);
-    message = "";
+    clearActionOutcome();
     renderDashboard();
     try {
       const result = await stopVisit(id);
@@ -1003,6 +1028,7 @@ function bindActions(): void {
     const removalKey = `${visitId}\u0000${recipientId}`;
     if (pendingRecipientRemovals.has(removalKey)) return;
     pendingRecipientRemovals.add(removalKey);
+    clearActionOutcome();
     message = "正在移除通知對象…";
     renderDashboard();
     try {

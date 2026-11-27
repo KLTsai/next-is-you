@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/KLTsai/next-is-you/compare/v0.4.0...v0.5.0) (2026-11-27)
+
+
+### Features
+
+* make an environment live from its committed config, with a rollback floor ([#245](https://github.com/KLTsai/next-is-you/issues/245)) ([e55bba9](https://github.com/KLTsai/next-is-you/commit/e55bba95efe699c215023a5b8011417ddc6f5874))
+
 ## [0.4.0](https://github.com/KLTsai/next-is-you/compare/v0.3.0...v0.4.0) (2026-11-24)
 
 

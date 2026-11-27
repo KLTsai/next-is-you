@@ -135,6 +135,8 @@ class QueueObservation:
     # Progress fields (ADR 0003): each is present only when the source states it
     # outright, and a hospital that does not show one leaves it empty. Only
     # `called_in_session` compares what the source showed at different times.
+    # A reader fills `highest_called_number` through `proven_highest_called`,
+    # never straight from a source's label.
     current_flag: CallKind | None = None
     # The clinic calls by check-in order, so it has no highest called.
     check_in_order: bool = False

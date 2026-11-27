@@ -7,7 +7,7 @@ import hashlib
 import json
 from dataclasses import asdict, replace
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Mapping, Sequence, get_args
+from typing import Any, Awaitable, Callable, Mapping, Sequence, get_args
 
 from next_is_you.line_messaging import (
     LineBotInfoClient,
@@ -51,6 +51,7 @@ from next_is_you.hospital_registry import (
 )
 from next_is_you.ntuh_reader import WorkersFetcher
 from next_is_you.scheduler import LifecycleCounts, OutboxScheduler, TickPlan
+from next_is_you.persistence import OUTSIDE_SEND_RECORD, SEND_RESULT
 
 try:
     from workers import DurableObject as _DurableObjectBase
@@ -137,7 +138,6 @@ class SystemSendGate(_DurableObjectBase):
                 else lambda: datetime.now(timezone.utc)
             )
             cleaned = await self._scheduler(clock, None).run_lifecycle(tick_time)
-            await self._save_ledger()
             line, unavailable = await self._line_sender()
             if line is None:
                 # Not live, or no LINE token of this environment's own Official
@@ -145,7 +145,6 @@ class SystemSendGate(_DurableObjectBase):
                 return {**_held_result(cleaned), "line_unavailable_reason": unavailable}
             scheduler = self._scheduler(clock, line)
             plan = await scheduler.prepare_tick(tick_time)
-            await self._save_ledger()
 
         result = {**_plan_result(plan), **asdict(cleaned)}
         for event_id in plan.event_ids:
@@ -154,6 +153,9 @@ class SystemSendGate(_DurableObjectBase):
                     break
                 if not await self._check_ledger():
                     break
+                # Cleared before a send, not after: nothing then stands between
+                # a checked result and saving it.
+                await self._clear_request_context()
                 outcome = await scheduler.send_event(
                     event_id,
                     before_request=self._before_request,
@@ -175,7 +177,6 @@ class SystemSendGate(_DurableObjectBase):
                         result["held"] = True
                         result["reason"] = "d1_ledger_changed_during_send"
                         break
-                await self._clear_request_context()
                 await self._save_ledger()
                 if await self._repository().lifecycle.finalize_stops(clock()):
                     await self._save_ledger()
@@ -217,7 +218,7 @@ class SystemSendGate(_DurableObjectBase):
                     return "stopping"
 
         async with self._lock:
-            repository = self._repository()
+            repository = self._step_repository()
             await self._check_ledger()
             await repository.recover_in_flight_events(timestamp)
             visit = await repository.get_visit(visit_id)
@@ -303,7 +304,7 @@ class SystemSendGate(_DurableObjectBase):
 
     async def _start_visit(self, visit_id: str, timestamp: datetime) -> dict[str, Any]:
         async with self._lock:
-            repository = self._repository()
+            repository = self._step_repository()
             visit = await repository.get_visit(visit_id)
             if visit is None:
                 return {"error": "visit_not_found"}
@@ -599,6 +600,9 @@ class SystemSendGate(_DurableObjectBase):
                 return False
             if not await repository.lifecycle.reopen_for_correction(visit_id):
                 return False
+            # Saved write by write here: the step store would also save after each
+            # draft-only write, past D1's per-call query limit sooner.
+            await self._save_ledger()
             if not await repository.correct_clinic(
                 visit_id=visit_id,
                 hospital=hospital,
@@ -614,6 +618,7 @@ class SystemSendGate(_DurableObjectBase):
             for recipient_id in existing - selected:
                 await repository.lifecycle.remove_recipient(visit_id, recipient_id)
                 await repository.erase_removed_recipient_events(visit_id, recipient_id)
+                await self._save_ledger()
             await repository.set_source_read(visit_id, "unavailable", "no_observation")
             await self._save_ledger()
             return True
@@ -637,7 +642,7 @@ class SystemSendGate(_DurableObjectBase):
     ) -> bool:
         async with self._lock:
             timestamp = _datetime(now)
-            repository = self._repository()
+            repository = self._step_repository()
             await self._check_ledger()
             await repository.recover_in_flight_events(timestamp)
             removed = await repository.lifecycle.remove_recipient(
@@ -653,7 +658,7 @@ class SystemSendGate(_DurableObjectBase):
     ) -> bool:
         async with self._lock:
             timestamp = _datetime(now)
-            repository = self._repository()
+            repository = self._step_repository()
             await self._check_ledger()
             await repository.recover_in_flight_events(timestamp)
             withdrawn = await repository.withdraw_recipient(recipient_id)
@@ -771,7 +776,6 @@ class SystemSendGate(_DurableObjectBase):
         return True
 
     async def _before_request(self, event_id: str) -> None:
-        await self._save_ledger()
         digest = await self._repository().scheduler_ledger_digest(
             exclude_event_id=event_id
         )
@@ -807,6 +811,12 @@ class SystemSendGate(_DurableObjectBase):
         if binding is None:
             raise RuntimeError("D1 binding is unavailable")
         return VisitRepository(CloudflareD1Store(binding))
+
+    def _step_repository(self) -> VisitRepository:
+        """The repository a gate step writes through once it holds the gate lock."""
+        return VisitRepository(
+            _GateStepStore(_field(self.env, "DB"), self._save_ledger)
+        )
 
     async def _reader(self) -> HospitalReader | None:
         """The hospital reader, only while LINE messages can be sent too.
@@ -930,7 +940,7 @@ class SystemSendGate(_DurableObjectBase):
 
     def _scheduler(self, clock, line: LinePushClient | None) -> OutboxScheduler:
         return OutboxScheduler(
-            self._repository(),
+            self._step_repository(),
             self._hospital_reader(),
             line,
             clock,
@@ -1070,6 +1080,30 @@ class SystemSendGate(_DurableObjectBase):
     def _require_test_mode(self) -> None:
         if not local_test_mode(self.env):
             raise RuntimeError("local scheduler test controls are disabled")
+
+
+class _GateStepStore(CloudflareD1Store):
+    """Saves the send record after each write a gate step makes (ADR 0007).
+
+    A later statement that raises then leaves nothing unsaved, so the next check
+    does not take the gate's own write for an outside change. A statement that
+    raises saves nothing, so a change made from outside is still found.
+    """
+
+    def __init__(self, binding: Any, save: Callable[[], Awaitable[None]]) -> None:
+        super().__init__(binding)
+        self._save = save
+
+    async def execute(self, statement: Statement) -> int:
+        changes = await super().execute(statement)
+        if changes and statement.operation not in (OUTSIDE_SEND_RECORD, SEND_RESULT):
+            await self._save()
+        return changes
+
+    async def batch(self, statements: Sequence[Statement]) -> list[int]:
+        changes = await super().batch(statements)
+        await self._save()
+        return changes
 
 
 _START_WAITS = frozenset(

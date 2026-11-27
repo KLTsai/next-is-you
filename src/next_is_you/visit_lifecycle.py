@@ -244,7 +244,7 @@ class VisitLifecycle:
         return changes == 1
 
     async def delete_expired_drafts(self, now: datetime) -> int:
-        """Drafts never sent anything and sit outside the send record."""
+        """Drafts past their expiry; a reopened one's messages are deleted too."""
         return await self._store.execute(
             Statement(
                 f"""DELETE FROM visits

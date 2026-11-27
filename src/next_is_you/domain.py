@@ -101,6 +101,23 @@ class ExpectedCall:
     check_in_position: int | None = None
 
 
+def proven_highest_called(
+    labelled: int | None, numbers: tuple[NumberStatus, ...] | None
+) -> int | None:
+    """The number a source labels highest called, only if its list proves it.
+
+    The label alone is no proof (ADR 0003): the number was called when it is
+    being seen or is no longer listed. A source that lists no numbers (`None`)
+    proves nothing.
+    """
+    if labelled is None or numbers is None:
+        return None
+    states = {item.state for item in numbers if item.number == labelled}
+    if states and "in_consultation" not in states:
+        return None
+    return labelled
+
+
 @dataclass(frozen=True, slots=True)
 class QueueObservation:
     scope: ClinicScope
@@ -118,6 +135,8 @@ class QueueObservation:
     # Progress fields (ADR 0003): each is present only when the source states it
     # outright, and a hospital that does not show one leaves it empty. Only
     # `called_in_session` compares what the source showed at different times.
+    # A reader fills `highest_called_number` through `proven_highest_called`,
+    # never straight from a source's label.
     current_flag: CallKind | None = None
     # The clinic calls by check-in order, so it has no highest called.
     check_in_order: bool = False

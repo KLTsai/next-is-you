@@ -57,6 +57,7 @@ from next_is_you.domain import (
     ReadFailed,
     ReadSkipped,
     RosterQuery,
+    proven_highest_called,
 )
 from next_is_you.ntuh_detail import (
     MAX_NUMBER_DIGITS,
@@ -1348,7 +1349,9 @@ class NtuhProgressReader:
             scope=scope,
             observed_at=read_at.isoformat(),
             current_number=page.current_light,
-            highest_called_number=page.highest_called,
+            highest_called_number=proven_highest_called(
+                page.highest_called, page.numbers
+            ),
             substitute_doctor=substitute,
             current_flag=page.current_flag,
             check_in_order=page.check_in_order,

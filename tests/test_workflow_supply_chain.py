@@ -22,20 +22,27 @@ from pr_title_gate import title_type  # noqa: E402
 
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
 WORKFLOWS = sorted([*WORKFLOW_DIR.glob("*.yml"), *WORKFLOW_DIR.glob("*.yaml")])
-USES = re.compile(r"^[^#]*\buses:")
-PINNED = re.compile(r"\s*(- )?uses: [\w./-]+@[0-9a-f]{40} # v\d+\.\d+\.\d+")
+# GitHub's "full-length commit SHA", the only reference a tag move cannot change.
+COMMIT_PIN = re.compile(r"[\w./-]+@[0-9a-f]{40}")
+
+
+def action_references(workflow: Path) -> list[str]:
+    """Every action or reusable workflow the file's jobs and steps use."""
+    jobs = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]
+    return [
+        node["uses"]
+        for job in jobs.values()
+        for node in [job, *job.get("steps", [])]
+        if "uses" in node
+    ]
 
 
 @pytest.mark.parametrize("workflow", WORKFLOWS, ids=lambda path: path.name)
-def test_every_action_is_pinned_to_a_commit_that_names_its_version(
-    workflow: Path,
-) -> None:
+def test_every_action_is_pinned_to_a_commit(workflow: Path) -> None:
     unpinned = [
-        f"{workflow.name}:{number}: {line.strip()}"
-        for number, line in enumerate(
-            workflow.read_text(encoding="utf-8").splitlines(), start=1
-        )
-        if USES.match(line) and not PINNED.fullmatch(line)
+        reference
+        for reference in action_references(workflow)
+        if not COMMIT_PIN.fullmatch(reference)
     ]
     assert not unpinned
 

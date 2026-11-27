@@ -13,10 +13,14 @@ from typing import Any
 
 import pytest
 
+from local_d1 import LocalD1
 from next_is_you.line_messaging import LinePushHttpResponse
 from next_is_you.send_gate import SystemSendGate
 from test_ntuh_reader import DAY, PAGE, FakeSource, active_visit, seed_ntuh, taipei
-from test_scheduler_outbox import LocalContext, LocalD1, LocalDurableStorage
+from test_scheduler_outbox import (
+    LocalContext,
+    LocalDurableStorage,
+)
 
 # This module serves NTUH reader values (#205).
 pytestmark = pytest.mark.usefixtures("serve_reader_values")

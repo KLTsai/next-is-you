@@ -65,7 +65,7 @@ from next_is_you.ntuh_detail import (
     parse_detail_page,
 )
 from next_is_you.page_markers import page_status
-from next_is_you.persistence import TAIPEI
+from next_is_you.storage import TAIPEI
 
 # Both hosts serve the same application; this one is what the owner opens and
 # what the organizer progress link already points at. The reader stays behind

@@ -7,7 +7,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from next_is_you.persistence import SqlStore, Statement, iso_utc
+from next_is_you.storage import SqlStore, Statement, iso_utc
 
 
 INVITATION_TTL = timedelta(hours=24)

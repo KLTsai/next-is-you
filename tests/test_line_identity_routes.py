@@ -1,55 +1,22 @@
 from __future__ import annotations
 
 import asyncio
-import sqlite3
 from dataclasses import fields
 from datetime import date, datetime, timezone
-from pathlib import Path
-from typing import Any, Mapping, Sequence
 from urllib.parse import parse_qs, urlparse
 
 from httpx import ASGITransport, AsyncClient
 
+from local_d1 import LocalStore
 from next_is_you.auth import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME, issue_session
 from next_is_you.identity import IdentityRepository
 from next_is_you.line_login import VerifiedLineIdentity
 from next_is_you.line_messaging import FriendshipResult
-from next_is_you.persistence import Statement, VisitRepository
+from next_is_you.persistence import VisitRepository
 from worker import create_app
 
 
 SECRET = "local-test-secret-with-at-least-32-bytes"
-MIGRATIONS = sorted((Path(__file__).resolve().parents[1] / "migrations").glob("*.sql"))
-
-
-class SQLiteStore:
-    def __init__(self) -> None:
-        self.connection = sqlite3.connect(":memory:", isolation_level=None)
-        self.connection.row_factory = sqlite3.Row
-        for migration in MIGRATIONS:
-            self.connection.executescript(migration.read_text())
-
-    async def execute(self, statement: Statement) -> int:
-        return self.connection.execute(statement.sql, statement.values).rowcount
-
-    async def fetch_all(self, statement: Statement) -> list[Mapping[str, Any]]:
-        return [
-            dict(row)
-            for row in self.connection.execute(statement.sql, statement.values)
-        ]
-
-    async def batch(self, statements: Sequence[Statement]) -> list[int]:
-        self.connection.execute("BEGIN")
-        try:
-            results = [
-                self.connection.execute(item.sql, item.values).rowcount
-                for item in statements
-            ]
-        except Exception:
-            self.connection.execute("ROLLBACK")
-            raise
-        self.connection.execute("COMMIT")
-        return results
 
 
 class FakeOAuth:
@@ -95,7 +62,7 @@ def run(coroutine):
     return asyncio.run(coroutine)
 
 
-def make_app(store: SQLiteStore, friendship: FakeFriendship):
+def make_app(store: LocalStore, friendship: FakeFriendship):
     visit_repository = VisitRepository(store)
     return create_app(
         settings={
@@ -130,7 +97,7 @@ def csrf(client: AsyncClient) -> dict[str, str]:
 
 def test_invitation_enrollment_checks_friendship_then_requires_explicit_consent():
     async def scenario():
-        store = SQLiteStore()
+        store = LocalStore()
         friendship = FakeFriendship(True)
         identity_repo = IdentityRepository(store)
         invite = await identity_repo.create_invitation(
@@ -187,7 +154,7 @@ def test_invitation_enrollment_checks_friendship_then_requires_explicit_consent(
 def test_failed_or_unknown_friendship_check_does_not_consume_invitation():
     async def scenario():
         for status in (False, None):
-            store = SQLiteStore()
+            store = LocalStore()
             identity_repo = IdentityRepository(store)
             invitation = await identity_repo.create_invitation(
                 "line-organizer",
@@ -225,7 +192,7 @@ def test_failed_or_unknown_friendship_check_does_not_consume_invitation():
 
 def test_recipient_flow_requests_profile_scope_while_organizer_flow_is_unchanged():
     async def scenario():
-        store = SQLiteStore()
+        store = LocalStore()
         friendship = FakeFriendship(True)
         identity_repo = IdentityRepository(store)
         invite = await identity_repo.create_invitation(
@@ -261,7 +228,7 @@ def test_recipient_flow_requests_profile_scope_while_organizer_flow_is_unchanged
 
 def test_server_side_roles_and_selection_require_active_enrollment_and_consent():
     async def scenario():
-        store = SQLiteStore()
+        store = LocalStore()
         friendship = FakeFriendship(True)
         app = make_app(store, friendship)
         identity_repo = IdentityRepository(store)
@@ -339,7 +306,7 @@ def test_server_side_roles_and_selection_require_active_enrollment_and_consent()
 
 def test_organizer_allowlist_and_csrf_are_rechecked_for_each_mutation():
     async def scenario():
-        store = SQLiteStore()
+        store = LocalStore()
         app = make_app(store, FakeFriendship())
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="https://family.example"
@@ -387,7 +354,7 @@ def test_organizer_allowlist_and_csrf_are_rechecked_for_each_mutation():
 
 def test_scheduler_recovery_controls_require_organizer_csrf_and_explicit_resume():
     async def scenario():
-        store = SQLiteStore()
+        store = LocalStore()
         app = make_app(store, FakeFriendship())
         gate = app.state.send_gate
         async with AsyncClient(
@@ -439,7 +406,7 @@ def test_scheduler_recovery_controls_require_organizer_csrf_and_explicit_resume(
 
 def test_withdrawal_revokes_recipient_session_authority():
     async def scenario():
-        store = SQLiteStore()
+        store = LocalStore()
         app = make_app(store, FakeFriendship())
         identity_repo = IdentityRepository(store)
         invitation = await identity_repo.create_invitation(
@@ -476,7 +443,7 @@ def test_withdrawal_revokes_recipient_session_authority():
 
 def test_organizer_can_withdraw_recipient_from_roster_and_block_future_sends():
     async def scenario():
-        store = SQLiteStore()
+        store = LocalStore()
         app = make_app(store, FakeFriendship())
         identity_repo = IdentityRepository(store)
         invitation = await identity_repo.create_invitation(

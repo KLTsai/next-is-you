@@ -13,6 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
+from local_d1 import LocalD1
 from next_is_you import hospital_registry
 from next_is_you.persistence import CloudflareD1Store, Statement, VisitRepository
 from next_is_you.scheduler import OutboxScheduler
@@ -22,7 +23,6 @@ from synthetic_hospital import (
     synthetic_entry,
 )
 from test_ntuh_reader import LocalDurableStorage, gate_with_visit
-from test_scheduler_outbox import LocalD1
 
 TAIPEI = timezone(timedelta(hours=8))
 TODAY = date(2026, 11, 17)

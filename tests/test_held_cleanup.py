@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import json
+from datetime import date, datetime
 
 import pytest
 
+from local_d1 import LocalD1
+from next_is_you.persistence import CloudflareD1Store, VisitRepository
 from next_is_you.send_gate import SystemSendGate
 from test_scheduler_outbox import (
     LocalContext,
-    LocalD1,
     LocalDurableStorage,
     make_gate,
     seed,
@@ -20,15 +22,16 @@ STOPPED_AT = "2026-09-27T13:00:00Z"
 AFTER_EVERY_DEADLINE = "2026-10-01T00:00:00Z"
 
 
-def insert_expired_draft(database: LocalD1, visit_id: str = "draft") -> None:
-    database.connection.execute(
-        """INSERT INTO visits (
-            id, hospital, visit_date, department_code, clinic_code,
-            clinic_session, patient_number, state, created_at, draft_expires_at
-        ) VALUES (?, 'ntuh-main', '2026-09-27', 'SYN', 'SYN-1',
-            'afternoon', 90, 'draft', '2026-09-26T13:00:00Z',
-            '2026-09-29T15:59:00Z')""",
-        (visit_id,),
+async def insert_expired_draft(database: LocalD1, visit_id: str = "draft") -> None:
+    await VisitRepository(CloudflareD1Store(database)).create_draft(
+        visit_id=visit_id,
+        hospital="ntuh-main",
+        visit_day=date(2026, 9, 27),
+        department_code="SYN",
+        clinic_code="SYN-1",
+        clinic_session="afternoon",
+        patient_number=90,
+        now=datetime.fromisoformat("2026-09-26T13:00:00+00:00"),
     )
 
 
@@ -48,7 +51,7 @@ async def stopped_visit_and_expired_draft(
     rehearsal = make_gate(database, storage)
     await seed(rehearsal)
     assert await rehearsal.stop_visit("v1", STOPPED_AT) == "stopped"
-    insert_expired_draft(database)
+    await insert_expired_draft(database)
 
 
 def deployed_gate(

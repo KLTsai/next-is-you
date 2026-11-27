@@ -20,6 +20,7 @@ from urllib.parse import parse_qsl
 
 import pytest
 
+from local_d1 import LocalD1
 from next_is_you.domain import (
     ClinicMatch,
     ClinicRoster,
@@ -61,7 +62,6 @@ from ntuh_reads import (
 )
 from test_scheduler_outbox import (
     LocalContext,
-    LocalD1,
     LocalDurableStorage,
 )
 from next_is_you.send_gate import SystemSendGate
@@ -1328,7 +1328,7 @@ async def test_preflight_resolve_rewrites_clinic_code_for_same_day_schedule_sour
 
 async def active_visit(database, gate, visit_id="d1", patient=28):
     repository = await seed_ntuh(database, gate, visit_id, patient)
-    assert await repository.start(visit_id, taipei(14, 59))
+    assert await repository.lifecycle.start(visit_id, taipei(14, 59))
     assert await repository.update_observation(
         visit_id,
         current_number=25,

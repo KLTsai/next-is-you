@@ -12,6 +12,7 @@ import asyncio
 
 import pytest
 
+from next_is_you.persistence import CloudflareD1Store, VisitRepository
 from test_ntuh_reader import (
     SCHEDULE_FIRST_VISIT,
     SCHEDULE_FIXTURE,
@@ -22,6 +23,7 @@ from test_ntuh_reader import (
     gate_with_visit,
     seed_ntuh_at,
 )
+from visit_states import move_draft_to
 
 # This module serves NTUH reader values (#205).
 pytestmark = pytest.mark.usefixtures("serve_reader_values")
@@ -29,13 +31,6 @@ pytestmark = pytest.mark.usefixtures("serve_reader_values")
 DRAFT_CLINIC = "03/合成醫師甲/角膜"
 RUNNING_CLINIC = "07/合成醫師丙/教學門診"
 REFUSED = {"error": "another_visit_running"}
-
-
-def _set_state(database, visit_id: str, state: str) -> None:
-    database.connection.execute(
-        "UPDATE visits SET state = ? WHERE id = ?", (state, visit_id)
-    )
-    database.connection.commit()
 
 
 def _state(database, visit_id: str) -> str:
@@ -69,11 +64,16 @@ async def _two_visits(running_day=SCHEDULE_FIRST_VISIT):
     return source, database, gate
 
 
+async def _run(database, state: str = "active") -> None:
+    repository = VisitRepository(CloudflareD1Store(database))
+    await move_draft_to(repository, state, "running")
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("running_state", ["active", "stopping"])
 async def test_start_is_refused_while_another_visit_is_running(running_state):
     source, database, gate = await _two_visits()
-    _set_state(database, "running", running_state)
+    await _run(database, running_state)
     before = counts(database, "draft")
 
     result = await gate.start_visit("draft", _preflight_now().isoformat())
@@ -88,7 +88,7 @@ async def test_start_is_refused_while_another_visit_is_running(running_state):
 @pytest.mark.asyncio
 async def test_start_is_refused_when_the_running_visit_is_dated_another_day():
     _, database, gate = await _two_visits(running_day=SCHEDULE_SECOND_VISIT)
-    _set_state(database, "running", "active")
+    await _run(database)
 
     result = await gate.start_visit("draft", _preflight_now().isoformat())
 
@@ -99,11 +99,11 @@ async def test_start_is_refused_when_the_running_visit_is_dated_another_day():
 @pytest.mark.asyncio
 async def test_start_succeeds_after_the_running_visit_is_stopped():
     _, database, gate = await _two_visits()
-    _set_state(database, "running", "active")
+    await _run(database)
     now = _preflight_now().isoformat()
     assert await gate.start_visit("draft", now) == REFUSED
 
-    _set_state(database, "running", "stopped")
+    assert await gate.stop_visit("running", now) == "stopped"
     result = await gate.start_visit("draft", now)
 
     assert result == {"state": "active"}

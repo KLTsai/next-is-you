@@ -17,6 +17,7 @@ import pytest
 import uvicorn
 from playwright.sync_api import Page, expect, sync_playwright
 
+from local_d1 import LocalD1, LocalStore
 from local_worker import loopback_listener
 from next_is_you import hospital_registry
 from next_is_you.domain import ClinicRoster
@@ -37,7 +38,6 @@ from test_local_acceptance import (
     SECRET,
     LocalContext,
     LocalTestBindingApp,
-    SQLiteStore,
 )
 from worker import create_app
 
@@ -65,7 +65,7 @@ class RegistryReaderBindingApp(LocalTestBindingApp):
 
 class Journey:
     def __init__(self) -> None:
-        self.database = SQLiteStore()
+        self.database = LocalD1()
         self.requested: list[str] = []
         self.database.connection.execute(
             """INSERT INTO recipients (
@@ -92,8 +92,8 @@ class Journey:
                     "session_secret": SECRET,
                     "organizer_subjects": {"niy006-synthetic-organizer"},
                 },
-                identity_repository=IdentityRepository(self.database),
-                visit_repository=VisitRepository(self.database),
+                identity_repository=IdentityRepository(LocalStore(self.database)),
+                visit_repository=VisitRepository(LocalStore(self.database)),
                 send_gate=gate,
                 clock=lambda: NOW.timestamp(),
             )

@@ -19,7 +19,9 @@ from next_is_you.domain import (
     ReadSkipped,
 )
 from next_is_you.line_messaging import LinePushResult
-from next_is_you.persistence import TAIPEI, VisitRepository, visit_cutoff
+from next_is_you.persistence import VisitRepository
+from next_is_you.storage import TAIPEI
+from next_is_you.visit_lifecycle import visit_cutoff
 
 LINE_RETRY_WINDOW = timedelta(hours=24)
 _MESSAGES = {
@@ -97,14 +99,14 @@ class OutboxScheduler:
             raise ValueError("scheduler time must be timezone-aware")
         await self._visits.recover_in_flight_events(now)
         return LifecycleCounts(
-            stops_finalized=await self._visits.finalize_stopping(now),
-            visits_expired=await self._visits.expire_due_visits(now),
+            stops_finalized=await self._visits.lifecycle.finalize_stops(now),
+            visits_expired=await self._visits.lifecycle.end_day_over_visits(now),
             withdrawals_erased=await self._visits.erase_settled_withdrawals(),
             pending_invitees_erased=(
                 await self._visits.erase_lapsed_pending_invitees(now)
             ),
-            drafts_deleted=await self._visits.delete_expired_drafts(now),
-            visits_deleted=await self._visits.delete_expired_visits(now),
+            drafts_deleted=await self._visits.lifecycle.delete_expired_drafts(now),
+            visits_deleted=await self._visits.lifecycle.delete_expired_visits(now),
         )
 
     async def prepare_tick(self, now: datetime) -> TickPlan:
@@ -139,7 +141,7 @@ class OutboxScheduler:
                 datetime.fromisoformat(str(visit["visit_date"])).date()
             )
             if sample_time >= cutoff:
-                closed += await self._visits.expire_due_visits(sample_time)
+                closed += await self._visits.lifecycle.end_day_over_visits(sample_time)
                 continue
 
             scope = _scope(visit)
@@ -369,7 +371,7 @@ class OutboxScheduler:
             raise ValueError("scheduler clock must return an aware datetime")
         cutoff = visit_cutoff(datetime.fromisoformat(str(event["visit_date"])).date())
         if send_time >= cutoff:
-            await self._visits.expire_due_visits(send_time)
+            await self._visits.lifecycle.end_day_over_visits(send_time)
             return SendResult("skipped", False)
         first_request = event.get("first_request_at")
         if first_request is not None and send_time >= (
@@ -386,7 +388,7 @@ class OutboxScheduler:
         if request_time.tzinfo is None:
             raise ValueError("scheduler clock must return an aware datetime")
         if request_time >= cutoff:
-            await self._visits.expire_due_visits(request_time)
+            await self._visits.lifecycle.end_day_over_visits(request_time)
             await self._abort_before_request(event_id, attempt_count, event)
             return SendResult("skipped", False)
         if first_request is not None and request_time >= (

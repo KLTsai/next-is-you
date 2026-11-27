@@ -36,6 +36,7 @@ from next_is_you.hospital_registry import (
     require_registered,
 )
 from next_is_you.progress_links import progress_link
+from next_is_you.visit_lifecycle import can_correct
 from next_is_you.refusal_catalog import START_REFUSAL_CODES, START_REFUSAL_FALLBACK
 from next_is_you.login_error_page import (
     FRIENDSHIP_MISSING,
@@ -51,7 +52,8 @@ from next_is_you.line_messaging import (
     LineFriendshipClient,
     WorkersLineFriendshipClient,
 )
-from next_is_you.persistence import CloudflareD1Store, VisitRepository, iso_utc
+from next_is_you.persistence import CloudflareD1Store, VisitRepository
+from next_is_you.storage import iso_utc
 
 # Wrangler discovers the Durable Object class from this imported module export.
 from next_is_you.send_gate import SystemSendGate, local_test_mode  # noqa: F401
@@ -562,7 +564,7 @@ def create_app(
         visit = await repository.get_visit(visit_id)
         if visit is None:
             return _api_error("visit_not_found", 404)
-        if visit["state"] not in {"draft", "stopped", "expired"}:
+        if not can_correct(visit["state"]):
             return _api_error("invalid_lifecycle_state", 409)
         return JSONResponse({"patient_number": int(visit["patient_number"])})
 

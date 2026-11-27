@@ -12,12 +12,13 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from local_d1 import LocalD1, LocalStore
 from next_is_you.identity import IdentityRepository
 from next_is_you.line_login import VerifiedLineIdentity
 from next_is_you.persistence import VisitRepository, iso_utc
 from next_is_you.send_gate import SystemSendGate
 from test_line_identity_routes import SECRET, FakeFriendship, csrf, set_session
-from test_local_acceptance import LocalContext, SQLiteStore
+from test_local_acceptance import LocalContext
 from worker import create_app
 
 ORGANIZER = "line-organizer"
@@ -46,7 +47,7 @@ class Family:
     """One deployment: the database, its send gate and the Worker's routes."""
 
     def __init__(self, environment: str) -> None:
-        self.database = SQLiteStore()
+        self.database = LocalD1()
         self.clock = Clock(ACCEPTED_AT)
         self.login = FakeLogin()
         self.gate = SystemSendGate(
@@ -67,8 +68,8 @@ class Family:
             },
             line_client=self.login,
             friendship_client=FakeFriendship(True),
-            identity_repository=IdentityRepository(self.database),
-            visit_repository=VisitRepository(self.database),
+            identity_repository=IdentityRepository(LocalStore(self.database)),
+            visit_repository=VisitRepository(LocalStore(self.database)),
             send_gate=self.gate,
             clock=self.clock,
         )

@@ -61,3 +61,32 @@ async def test_d1_store_batches_statements_and_reports_each_change_count() -> No
 
     assert changes == [1, 1]
     assert [item.values for item in binding.batched] == [("v1",), ("v2",)]
+
+
+@pytest.mark.asyncio
+async def test_d1_store_reads_each_statement_of_a_batch_in_order() -> None:
+    class Rows(list):
+        """Rows as the Workers binding hands them over, still to be converted."""
+
+        def to_py(self) -> list[Any]:
+            return list(self)
+
+    class ReadingBinding(D1Binding):
+        async def batch(self, statements: list[Prepared]) -> list[dict[str, Any]]:
+            self.batched = statements
+            return [
+                {"results": [{"id": "v1"}], "meta": {"changes": 0}},
+                {"results": Rows([{"id": "r1"}]), "meta": {"changes": 0}},
+            ]
+
+    binding = ReadingBinding()
+
+    rows = await CloudflareD1Store(binding).fetch_batch(
+        [Statement("SELECT id FROM visits"), Statement("SELECT id FROM recipients")]
+    )
+
+    assert rows == [[{"id": "v1"}], [{"id": "r1"}]]
+    assert [item.sql for item in binding.batched] == [
+        "SELECT id FROM visits",
+        "SELECT id FROM recipients",
+    ]

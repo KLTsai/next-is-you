@@ -53,15 +53,16 @@ class LocalD1:
     async def batch(self, statements: Sequence[Prepared]) -> list[dict[str, Any]]:
         self.connection.execute("BEGIN")
         try:
-            results = [
-                self.connection.execute(item.sql, item.values).rowcount
-                for item in statements
-            ]
+            results = []
+            for item in statements:
+                cursor = self.connection.execute(item.sql, item.values)
+                rows = [dict(row) for row in cursor.fetchall()]
+                results.append({"results": rows, "meta": {"changes": cursor.rowcount}})
         except Exception:
             self.connection.execute("ROLLBACK")
             raise
         self.connection.execute("COMMIT")
-        return [{"meta": {"changes": changes}} for changes in results]
+        return results
 
 
 class LocalStore(CloudflareD1Store):

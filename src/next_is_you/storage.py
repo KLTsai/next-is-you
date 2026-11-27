@@ -25,6 +25,10 @@ class SqlStore(Protocol):
 
     async def batch(self, statements: Sequence[Statement]) -> list[int]: ...
 
+    async def fetch_batch(
+        self, statements: Sequence[Statement]
+    ) -> list[list[Mapping[str, Any]]]: ...
+
 
 def iso_utc(value: datetime) -> str:
     if value.tzinfo is None:

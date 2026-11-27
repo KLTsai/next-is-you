@@ -312,6 +312,9 @@ def test_a_running_visit_is_named_with_the_agreed_words_through_its_stop(organiz
     expect(organizer.heading("叫號追蹤")).to_be_visible()
     running = organizer.page.get_by_role("heading", name=re.compile(r"^進行中 \d+$"))
     expect(running).to_be_visible()
+    members_heading = organizer.heading("通知名單")
+    # One line, also on a phone.
+    assert members_heading.bounding_box()["height"] <= 40
     expect(organizer.state(visit)).to_have_text("追蹤中")
     stop = organizer.stop_button(visit)
     expect(stop).to_have_text("停止追蹤")

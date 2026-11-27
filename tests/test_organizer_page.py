@@ -545,3 +545,14 @@ def test_stopping_a_running_visit_follows_it_until_it_has_stopped(organizer):
     expect(organizer.stop_button(visit)).to_have_count(0)
     assert organizer.entered() == entered
     organizer.expect_never_reloaded()
+
+
+# Layout
+
+
+def test_the_recipient_list_adds_no_divider_inside_its_field(organizer):
+    [visit] = organizer.open("stopped")
+    wrapper = organizer.card(visit).locator(".recipient-summary").locator("xpath=..")
+
+    expect(wrapper).to_have_css("border-top-width", "0px")
+    expect(wrapper).to_have_css("padding-top", "0px")

@@ -35,7 +35,7 @@ Honest status as of today. The GitHub tracker is the authoritative source. Nothi
 
 - [ ] Additional hospitals and departments beyond NTU main-campus ophthalmology. Structural discovery (departments, doctors, consultation rooms, URL patterns) can be automated via browsing or retrieval; each new hospital still needs one in-person verification comparing the public page's current-number against the physical room-light, plus human confirmation of ambiguous field semantics and hospital reuse terms.
 - [ ] Frontend UI/UX redesign using a mainstream industry web framework (examples: React, Vue, Svelte, or comparable). The current frontend ships as-is; no framework has been chosen.
-- [ ] Repository governance hardening: Dependabot, CodeQL scanning, branch protection, issue/PR templates, CODEOWNERS, and SECURITY.md. This work has not started; the design is still being considered, with no date or implementation commitment. It is separate from the deployment pipeline, which is already in place - see [docs/CI-CD.md](docs/CI-CD.md).
+- [ ] Repository governance hardening: CodeQL scanning, branch protection, issue/PR templates, CODEOWNERS, and SECURITY.md. This work has not started; the design is still being considered, with no date or implementation commitment. It is separate from the deployment pipeline, which is already in place, including its pinned actions and their Dependabot updates - see [docs/CI-CD.md](docs/CI-CD.md).
 
 The Status section is the single place that describes what works today versus what is being built; features gated behind an open issue are not claimed anywhere else in this document.
 

@@ -1,8 +1,8 @@
 """Screens use the words agreed in GLOSSARY.md (#139).
 
-No source the browser receives may say 管理者, 監控, 停止提醒, 看診提醒, 成員 or
-這一診, and 提醒 stays only where it names the whole service. LINE message
-wording lives in the backend and is not scanned.
+No source the browser receives may say 管理者, 監控, 停止提醒, 看診提醒, 成員,
+這一診 or 這個診, and 提醒 stays only where it names the whole service. LINE
+message wording lives in the backend and is not scanned.
 
 Fixture/mock evidence: reads source files only, no network.
 """
@@ -28,6 +28,7 @@ FORBIDDEN_WORDS = (
     "看診提醒",
     "成員",
     "這一診",
+    "這個診",
     "提醒",
 )
 

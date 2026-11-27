@@ -26,7 +26,7 @@ test("a hospital with no clinic schedule explains each refused Start in plain wo
   );
   assert.equal(
     visitErrorMessage("hospital_cannot_find_clinic"),
-    "院方目前查不到這個診。如果還沒開診，請開診後再試；否則請核對診間代碼。",
+    "院方目前查不到此診。如果還沒開診，請開診後再試；否則請核對診間代碼。",
   );
   assert.equal(
     visitErrorMessage("hospital_page_unreachable"),

@@ -274,12 +274,19 @@ async def test_a_stop_during_a_send_ends_through_the_end_step_once_it_settles(
 
 # The scheduler's four day-over call sites, reached by what its clock reads:
 # once per visit while preparing the tick, then before the attempt and again
-# before the request of each send.
+# before the request of each send. Each site gives the tick time, the readings,
+# and how many visits the tick reports as expired by the chores and closed while
+# preparing; the two send sites report neither.
 DAY_OVER_SITES = {
-    "lifecycle chores": (AT_CUTOFF, (AT_CUTOFF,)),
-    "preparing the tick": (BEFORE_CUTOFF, (AT_CUTOFF,)),
-    "before the attempt": (BEFORE_CUTOFF, (BEFORE_CUTOFF, AT_CUTOFF)),
-    "before the request": (BEFORE_CUTOFF, (BEFORE_CUTOFF, BEFORE_CUTOFF, AT_CUTOFF)),
+    "lifecycle chores": (AT_CUTOFF, (AT_CUTOFF,), 1, 0),
+    "preparing the tick": (BEFORE_CUTOFF, (AT_CUTOFF,), 0, 1),
+    "before the attempt": (BEFORE_CUTOFF, (BEFORE_CUTOFF, AT_CUTOFF), 0, 0),
+    "before the request": (
+        BEFORE_CUTOFF,
+        (BEFORE_CUTOFF, BEFORE_CUTOFF, AT_CUTOFF),
+        0,
+        0,
+    ),
 }
 
 
@@ -288,7 +295,7 @@ DAY_OVER_SITES = {
 async def test_every_day_over_call_site_ends_through_the_end_step(
     monkeypatch, site: str
 ) -> None:
-    tick_time, readings = DAY_OVER_SITES[site]
+    tick_time, readings, expired, closed = DAY_OVER_SITES[site]
     database, storage, gate = await running_visit()
     ends = EndSteps(monkeypatch, gate)
     left = use_clock(gate, *readings)
@@ -299,6 +306,7 @@ async def test_every_day_over_call_site_ends_through_the_end_step(
     assert left == [AT_CUTOFF]
     assert result["held"] is False
     assert result["requests_started"] == 0
+    assert (result["visits_expired"], result["closed"]) == (expired, closed)
     assert ends.under_lock == [True]
     assert end_of(database) == (
         "expired",

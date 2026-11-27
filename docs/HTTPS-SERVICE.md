@@ -440,7 +440,7 @@ LINE Login proves nothing about reminder delivery.
 
 For local foreground sessions Ctrl-C stops only that process; preserve its state
 directory. On the deployed service closing the browser does not stop Cron. UI
-**停止提醒** closes an active logical reminder only after confirmation; a request
+**停止追蹤** closes an active logical reminder only after confirmation; a request
 already started may settle first. If Stop fails, retry and inspect the saved
 state. It is not a retraction of an accepted LINE notification.
 
@@ -464,7 +464,7 @@ Whether the environment is live comes from its committed config (`NIY_LIVE`,
 stored separately in the named DO, so it survives Worker restarts. Set recovery
 hold before any restore, code rollback or later live experiment and verify the
 status API. While recovery hold is active, the organizer visits response reports
-`sending_interrupted: true`; the organizer page shows **發送中斷中，提醒暫停** on
+`sending_interrupted: true`; the organizer page shows **LINE 通知暫停發送** on
 active visits only. Drafts do not show this notice, and it disappears after
 authorized resume. If auth is broken, keep the held version deployed and fix only
 its private settings.

@@ -35,7 +35,7 @@ Honest status as of today. The GitHub tracker is the authoritative source. Nothi
 
 - [ ] Additional hospitals and departments beyond NTU main-campus ophthalmology. Structural discovery (departments, doctors, consultation rooms, URL patterns) can be automated via browsing or retrieval; each new hospital still needs one in-person verification comparing the public page's current-number against the physical room-light, plus human confirmation of ambiguous field semantics and hospital reuse terms.
 - [ ] Frontend UI/UX redesign using a mainstream industry web framework (examples: React, Vue, Svelte, or comparable). The current frontend ships as-is; no framework has been chosen.
-- [ ] Repository governance hardening: Dependabot, CodeQL scanning, branch protection, issue/PR templates, CODEOWNERS, and SECURITY.md. This work has not started; the design is still being considered, with no date or implementation commitment. It is separate from the deployment pipeline, which is already in place - see [docs/CI-CD.md](docs/CI-CD.md).
+- [ ] Repository governance hardening: CodeQL scanning, branch protection, issue/PR templates, CODEOWNERS, and SECURITY.md. This work has not started; the design is still being considered, with no date or implementation commitment. It is separate from the deployment pipeline, which is already in place, including its pinned actions and their Dependabot updates - see [docs/CI-CD.md](docs/CI-CD.md).
 
 The Status section is the single place that describes what works today versus what is being built; features gated behind an open issue are not claimed anywhere else in this document.
 
@@ -86,13 +86,13 @@ Daily use is browser-only. The owner's stable origin is a fixed `workers.dev` UR
 3. Press **Start**.
 4. Close the browser. Once live operation is authorized, the service will continue watching the queue on its one-minute schedule.
 
-If the owner also joined as a family member with the same LINE account, signing in with LINE again without an invitation link returns to the manager view.
+If the owner also joined as a family member with the same LINE account, signing in with LINE again without an invitation link returns to the organizer view.
 
 Today, pressing Start initiates neither live hospital queue reads nor live LINE reminder sends; both remain held pending the [Issue #22 pilot](https://github.com/KLTsai/next-is-you/issues/22). The flow above describes the intended behavior once the pilot authorizes live operation.
 
 To stop or hold:
 
-- **Stop a reminder**: in the UI, open the active reminder and confirm **停止提醒**. A notification already in flight may settle before Stop confirms. See the [stop and recovery notes in the HTTPS service doc](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback).
+- **Stop a reminder**: in the UI, open the active reminder and confirm **停止追蹤**. A notification already in flight may settle before Stop confirms. See the [stop and recovery notes in the HTTPS service doc](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback).
 - **Hold the whole service** (when the system is misbehaving): the owner, signed in, sets recovery hold through the authorized status API. The exact console snippet lives in the [HTTPS service stop and recovery section](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback). Recovery hold survives Worker restarts and must be set before any restore or code rollback.
 - **Rollback the deployment**: the captain runs **Promote** with an earlier version number, as described in the [rollback section of the CI/CD guide](docs/CI-CD.md#rollback). Rollback restores code only. If Promote itself is unusable, fall back to the native Wrangler procedure in the [stop, failure recovery and rollback section](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback). Either way, only roll back to a version compatible with the current schema and preserved SQLite class; rollback never reverses a D1 migration, and this README deliberately does not restate the exact commands.
 

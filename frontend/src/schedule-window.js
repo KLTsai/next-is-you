@@ -64,5 +64,5 @@ export function degradeNotice(reason) {
 // Shown above manual entry for a hospital that publishes no clinic schedule:
 // nothing failed, there is simply no clinic schedule to pick from.
 export function currentNumberOnlyNotice() {
-  return "這家醫院沒有公布門診表，請照院方進度頁上的診間資料手動輸入。草稿隨時可以儲存，看診當天才能開始提醒。";
+  return "這家醫院沒有公布門診表，請照院方進度頁上的診間資料手動輸入。草稿隨時可以儲存，看診當天才能開始追蹤。";
 }

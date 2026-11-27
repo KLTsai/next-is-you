@@ -28,7 +28,7 @@ Next is you 就是替你做這件事的小工具。擁有者在瀏覽器開啟�
 
 **進行中**
 
-- [ ] 管理者主導的 LINE 邀請與移除 UI：已合併並在本地驗證過；用真實家庭 LINE 帳號走一次完整流程仍待進行 - [#19](https://github.com/KLTsai/next-is-you/issues/19)
+- [ ] 設定者主導的 LINE 邀請與移除 UI：已合併並在本地驗證過；用真實家庭 LINE 帳號走一次完整流程仍待進行 - [#19](https://github.com/KLTsai/next-is-you/issues/19)
 - [ ] 台大眼科 reader：已具備 fixture 與本地整合證據；來源的請求契約與 markup 已人工實地擷取，但 reader 本身的線上行為尚未驗證 - [#20](https://github.com/KLTsai/next-is-you/issues/20)
 - [ ] 私人儲存復原與營運就緒 - [#21](https://github.com/KLTsai/next-is-you/issues/21)
 - [ ] 擁有者本人手機實測（首次真實提醒） - [#22](https://github.com/KLTsai/next-is-you/issues/22)
@@ -37,7 +37,7 @@ Next is you 就是替你做這件事的小工具。擁有者在瀏覽器開啟�
 
 - [ ] 支援台大總院區眼科之外的其他醫院與科別。結構面的盤點（科別、醫師、診間、URL 格式）可用瀏覽或檢索方式自動化；但每新增一間醫院，仍需現場親自驗證一次，比對公開頁面上的目前叫號與診間實體燈號是否一致，並由人工確認含糊的欄位語意，以及該醫院對相關術語的使用方式。
 - [ ] 以主流業界 web framework（例如 React、Vue、Svelte 或同等級框架）重新設計前端 UI/UX。目前前端照現況提供使用，尚未選定框架。
-- [ ] 版本庫治理加固：Dependabot、CodeQL 掃描、分支保護、issue/PR 範本、CODEOWNERS，以及 SECURITY.md。這項工作尚未開始；設計仍待思考完整，目前沒有日期或實作承諾。這與部署流程是兩件事，部署流程已經就位，見 [docs/CI-CD.md](docs/CI-CD.md)。
+- [ ] 版本庫治理加固：CodeQL 掃描、分支保護、issue/PR 範本、CODEOWNERS，以及 SECURITY.md。這項工作尚未開始；設計仍待思考完整，目前沒有日期或實作承諾。這與部署流程是兩件事，部署流程已經就位（包含固定版本的 actions 與 Dependabot 更新），見 [docs/CI-CD.md](docs/CI-CD.md)。
 
 此現況區段是本文件中唯一描述「今日可用」與「仍在建置」差異的地方；任何仍受未結 issue 把關的功能，不會在本文件其他段落被誇張宣稱。
 
@@ -87,13 +87,13 @@ Reader 只會保留它實際比對到的欄位（診間、醫師、clinic type�
 3. 按下 **Start**。
 4. 關掉瀏覽器。待授權啟用真實服務後，服務會依每分鐘排程繼續盯著進度頁。
 
-如果擁有者也用同一個 LINE 帳號以家人身分加入過，不帶邀請連結再次使用 LINE 登入，就會回到管理者畫面。
+如果擁有者也用同一個 LINE 帳號以家人身分加入過，不帶邀請連結再次使用 LINE 登入，就會回到設定者畫面。
 
 目前按下 Start 不會啟動讀取真實醫院叫號進度，也不會發送真實 LINE 提醒；兩者都仍待 [Issue #22 手機實測](https://github.com/KLTsai/next-is-you/issues/22) 授權。上方流程描述的是授權啟用真實服務後的預期行為。
 
 停止或保留：
 
-- **停止某則提醒**：在 UI 中打開目前的 reminder，確認 **停止提醒**。已在送出途中的通知可能會先完成，才確認停止。詳見 [HTTPS 服務文件的停止與復原段落](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback)。
+- **停止一筆追蹤**：在 UI 中打開進行中的叫號追蹤，確認 **停止追蹤**。已在送出途中的通知可能會先完成，才確認停止。詳見 [HTTPS 服務文件的停止與復原段落](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback)。
 - **保留整個服務**（當系統出現異常時）：擁有者登入後，透過已授權的狀態 API 設定 recovery hold。對應的 console 片段在 [HTTPS 服務的停止與復原段落](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback)；recovery hold 會跨 Worker 重啟保留，且必須在任何還原或程式碼 rollback 之前先設定。
 - **部署 rollback**：由 captain 以較早的版本號執行 **Promote**，程序見 [CI/CD 指南的 rollback 段落](docs/CI-CD.md#rollback)。Rollback 只還原程式碼。若 Promote 本身無法使用，再退回 [stop, failure recovery and rollback 段落](docs/HTTPS-SERVICE.md#stop-failure-recovery-and-rollback)中原生的 Wrangler 程序。兩者都只能 rollback 到與目前 schema 及已保留的 SQLite class 相容的版本；rollback 不會逆轉 D1 migration，本 README 刻意不重述完整命令。
 
@@ -202,7 +202,7 @@ Next is you 的設計是盡量少留東西：
 - **會儲存什麼：** 邀請紀錄、同意紀錄，以及用於排程與去重複的 outbox events。不會留存任何原始醫院 response body；reader 只保留比對到的欄位（診間、醫師、clinic type、目前叫號）給擁有者草稿指定的那一間門診。
 - **當天截止：** 看診日當天台北時間 23:59 之後，active reminders 會過期，不再送出任何通知。
 - **active-data 清理：** drafts 與過期的 reminders 會在台北 23:59 截止滿 48 小時後的第一次排程執行時清掉；停止的 reminders 則在 Stop 滿 48 小時後清掉。暫停發送（send hold）期間清理照常進行。recovery hold 期間只清過期的 drafts，其餘資料等 hold 解除後再清。
-- **移除：** 由管理者直接移除成員；本階段沒有收件人自助退出功能。成員被移除後，其紀錄即被刪除。
+- **移除：** 由設定者直接從通知名單移除家人；本階段沒有收件人自助退出功能。家人被移除後，其紀錄即被刪除。
 - **備份：** 備份保留期與 active-data 清理分開管理；相關部署儲存與備份 gate 詳見 [pre-live checklist](docs/PRE-LIVE-CHECKLIST.md)。
 
 確切機制存在於儲存與生命週期文件中；本段只用平白話描述它們。擁有者的穩定來源是一個公開的 `workers.dev` URL，其靜態 shell 與 `/api/healthz` endpoint 對任何人都可觸及；organizer 資料與寫入操作則需要在 allowlist 中的 LINE session 與 CSRF。

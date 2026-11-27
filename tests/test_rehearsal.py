@@ -47,7 +47,7 @@ def control(page, origin, operation, data=None):
     return response.json() if response.status != 204 else {}
 
 
-def test_rehearsal_empty_dashboard_keeps_reminder_status_list_visible(tmp_path, screen):
+def test_rehearsal_empty_dashboard_keeps_the_running_section_visible(tmp_path, screen):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context(**screen)
@@ -64,9 +64,9 @@ def test_rehearsal_empty_dashboard_keeps_reminder_status_list_visible(tmp_path, 
             with rehearsal(tmp_path) as origin:
                 page.goto(origin)
                 page.get_by_role("button", name="本機合成測試登入").click()
-                status_list = page.get_by_role("region", name="提醒清單")
-                expect(status_list).to_be_visible()
-                expect(status_list).to_contain_text("尚無提醒狀態")
+                running_section = page.get_by_role("region", name="進行中")
+                expect(running_section).to_be_visible()
+                expect(running_section).to_contain_text("目前沒有進行中的叫號追蹤")
         finally:
             context.close()
             browser.close()
@@ -321,7 +321,7 @@ def test_rehearsal_stopped_correction_cannot_add_recipients(tmp_path, screen):
                 expect(stopped_card).to_contain_text("85")
                 page.locator('[data-correct="rehearsal-no-add"]').click()
                 expect(
-                    page.get_by_role("heading", name="修正已停止的提醒")
+                    page.get_by_role("heading", name="修正已停止的追蹤")
                 ).to_be_visible(timeout=15000)
                 choices = page.locator('#visit-form input[name="recipient_ids"]')
                 expect(choices).to_have_count(1)
@@ -402,7 +402,7 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
                 expect(correction).to_be_visible()
                 correction.click()
                 expect(
-                    page.get_by_role("heading", name="修正已結束的提醒")
+                    page.get_by_role("heading", name="修正已結束的追蹤")
                 ).to_be_visible(timeout=15000)
                 expect(page.locator('input[name="date"]')).to_have_value(
                     day, timeout=15000
@@ -441,7 +441,7 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
                 active = page.locator(
                     '[aria-labelledby="visit-rehearsal-expired-restart"]'
                 )
-                expect(active.locator(".state")).to_have_text("監控中")
+                expect(active.locator(".state")).to_have_text("追蹤中")
                 expect(active).to_contain_text("掛號序號")
                 expect(active).to_contain_text("85")
                 assert page.request.post(origin + "/__niy006_test/alarm").ok
@@ -474,7 +474,9 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
                     {"now": (next_day_cutoff + timedelta(hours=48)).isoformat()},
                 )
                 page.get_by_role("button", name="重新整理").click()
-                expect(page.get_by_role("heading", name="尚無提醒狀態")).to_be_visible()
+                expect(
+                    page.get_by_role("heading", name="目前沒有進行中的叫號追蹤")
+                ).to_be_visible()
                 remaining = page.evaluate(
                     "async () => (await fetch('/api/organizer/visits')).json()"
                 )["visits"]
@@ -561,7 +563,8 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(
                 page.get_by_role("button", name="儲存草稿", exact=True).click()
                 expect(
                     page.get_by_text(
-                        "草稿修改已儲存。請在提醒清單重新檢查並開始。", exact=True
+                        "草稿修改已儲存。請在已儲存草稿按「重新檢查並開始」。",
+                        exact=True,
                     )
                 ).to_be_visible()
                 expect(page.locator("#saved-drafts-list")).to_contain_text("86")
@@ -586,7 +589,7 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(
                 page.locator(f'[data-start="{visit_id}"]').click()
                 expect(
                     page.get_by_text(
-                        "目前沒有可用的可信院方觀察，提醒維持草稿。", exact=True
+                        "目前沒有可用的可信院方觀察，維持草稿。", exact=True
                     )
                 ).to_be_visible()
                 control(
@@ -744,7 +747,7 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                 )
                 page.locator(f'[data-correct="{draft_id}"]').click()
                 expect(
-                    page.get_by_role("heading", name="修正已停止的提醒")
+                    page.get_by_role("heading", name="修正已停止的追蹤")
                 ).to_be_visible(timeout=15000)
                 page.locator("input[name=patient_number]").fill("89")
                 page.locator("input[name=clinic_code]").fill(
@@ -852,7 +855,7 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
 
                 expect(
                     page.get_by_text(
-                        "修正已儲存為草稿。請在提醒清單重新檢查並開始。",
+                        "修正已儲存為草稿。請在已儲存草稿按「重新檢查並開始」。",
                         exact=True,
                     )
                 ).to_be_visible()
@@ -974,7 +977,7 @@ def test_rehearsal_failed_start_explains_reason_on_the_draft_card_and_aligns_fie
 
                 expect(
                     draft.get_by_role("alert").get_by_text(
-                        "目前沒有可用的可信院方觀察，提醒維持草稿。", exact=True
+                        "目前沒有可用的可信院方觀察，維持草稿。", exact=True
                     )
                 ).to_be_visible()
                 expect(draft.locator("[data-start]")).to_be_enabled()
@@ -1065,7 +1068,7 @@ def test_correction_save_vs_roster_latency(tmp_path, scenario, screen):
                 expect(card.locator(".state")).to_have_text("已結束")
                 card.locator('[data-correct="rehearsal-expired-restart"]').click()
                 expect(
-                    page.get_by_role("heading", name="修正已結束的提醒")
+                    page.get_by_role("heading", name="修正已結束的追蹤")
                 ).to_be_visible()
                 expect(page.locator('input[name="date"]')).to_have_value(day)
                 clinic = page.locator('#visit-form [name="clinic_code"]')
@@ -1185,7 +1188,7 @@ def test_setup_form_shows_the_readers_label_and_the_chosen_clinics_details(
             browser.close()
 
 
-def test_rehearsal_joined_family_member_is_told_how_to_return_to_the_manager_view(
+def test_rehearsal_joined_family_member_is_told_how_to_return_to_the_organizer_view(
     tmp_path,
 ):
     with sync_playwright() as playwright:
@@ -1213,7 +1216,7 @@ def test_rehearsal_joined_family_member_is_told_how_to_return_to_the_manager_vie
                 joined = page.get_by_role("status")
                 expect(joined).to_contain_text("已加入，可以關閉這個頁面了。")
                 expect(joined).to_contain_text(
-                    "不帶邀請連結再次使用 LINE 登入，就會回到管理者畫面"
+                    "不帶邀請連結再次使用 LINE 登入，就會回到設定者畫面"
                 )
                 page.screenshot(path=str(tmp_path / "joined.png"))
         finally:

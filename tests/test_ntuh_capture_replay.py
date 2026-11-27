@@ -18,6 +18,7 @@ from urllib.parse import parse_qsl
 
 import pytest
 
+import next_is_you.ntuh_reader as ntuh_reader
 from next_is_you.domain import ClinicScope, ClinicSession, QueueObservation
 from next_is_you.ntuh_reader import ListRow, parse_light_table, parse_request_token
 from next_is_you.ntuh_detail import (
@@ -27,6 +28,7 @@ from next_is_you.ntuh_detail import (
     parse_detail_page,
 )
 
+from ntuh_reads import card, listing, served
 from test_ntuh_reader import TwoPageSource, reader
 
 CAPTURES = Path(__file__).parent / "fixtures" / "hospitals" / "ntuh_captures"
@@ -374,7 +376,8 @@ async def test_reader_finds_the_card_on_a_real_list_and_reads_its_real_detail_pa
     # The page: light 037 檢查號, 已叫最大號 043, 預計叫號 032 (過號) 044 (順號).
     assert read.current_number == 37
     assert read.current_flag == "exam"
-    assert read.highest_called_number == 43
+    # 43 is still listed as 已報到, so nothing proves it was called (#248).
+    assert read.highest_called_number is None
     assert read.substitute_doctor is False
     assert read.expected == (ExpectedCall(32, "passed"), ExpectedCall(44, "sequential"))
     assert read.numbers == numbers_as_shown(
@@ -879,3 +882,63 @@ async def test_reader_reads_a_clinic_from_the_real_selector_list_and_detail() ->
     assert read.substitute_doctor is False
     assert read.expected == (ExpectedCall(35, "sequential"), ExpectedCall(7, "exam"))
     assert read.numbers == numbers_as_shown(OPH06_NUMBERS)
+
+
+@pytest.mark.asyncio
+async def test_a_waiting_number_labelled_highest_called_is_not_reported_2026_11_25(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 神經部 05診 范齡勻, afternoon of 2026-11-25. The reader serves 眼科 only
+    # (#180), so the test opens that gate to read this department's real pages.
+    monkeypatch.setattr(ntuh_reader, "SUPPORTED_DEPARTMENT", "NEUR")
+    source = TwoPageSource(
+        capture("list_neur_pm_midway_2026-11-25_1500.html"),
+        capture("detail_neur05_passed_2026-11-25_1500.html"),
+    )
+    r = reader(source)
+    clinic = ClinicScope(
+        "ntuh-main",
+        date(2026, 11, 25),
+        "NEUR",
+        "05診/范齡勻/普通門診",
+        ClinicSession.AFTERNOON,
+    )
+    taipei = timezone(timedelta(hours=8))
+
+    await r.observe_for_start(clinic, datetime(2026, 11, 25, 15, 0, tzinfo=taipei))
+    read = await r.observe(clinic, datetime(2026, 11, 25, 15, 2, tzinfo=taipei))
+
+    # The page: light 005, 已叫最大號 016, and 16 is still listed as 未報到.
+    assert isinstance(read, QueueObservation)
+    assert read.current_number == 5
+    assert NumberStatus(16, "not_checked_in") in read.numbers
+    assert read.highest_called_number is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("serve_reader_values")
+async def test_a_highest_called_no_longer_listed_is_reported_2026_11_20() -> None:
+    # 眼科 12診 李承雍, afternoon of 2026-11-20. No list was captured with this
+    # clinic's card, so the card is invented; the detail page is real.
+    source = TwoPageSource(
+        served(listing(card("12 診", "李承雍", "普通門診", "049"))),
+        capture("detail_oph12_exam_2026-11-20_1635.html"),
+    )
+    r = reader(source)
+    clinic = ClinicScope(
+        "ntuh-main",
+        date(2026, 11, 20),
+        "OPH",
+        "12診/李承雍/普通門診",
+        ClinicSession.AFTERNOON,
+    )
+    taipei = timezone(timedelta(hours=8))
+
+    await r.observe_for_start(clinic, datetime(2026, 11, 20, 16, 35, tzinfo=taipei))
+    read = await r.observe(clinic, datetime(2026, 11, 20, 16, 37, tzinfo=taipei))
+
+    # The page: light 049, 已叫最大號 047, and the list holds no 47.
+    assert isinstance(read, QueueObservation)
+    assert read.current_number == 49
+    assert 47 not in {status.number for status in read.numbers}
+    assert read.highest_called_number == 47

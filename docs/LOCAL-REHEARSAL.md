@@ -83,8 +83,8 @@ curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/seed \
   --data "$(uv run python -c 'import json; from datetime import datetime, timedelta, timezone; now = datetime.now(timezone.utc); print(json.dumps({"visit_id": "rehearsal-setup", "recipient_id": "rehearsal-recipient", "visit_day": (now + timedelta(days=1)).date().isoformat(), "patient_number": 85, "now": now.isoformat()}))')"
 ```
 
-Sign in with **本機合成測試登入**, then select **停止提醒** on the setup visit.
-Expected: **監控中** becomes **已停止** after confirmation, and **Synthetic recipient**
+Sign in with **本機合成測試登入**, then select **停止追蹤** on the setup visit.
+Expected: **追蹤中** becomes **已停止** after confirmation, and **Synthetic recipient**
 is available in the form. No notification has been sent. This fixture is not real
 consent or identity enrollment. Skip preparation on subsequent starts; do not
 reseed or clear the outbox to repeat the journey.
@@ -116,11 +116,11 @@ curl --fail-with-body -X POST http://127.0.0.1:8787/__niy006_test/observation \
   --data '{"current_number":null,"trustworthy":false}'
 ```
 
-Select **重新檢查並開始提醒**. Expected: pending recheck, then an unavailable
+Select **重新檢查並開始**. Expected: pending recheck, then an unavailable
 reason shown as an alert on the draft card; state remains **草稿**. The alert
 clears when Start is retried or after a draft edit is saved successfully. Restore
 the trusted observation at `70` using the first control above, then Start again.
-Expected: **監控中** after API confirmation.
+Expected: **追蹤中** after API confirmation.
 The synthetic reader returns a fresh observation matching the visit scope; it
 does not prove real hospital freshness.
 
@@ -178,14 +178,14 @@ without an additional request. Both D1 history and the DO fake-request log are
 durable; a blank/reset request counter is not deduplication evidence. UI refresh
 shows the saved lifecycle and notification summary.
 
-Select **停止提醒**. Expected: pending stop, then **已停止** only after confirmation.
+Select **停止追蹤**. Expected: pending stop, then **已停止** only after confirmation.
 The stopped reminder card keeps the same `掛號序號` row as the saved draft.
 Further ticks cannot begin a new request for that visit. A request that began
 before Stop may settle before confirmation; Stop is not a retraction of it.
 
 ## Recovery and stopping
 
-UI **停止提醒** closes a logical reminder. Ctrl-C stops the local service process;
+UI **停止追蹤** closes a logical reminder. Ctrl-C stops the local service process;
 it does not close active visits. A restarted active visit can be evaluated again,
 while an already accepted logical event stays deduplicated.
 
@@ -208,9 +208,9 @@ After 23:59 Taipei time on the appointment date, the next scheduled run expires
 an Active reminder and sends no further notices. Before automatic cleanup, choose
 **修正後重新啟動** on that expired reminder, update its date or appointment details,
 and save. It returns to **已儲存草稿** as the same reminder; use
-**重新檢查並開始提醒** to recheck the source before it can become **監控中**
+**重新檢查並開始** to recheck the source before it can become **追蹤中**
 again. Correction by itself must not add another `near` event. Confirmed
-**停止提醒** ends monitoring and all later notifications; a notice already in
+**停止追蹤** ends monitoring and all later notifications; a notice already in
 flight may settle before Stop is confirmed. After the first successful start,
 existing recipients can be removed from the reminder card, but the frozen roster
 cannot accept new recipients. At least one recipient must remain. When only one

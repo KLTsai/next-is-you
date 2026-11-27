@@ -177,7 +177,7 @@ Staging is used by the captain alone. No family member is invited to it.
     read until #188 lands: its clinic schedule page (7.68 million characters on
     2026-11-25) is over the reader's cap and reads as unavailable. 骨科 fits. In
     both, the page's 已叫最大號 is usually a number still waiting rather than
-    the last number called, so the reader reports no highest called there
+    the last number called, so the reader then reports no highest called
     (#248), and reminders that need it are not sent.
   - Edge cases (passed, check-in order, unavailable source, number gone from the
     list) are covered by fixtures.

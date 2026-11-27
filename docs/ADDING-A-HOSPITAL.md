@@ -224,6 +224,9 @@ These are product-wide and are not yours to relax when adding a hospital:
   missing is never treated as zero.
 - **Absent is not empty.** A fact the read does not state is absent (`None`), never an
   empty list or zero. A read that lists no numbers leaves `numbers` as `None`.
+- **A label is not proof.** A number the source labels as the highest called
+  goes into `highest_called_number` only through `proven_highest_called`
+  (`domain.py`, ADR 0003).
 - **Minimal retention.** Keep only the matched clinic's transient read state;
   discard unrelated rows and raw responses. No raw patient responses are retained.
 - **Freshness is read time**, taken from when the reader fetched, never from the

@@ -286,7 +286,7 @@ The repository is public and the deploy jobs hold `CLOUDFLARE_API_TOKEN`
 (#214).
 
 - **Actions are pinned to commits.** Every `uses:` in `.github/workflows/`
-  names a full commit SHA, with its release in a comment
+  names a full commit SHA, with its tag in a comment
   (`# v7.0.1`), because a tag can be moved. A test in
   `tests/test_workflow_supply_chain.py` fails on any other form.
 - **Dependabot keeps the pins current.** `.github/dependabot.yml` checks the

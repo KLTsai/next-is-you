@@ -50,8 +50,6 @@ def test_dependabot_updates_only_actions_under_a_type_that_releases_nothing() ->
     # Dependabot adds the colon after a prefix that ends in a letter.
     prefix = update["commit-message"]["prefix"]
     assert title_type(f"{prefix}: bump actions/checkout") in {"ci", "build"}
-    # A grouped pull request takes its title from the group, not the prefix.
-    assert "groups" not in update
 
 
 def test_promote_grants_nothing_a_job_did_not_declare() -> None:

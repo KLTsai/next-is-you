@@ -15,7 +15,7 @@ A family member who accepted an invitation and agreed to receive reminders on LI
 _Avoid_: Member, subscriber, audience, 成員
 
 **Recipient list**:
-Everyone who has accepted an organizer's invitations: the people the organizer chooses a visit's recipients from. Removing someone from it removes them from every visit, while removing a recipient from one visit leaves them on the list. Shown to users as 通知名單.
+Every recipient, whether they accepted an organizer's invitation or are an organizer: the people the organizer chooses a visit's recipients from. Removing someone from it removes them from every visit, while removing a recipient from one visit leaves them on the list. An organizer who removes themselves has withdrawn and stays off it after later sign-ins. Shown to users as 通知名單.
 _Avoid_: Member list, family list, 家庭成員, 成員管理
 
 **Pending invitee**:

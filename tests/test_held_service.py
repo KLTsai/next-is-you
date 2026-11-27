@@ -1,15 +1,17 @@
 """Fixture regressions for the production hold and runtime configuration boundary."""
 
 import json
+from datetime import datetime
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from local_d1 import LocalD1
 from next_is_you.auth import SESSION_COOKIE_NAME, issue_session
+from next_is_you.persistence import CloudflareD1Store, VisitRepository
 from next_is_you.send_gate import SystemSendGate
 from test_scheduler_outbox import (
     LocalContext,
-    LocalD1,
     LocalDurableStorage,
     make_gate,
     seed,
@@ -82,7 +84,10 @@ async def test_production_missing_reader_cannot_start_existing_draft():
     storage = LocalDurableStorage()
     rehearsal = make_gate(database, storage)
     await seed(rehearsal)
-    database.connection.execute("UPDATE visits SET state = 'draft'")
+    repository = VisitRepository(CloudflareD1Store(database))
+    now = datetime.fromisoformat("2026-09-27T13:00:00+00:00")
+    assert await repository.lifecycle.stop("v1", now) == "stopped"
+    assert await repository.lifecycle.reopen_for_correction("v1")
     # Refresh the fixture ledger after reshaping the draft.
     await rehearsal._save_ledger()
     gate = SystemSendGate(

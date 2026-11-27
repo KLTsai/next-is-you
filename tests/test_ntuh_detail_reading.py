@@ -84,7 +84,7 @@ async def running_visit(source, *, patient: int = 28, session: str = "afternoon"
     database, gate = await gate_with_visit(source)
     await seed_ntuh_at(database, gate, "v", DAY, session=session, patient=patient)
     repository = VisitRepository(CloudflareD1Store(database))
-    assert await repository.start("v", taipei(0, 1))
+    assert await repository.lifecycle.start("v", taipei(0, 1))
     return database, gate
 
 

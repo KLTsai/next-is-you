@@ -2,22 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sqlite3
 import threading
 import time
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from playwright.sync_api import expect, sync_playwright
 import uvicorn
 
+from local_d1 import LocalD1, LocalStore
 from local_worker import loopback_listener
 from next_is_you.auth import CSRF_COOKIE_NAME
 from next_is_you.identity import IdentityRepository
-from next_is_you.persistence import Statement, VisitRepository
+from next_is_you.persistence import VisitRepository
 from next_is_you.send_gate import SystemSendGate
 from worker import create_app
 
@@ -25,64 +24,9 @@ from worker import create_app
 pytestmark = pytest.mark.usefixtures("built_ui")
 
 
-ROOT = Path(__file__).resolve().parents[1]
-MIGRATIONS = sorted((ROOT / "migrations").glob("*.sql"))
 SECRET = "local-acceptance-secret-with-more-than-32-bytes"
 NOW = datetime(2026, 9, 27, 13, 1, tzinfo=timezone.utc)
 NOW_TEXT = "2026-09-27T13:01:00Z"
-
-
-class Prepared:
-    def __init__(
-        self, database: "SQLiteStore", sql: str, values: tuple[Any, ...] = ()
-    ) -> None:
-        self.database = database
-        self.sql = sql
-        self.values = values
-
-    def bind(self, *values: Any) -> "Prepared":
-        return Prepared(self.database, self.sql, values)
-
-    async def run(self) -> dict[str, Any]:
-        cursor = self.database.connection.execute(self.sql, self.values)
-        return {"meta": {"changes": cursor.rowcount}}
-
-    async def all(self) -> dict[str, Any]:
-        cursor = self.database.connection.execute(self.sql, self.values)
-        return {"results": [dict(row) for row in cursor.fetchall()]}
-
-
-class SQLiteStore:
-    def __init__(self) -> None:
-        self.connection = sqlite3.connect(
-            ":memory:", isolation_level=None, check_same_thread=False
-        )
-        self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA foreign_keys = ON")
-        for migration in MIGRATIONS:
-            self.connection.executescript(migration.read_text(encoding="utf-8"))
-
-    def prepare(self, sql: str) -> Prepared:
-        return Prepared(self, sql)
-
-    async def execute(self, statement: Statement) -> int:
-        return self.connection.execute(statement.sql, statement.values).rowcount
-
-    async def fetch_all(self, statement: Statement) -> list[Mapping[str, Any]]:
-        return [
-            dict(row)
-            for row in self.connection.execute(statement.sql, statement.values)
-        ]
-
-    async def batch(self, statements: Sequence[Statement]) -> list[int]:
-        self.connection.execute("BEGIN")
-        try:
-            results = [await self.execute(statement) for statement in statements]
-        except Exception:
-            self.connection.execute("ROLLBACK")
-            raise
-        self.connection.execute("COMMIT")
-        return results
 
 
 class LocalStorage:
@@ -126,7 +70,7 @@ class LocalTestBindingApp:
 
 def test_local_http_acceptance_journey() -> None:
     async def scenario() -> None:
-        database = SQLiteStore()
+        database = LocalD1()
         database.connection.execute(
             """INSERT INTO recipients (
                 id, line_subject, display_name, consented_at,
@@ -144,13 +88,13 @@ def test_local_http_acceptance_journey() -> None:
                 "NIY_ENVIRONMENT": "local-test",
             },
         )
-        visits = VisitRepository(database)
+        visits = VisitRepository(LocalStore(database))
         app = create_app(
             settings={
                 "session_secret": SECRET,
                 "organizer_subjects": {"niy006-synthetic-organizer"},
             },
-            identity_repository=IdentityRepository(database),
+            identity_repository=IdentityRepository(LocalStore(database)),
             visit_repository=visits,
             send_gate=gate,
             clock=lambda: NOW.timestamp(),
@@ -317,7 +261,7 @@ def test_local_browser_acceptance_journey(screen: dict) -> None:
     visit_day = (date.today() + timedelta(days=2)).isoformat()
     clinic_code = "11 診/合成醫師丙/醫師約診"
     heading_text = f"{visit_day} · OPH · {clinic_code}"
-    database = SQLiteStore()
+    database = LocalD1()
     database.connection.execute(
         """INSERT INTO recipients (
             id, line_subject, display_name, consented_at,
@@ -340,8 +284,8 @@ def test_local_browser_acceptance_journey(screen: dict) -> None:
             "session_secret": SECRET,
             "organizer_subjects": {"niy006-synthetic-organizer"},
         },
-        identity_repository=IdentityRepository(database),
-        visit_repository=VisitRepository(database),
+        identity_repository=IdentityRepository(LocalStore(database)),
+        visit_repository=VisitRepository(LocalStore(database)),
         send_gate=gate,
         clock=lambda: NOW.timestamp(),
     )

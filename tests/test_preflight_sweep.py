@@ -7,6 +7,7 @@ from typing import Mapping
 
 import pytest
 
+from local_d1 import LocalD1
 from next_is_you.domain import (
     ClinicMatch,
     ClinicOption,
@@ -17,7 +18,6 @@ from next_is_you.domain import (
     RosterQuery,
 )
 from next_is_you.scheduler import OutboxScheduler
-from test_scheduler_outbox import LocalD1
 
 from next_is_you.persistence import (
     CloudflareD1Store,

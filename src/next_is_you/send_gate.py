@@ -16,11 +16,13 @@ from next_is_you.line_messaging import (
     LinePushTransport,
     WorkersLineBotInfoClient,
 )
-from next_is_you.persistence import (
-    CloudflareD1Store,
-    Statement,
-    TAIPEI,
-    VisitRepository,
+from next_is_you.persistence import CloudflareD1Store, VisitRepository
+from next_is_you.storage import TAIPEI, Statement
+from next_is_you.visit_lifecycle import (
+    ACTIVE,
+    can_reopen_for_correction,
+    can_start,
+    can_stop,
     visit_cutoff,
 )
 from next_is_you.domain import (
@@ -175,9 +177,7 @@ class SystemSendGate(_DurableObjectBase):
                         break
                 await self._clear_request_context()
                 await self._save_ledger()
-                if await self._repository().finalize_stopping(
-                    datetime.now(timezone.utc)
-                ):
+                if await self._repository().lifecycle.finalize_stops(clock()):
                     await self._save_ledger()
         return result
 
@@ -212,7 +212,7 @@ class SystemSendGate(_DurableObjectBase):
                 if not await self._check_ledger():
                     return "scheduler_held"
                 await self.ctx.storage.put("inflight_stop_visit_id", visit_id)
-                if await repository.stop_while_event_is_in_flight(visit_id):
+                if await repository.lifecycle.request_stop_during_send(visit_id):
                     await self._save_ledger()
                     return "stopping"
 
@@ -223,9 +223,9 @@ class SystemSendGate(_DurableObjectBase):
             visit = await repository.get_visit(visit_id)
             if visit is None:
                 return None
-            if visit["state"] not in {"active", "stopping", "stopped"}:
+            if not can_stop(visit["state"]):
                 return "invalid_lifecycle_state"
-            state = await repository.stop(visit_id, timestamp)
+            state = await repository.lifecycle.stop(visit_id, timestamp)
             await self._save_ledger()
             return state
 
@@ -297,7 +297,7 @@ class SystemSendGate(_DurableObjectBase):
         """
         timestamp = _datetime(now)
         result = await self._start_visit(visit_id, timestamp)
-        if result.get("state") == "active":
+        if result.get("state") == ACTIVE:
             await self._set_alarm(timestamp + ACTIVE_ALARM_DELAY, only_if_earlier=True)
         return result
 
@@ -307,7 +307,7 @@ class SystemSendGate(_DurableObjectBase):
             visit = await repository.get_visit(visit_id)
             if visit is None:
                 return {"error": "visit_not_found"}
-            if visit["state"] != "draft":
+            if not can_start(visit["state"]):
                 return {"error": "invalid_lifecycle_state"}
             # One running visit at a time (#172): the tick is not split per
             # visit yet, so a second one would exceed the Free plan CPU limit.
@@ -362,7 +362,7 @@ class SystemSendGate(_DurableObjectBase):
                 clinic_identified = True
                 substitute_doctor = bool(preflight.get("substitute_doctor"))
                 if visit_date > today:
-                    if not await repository.start(visit_id, timestamp):
+                    if not await repository.lifecycle.start(visit_id, timestamp):
                         return {"error": "ineligible_recipients"}
                     await repository.set_source_read(
                         visit_id, "unavailable", "no_observation"
@@ -401,7 +401,7 @@ class SystemSendGate(_DurableObjectBase):
                 # reader's job, so Start is accepted and the visit runs once the
                 # clinic calls. A situation no one has observed yet sends nothing
                 # and is recorded by the reader, so it does not refuse Start either.
-                if not await repository.start(visit_id, timestamp):
+                if not await repository.lifecycle.start(visit_id, timestamp):
                     return {"error": "ineligible_recipients"}
                 await repository.set_source_read(
                     visit_id,
@@ -453,7 +453,7 @@ class SystemSendGate(_DurableObjectBase):
                     visit_id, "untrusted", "untrusted_source"
                 )
                 return {"error": "observation_untrusted"}
-            if not await repository.start(visit_id, timestamp):
+            if not await repository.lifecycle.start(visit_id, timestamp):
                 return {"error": "ineligible_recipients"}
             await repository.update_observation(
                 visit_id,
@@ -583,13 +583,13 @@ class SystemSendGate(_DurableObjectBase):
         patient_number: int,
         recipient_ids: tuple[str, ...],
     ) -> bool:
-        """Reopen a stopped or expired logical series without resetting alert history."""
+        """Reopen an ended logical series without resetting alert history."""
         async with self._lock:
             repository = self._repository()
             if not await self._check_ledger():
                 return False
             visit = await repository.get_visit(visit_id)
-            if visit is None or visit["state"] not in {"stopped", "expired"}:
+            if visit is None or not can_reopen_for_correction(visit["state"]):
                 return False
             existing = await repository.selected_recipient_ids(visit_id)
             selected = set(recipient_ids)
@@ -597,7 +597,7 @@ class SystemSendGate(_DurableObjectBase):
             # retaining each selected recipient's prior event uniqueness rows.
             if not selected or not selected.issubset(existing):
                 return False
-            if not await repository.prepare_correction(visit_id):
+            if not await repository.lifecycle.reopen_for_correction(visit_id):
                 return False
             if not await repository.correct_clinic(
                 visit_id=visit_id,
@@ -612,7 +612,7 @@ class SystemSendGate(_DurableObjectBase):
             ):
                 return False
             for recipient_id in existing - selected:
-                await repository.remove_recipient(visit_id, recipient_id)
+                await repository.lifecycle.remove_recipient(visit_id, recipient_id)
                 await repository.erase_removed_recipient_events(visit_id, recipient_id)
             await repository.set_source_read(visit_id, "unavailable", "no_observation")
             await self._save_ledger()
@@ -640,7 +640,9 @@ class SystemSendGate(_DurableObjectBase):
             repository = self._repository()
             await self._check_ledger()
             await repository.recover_in_flight_events(timestamp)
-            removed = await repository.remove_recipient(visit_id, recipient_id)
+            removed = await repository.lifecycle.remove_recipient(
+                visit_id, recipient_id
+            )
             if removed:
                 await repository.erase_removed_recipient_events(visit_id, recipient_id)
             await self._save_ledger()
@@ -696,9 +698,9 @@ class SystemSendGate(_DurableObjectBase):
             if not await self._check_ledger():
                 return False
             await repository.recover_in_flight_events(timestamp)
-            if await repository.stop(visit_id, timestamp) != "stopped":
+            if await repository.lifecycle.stop(visit_id, timestamp) != "stopped":
                 return False
-            if not await repository.prepare_correction(visit_id):
+            if not await repository.lifecycle.reopen_for_correction(visit_id):
                 return False
             if not await repository.correct_clinic(
                 visit_id=visit_id,
@@ -712,7 +714,7 @@ class SystemSendGate(_DurableObjectBase):
                 room_code="SYN-ROOM-2",
             ):
                 return False
-            started = await repository.start(visit_id, timestamp)
+            started = await repository.lifecycle.start(visit_id, timestamp)
             await self._save_ledger()
             return started
 
@@ -745,7 +747,7 @@ class SystemSendGate(_DurableObjectBase):
 
     async def _delete_expired_drafts(self, now: datetime) -> LifecycleCounts:
         return LifecycleCounts(
-            drafts_deleted=await self._repository().delete_expired_drafts(now)
+            drafts_deleted=await self._repository().lifecycle.delete_expired_drafts(now)
         )
 
     async def _recovery_held(self) -> bool:
@@ -1040,7 +1042,7 @@ class SystemSendGate(_DurableObjectBase):
             room_code="SYN-ROOM",
         )
         await repository.add_recipient(visit_id, recipient_id, timestamp)
-        started = await repository.start(visit_id, timestamp)
+        started = await repository.lifecycle.start(visit_id, timestamp)
         await self._save_ledger()
         return started
 

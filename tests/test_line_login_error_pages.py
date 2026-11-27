@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from local_d1 import LocalStore
 from next_is_you.identity import IdentityRepository
 from next_is_you.persistence import VisitRepository
 from test_line_identity_routes import (
@@ -13,7 +14,6 @@ from test_line_identity_routes import (
     FakeFriendship,
     FakeOAuth,
     FakeSendGate,
-    SQLiteStore,
     csrf,
     run,
     set_session,
@@ -89,7 +89,7 @@ def assert_plain_page(response, status: int, cause: str, next_step: str) -> None
 
 def test_start_with_unusable_invitation_shows_plain_page():
     async def scenario():
-        store = SQLiteStore()
+        store = LocalStore()
         async with client_for(make_app(store)) as http:
             response = await http.get("/auth/line", params={"invite": "nope"})
         assert_plain_page(response, 410, "邀請連結已失效", "聯絡設定者重新發送邀請連結")
@@ -99,7 +99,7 @@ def test_start_with_unusable_invitation_shows_plain_page():
 
 def test_start_with_invitation_while_sign_in_is_not_configured_shows_plain_page():
     async def scenario():
-        store = SQLiteStore()
+        store = LocalStore()
         async with client_for(make_app(store, settings={})) as http:
             response = await http.get("/auth/line", params={"invite": "any"})
         assert_plain_page(response, 503, "LINE 登入目前無法使用", "稍後再試")
@@ -109,7 +109,7 @@ def test_start_with_invitation_while_sign_in_is_not_configured_shows_plain_page(
 
 def test_organizer_start_while_sign_in_is_not_configured_shows_plain_page():
     async def scenario():
-        async with client_for(make_app(SQLiteStore(), settings={})) as http:
+        async with client_for(make_app(LocalStore(), settings={})) as http:
             response = await http.get("/auth/line")
         assert_plain_page(response, 503, "LINE 登入目前無法使用", "稍後再試")
 
@@ -118,7 +118,7 @@ def test_organizer_start_while_sign_in_is_not_configured_shows_plain_page():
 
 def test_callback_while_sign_in_is_not_configured_shows_plain_page():
     async def scenario():
-        async with client_for(make_app(SQLiteStore(), settings={})) as http:
+        async with client_for(make_app(LocalStore(), settings={})) as http:
             response = await http.get("/auth/line/callback")
         assert_plain_page(response, 503, "LINE 登入目前無法使用", "稍後再試")
 
@@ -127,7 +127,7 @@ def test_callback_while_sign_in_is_not_configured_shows_plain_page():
 
 def test_callback_without_a_matching_sign_in_shows_plain_page():
     async def scenario():
-        async with client_for(make_app(SQLiteStore())) as http:
+        async with client_for(make_app(LocalStore())) as http:
             response = await http.get(
                 "/auth/line/callback", params={"code": "c", "state": "s"}
             )
@@ -138,7 +138,7 @@ def test_callback_without_a_matching_sign_in_shows_plain_page():
 
 def test_callback_when_line_rejects_the_code_shows_plain_page():
     async def scenario():
-        async with client_for(make_app(SQLiteStore(), oauth=FailingOAuth())) as http:
+        async with client_for(make_app(LocalStore(), oauth=FailingOAuth())) as http:
             start = await http.get("/auth/line")
             response = await http.get(
                 "/auth/line/callback",
@@ -151,7 +151,7 @@ def test_callback_when_line_rejects_the_code_shows_plain_page():
 
 def test_callback_without_friendship_client_shows_plain_page():
     async def scenario():
-        store = SQLiteStore()
+        store = LocalStore()
         token = await new_invitation(store)
         async with client_for(make_app(store, friendship=None)) as http:
             start = await http.get("/auth/line", params={"invite": token})
@@ -175,7 +175,7 @@ def test_callback_with_missing_or_unverifiable_friendship_shows_plain_page(
     is_friend, status, cause, next_step
 ):
     async def scenario():
-        store = SQLiteStore()
+        store = LocalStore()
         token = await new_invitation(store)
         app = make_app(store, friendship=FakeFriendship(is_friend))
         async with client_for(app) as http:
@@ -191,7 +191,7 @@ def test_callback_with_missing_or_unverifiable_friendship_shows_plain_page(
 
 def test_callback_for_an_invitation_used_in_the_meantime_shows_plain_page():
     async def scenario():
-        store = SQLiteStore()
+        store = LocalStore()
         token = await new_invitation(store)
         app = make_app(store, friendship=FakeFriendship(True))
         async with client_for(app) as first, client_for(app) as second:
@@ -213,7 +213,7 @@ def test_callback_for_an_invitation_used_in_the_meantime_shows_plain_page():
 
 def test_callback_for_an_account_that_is_not_an_organizer_shows_plain_page():
     async def scenario():
-        async with client_for(make_app(SQLiteStore())) as http:
+        async with client_for(make_app(LocalStore())) as http:
             start = await http.get("/auth/line")
             response = await http.get(
                 "/auth/line/callback",
@@ -226,7 +226,7 @@ def test_callback_for_an_account_that_is_not_an_organizer_shows_plain_page():
 
 def test_failure_pages_clear_the_login_transaction_cookie():
     async def scenario():
-        async with client_for(make_app(SQLiteStore(), oauth=FailingOAuth())) as http:
+        async with client_for(make_app(LocalStore(), oauth=FailingOAuth())) as http:
             start = await http.get("/auth/line")
             response = await http.get(
                 "/auth/line/callback",
@@ -239,7 +239,7 @@ def test_failure_pages_clear_the_login_transaction_cookie():
 
 def test_api_routes_keep_their_json_error_bodies():
     async def scenario():
-        async with client_for(make_app(SQLiteStore())) as http:
+        async with client_for(make_app(LocalStore())) as http:
             set_session(http, "line-organizer", "organizer")
             response = await http.post("/api/organizer/invitations", headers=csrf(http))
         assert response.status_code == 422

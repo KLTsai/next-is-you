@@ -8,22 +8,22 @@ from __future__ import annotations
 import sqlite3
 import uuid
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
+from local_d1 import MIGRATIONS, LocalD1
 from next_is_you.alerts import REMINDER_CAP, REMINDER_KINDS
 from next_is_you.persistence import CloudflareD1Store, VisitRepository
 from next_is_you.scheduler import OutboxScheduler
 from test_scheduler_outbox import (
-    MIGRATIONS,
-    ROOT,
-    LocalD1,
     RecordingLine,
     make_gate,
     seed,
     tick,
 )
 
+ROOT = Path(__file__).resolve().parents[1]
 NOW = datetime.fromisoformat("2026-09-27T13:00:00+00:00")
 KINDS = (*REMINDER_KINDS, "unavailable")
 REBUILD = next(m for m in MIGRATIONS if m.name.startswith("0009_"))

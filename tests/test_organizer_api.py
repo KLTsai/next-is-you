@@ -2,44 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sqlite3
 from datetime import date, datetime, timezone
-from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from httpx import ASGITransport, AsyncClient
 
+from local_d1 import LocalStore
 from next_is_you.auth import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME, issue_session
 from next_is_you.identity import IdentityRepository
-from next_is_you.persistence import Statement, VisitRepository
+from next_is_you.persistence import VisitRepository
 from next_is_you.progress_links import progress_link
 from worker import create_app
 
 
-ROOT = Path(__file__).resolve().parents[1]
-MIGRATIONS = sorted((ROOT / "migrations").glob("*.sql"))
 SECRET = "organizer-api-test-secret-with-at-least-32-bytes"
-
-
-class SQLiteStore:
-    def __init__(self) -> None:
-        self.connection = sqlite3.connect(":memory:", isolation_level=None)
-        self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA foreign_keys = ON")
-        for migration in MIGRATIONS:
-            self.connection.executescript(migration.read_text())
-
-    async def execute(self, statement: Statement) -> int:
-        return self.connection.execute(statement.sql, statement.values).rowcount
-
-    async def fetch_all(self, statement: Statement) -> list[Mapping[str, Any]]:
-        return [
-            dict(row)
-            for row in self.connection.execute(statement.sql, statement.values)
-        ]
-
-    async def batch(self, statements: Sequence[Statement]) -> list[int]:
-        return [await self.execute(statement) for statement in statements]
 
 
 class Gate:
@@ -101,7 +77,7 @@ class Gate:
 
 
 def make_client():
-    store = SQLiteStore()
+    store = LocalStore()
     store.connection.execute(
         """INSERT INTO recipients (id, line_subject, display_name, consented_at,
             friendship_checked_at, active, created_at) VALUES
@@ -400,7 +376,7 @@ def test_synthetic_session_fixture_is_missing_without_explicit_test_binding():
 def test_synthetic_organizer_session_requires_explicit_niy006_test_binding():
     async def scenario():
         clock_now = int(datetime(2026, 9, 28, 10, 0, tzinfo=timezone.utc).timestamp())
-        visits = VisitRepository(SQLiteStore())
+        visits = VisitRepository(LocalStore())
         app = create_app(clock=lambda: clock_now, send_gate=Gate(visits))
 
         class TestConfigApp:
@@ -476,7 +452,7 @@ def _visit_body(hospital: str) -> dict[str, Any]:
     }
 
 
-def _visit_rows(store: SQLiteStore) -> list[tuple]:
+def _visit_rows(store: LocalStore) -> list[tuple]:
     return [
         tuple(row)
         for row in store.connection.execute("SELECT * FROM visits ORDER BY id")

@@ -4,63 +4,17 @@ import asyncio
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Any, Sequence
+from datetime import date, datetime, timedelta
+from typing import Any
 
 import pytest
 
+from local_d1 import LocalD1, Prepared
 from next_is_you.line_messaging import LinePushResult
 from next_is_you.persistence import CloudflareD1Store, Statement, VisitRepository
 from next_is_you.scheduler import OutboxScheduler
 from next_is_you.send_gate import SystemSendGate
-
-
-ROOT = Path(__file__).resolve().parents[1]
-MIGRATIONS = sorted((ROOT / "migrations").glob("*.sql"))
-
-
-class Prepared:
-    def __init__(self, database: "LocalD1", sql: str, values: tuple[Any, ...] = ()):
-        self.database = database
-        self.sql = sql
-        self.values = values
-
-    def bind(self, *values: Any) -> "Prepared":
-        return Prepared(self.database, self.sql, values)
-
-    async def run(self) -> dict[str, Any]:
-        cursor = self.database.connection.execute(self.sql, self.values)
-        return {"meta": {"changes": cursor.rowcount}}
-
-    async def all(self) -> dict[str, Any]:
-        cursor = self.database.connection.execute(self.sql, self.values)
-        return {"results": [dict(row) for row in cursor.fetchall()]}
-
-
-class LocalD1:
-    def __init__(self) -> None:
-        self.connection = sqlite3.connect(":memory:", isolation_level=None)
-        self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA foreign_keys = ON")
-        for migration in MIGRATIONS:
-            self.connection.executescript(migration.read_text(encoding="utf-8"))
-
-    def prepare(self, sql: str) -> Prepared:
-        return Prepared(self, sql)
-
-    async def batch(self, statements: Sequence[Prepared]) -> list[dict[str, Any]]:
-        self.connection.execute("BEGIN")
-        try:
-            results = [
-                self.connection.execute(item.sql, item.values).rowcount
-                for item in statements
-            ]
-        except Exception:
-            self.connection.execute("ROLLBACK")
-            raise
-        self.connection.execute("COMMIT")
-        return [{"meta": {"changes": changes}} for changes in results]
+from visit_states import send_in_flight
 
 
 class LocalDurableStorage:
@@ -626,7 +580,7 @@ async def test_removing_a_recipient_keeps_another_selected_recipient() -> None:
     )
 
     repository = VisitRepository(CloudflareD1Store(database))
-    assert await repository.remove_recipient("v1", "r1")
+    assert await repository.lifecycle.remove_recipient("v1", "r1")
     assert await repository.selected_recipient_ids("v1") == {"r2"}
 
 
@@ -808,13 +762,15 @@ async def test_draft_deletes_exactly_forty_eight_hours_after_taipei_cutoff() -> 
     database = LocalD1()
     gate = make_gate(database)
     store = database
-    store.connection.execute(
-        """INSERT INTO visits (
-            id, hospital, visit_date, department_code, clinic_code,
-            clinic_session, patient_number, state, created_at, draft_expires_at
-        ) VALUES ('draft', 'ntuh-main', '2026-09-27', 'SYN', 'SYN-1',
-            'afternoon', 90, 'draft', '2026-09-27T13:00:00Z',
-            '2026-09-29T15:59:00Z')"""
+    await VisitRepository(CloudflareD1Store(database)).create_draft(
+        visit_id="draft",
+        hospital="ntuh-main",
+        visit_day=date(2026, 9, 27),
+        department_code="SYN",
+        clinic_code="SYN-1",
+        clinic_session="afternoon",
+        patient_number=90,
+        now=datetime.fromisoformat("2026-09-27T13:00:00+00:00"),
     )
 
     await tick(gate, "2026-09-29T15:58:59Z")
@@ -1169,8 +1125,11 @@ async def test_alarm_with_a_stopping_visit_keeps_the_one_minute_cadence() -> Non
     storage = LocalDurableStorage()
     gate = make_gate(database, storage)
     await seed(gate)
-    database.connection.execute("UPDATE visits SET state = 'stopping' WHERE id = 'v1'")
-    # Reconcile so the direct edit is not read as a ledger mismatch.
+    repository = VisitRepository(CloudflareD1Store(database))
+    now = datetime.fromisoformat("2026-09-27T13:00:00+00:00")
+    await send_in_flight(repository, now=now)
+    assert await repository.lifecycle.stop("v1", now) == "stopping"
+    # Reconcile so these writes outside the gate are not read as a mismatch.
     await gate.hold_for_reconciliation()
     await gate.resume_after_reconciliation(True)
 

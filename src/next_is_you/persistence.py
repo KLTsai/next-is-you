@@ -4,37 +4,19 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Literal, Mapping, Protocol, Sequence
-from zoneinfo import ZoneInfo
+from datetime import date, datetime, timedelta
+from typing import Any, Literal, Mapping, Sequence
 
+from next_is_you import visit_lifecycle
 from next_is_you.alerts import REMINDER_CAP
 from next_is_you.auth import SESSION_TTL_SECONDS
-
-TAIPEI = ZoneInfo("Asia/Taipei")
-UTC = timezone.utc
+from next_is_you.storage import SqlStore, Statement, iso_utc
 
 ReminderResult = Literal["created", "exists", "cap_reached", "not_eligible"]
 # What counts toward the cap: every reminder but the legacy `near` and the skipped.
 _REMINDER_COUNT = """SELECT COUNT(*) FROM outbound_events
                     WHERE visit_id = ? AND recipient_id = ?
                         AND event_kind != 'near' AND outcome != 'skipped'"""
-
-
-@dataclass(frozen=True, slots=True)
-class Statement:
-    sql: str
-    values: tuple[Any, ...] = ()
-    operation: str | None = None
-
-
-class SqlStore(Protocol):
-    async def execute(self, statement: Statement) -> int: ...
-
-    async def fetch_all(self, statement: Statement) -> list[Mapping[str, Any]]: ...
-
-    async def batch(self, statements: Sequence[Statement]) -> list[int]: ...
 
 
 class CloudflareD1Store:
@@ -81,32 +63,15 @@ def _property(value: Any, key: str, default: Any = None) -> Any:
 PENDING_INVITEE_LIMIT = timedelta(seconds=SESSION_TTL_SECONDS)
 
 
-def iso_utc(value: datetime) -> str:
-    if value.tzinfo is None:
-        raise ValueError("timestamps must be timezone-aware")
-    return value.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
-
-
-def visit_cutoff(visit_day: date) -> datetime:
-    """The product cutoff is 23:59 Asia/Taipei on the visit day."""
-    return datetime.combine(visit_day, time(23, 59), TAIPEI)
-
-
-def draft_expiry(visit_day: date) -> datetime:
-    return visit_cutoff(visit_day) + timedelta(hours=48)
-
-
-def terminal_expiry(stopped_at: datetime) -> datetime:
-    if stopped_at.tzinfo is None:
-        raise ValueError("timestamps must be timezone-aware")
-    return stopped_at + timedelta(hours=48)
-
-
 class VisitRepository:
-    """Owns durable transitions, not the external send-serialization gate."""
+    """Owns the stored visits, not the external send-serialization gate.
+
+    A visit's state changes only through `lifecycle`.
+    """
 
     def __init__(self, store: SqlStore) -> None:
         self._store = store
+        self.lifecycle = visit_lifecycle.VisitLifecycle(store)
 
     async def get_visit(self, visit_id: str) -> Mapping[str, Any] | None:
         rows = await self._store.fetch_all(
@@ -242,7 +207,11 @@ class VisitRepository:
         now: datetime,
     ) -> bool:
         visit = await self.get_visit(visit_id)
-        if visit is None or visit["state"] != "draft" or visit["roster_frozen"]:
+        if (
+            visit is None
+            or visit["state"] != visit_lifecycle.DRAFT
+            or visit["roster_frozen"]
+        ):
             return False
         if not recipient_ids:
             return False
@@ -272,7 +241,7 @@ class VisitRepository:
             return False
         current_ids = await self.selected_recipient_ids(visit_id)
         for rid in current_ids - set(wanted):
-            await self.remove_recipient(visit_id, rid)
+            await self.lifecycle.remove_recipient(visit_id, rid)
         for rid in wanted:
             if rid not in current_ids and not await self.add_recipient(
                 visit_id, rid, now
@@ -295,22 +264,22 @@ class VisitRepository:
         """
         visit_rows = await self._store.fetch_all(
             Statement(
-                """SELECT id, hospital, visit_date, department_code, clinic_code,
+                f"""SELECT id, hospital, visit_date, department_code, clinic_code,
                     clinic_session, doctor_code, room_code, patient_number, state,
                     roster_frozen, consecutive_unusable_reads, near_last_current_number,
                     near_prev_observed_number, latest_observed_at, started_at,
                     stopped_at, delete_after
-                FROM visits WHERE state != 'draft' ORDER BY id"""
+                FROM visits WHERE state != '{visit_lifecycle.DRAFT}' ORDER BY id"""
             )
         )
         recipient_rows = await self._store.fetch_all(
             Statement(
-                """SELECT vr.visit_id, r.id, r.line_subject, r.consented_at,
+                f"""SELECT vr.visit_id, r.id, r.line_subject, r.consented_at,
                     r.friendship_checked_at, r.active
                 FROM visit_recipients AS vr
                 JOIN visits AS v ON v.id = vr.visit_id
                 JOIN recipients AS r ON r.id = vr.recipient_id
-                WHERE v.state != 'draft'
+                WHERE v.state != '{visit_lifecycle.DRAFT}'
                 ORDER BY vr.visit_id, r.id"""
             )
         )
@@ -327,8 +296,11 @@ class VisitRepository:
         visit_payload = []
         for row in visit_rows:
             item = dict(row)
-            if item["id"] == allow_stopping_visit_id and item["state"] == "stopping":
-                item["state"] = "active"
+            if (
+                item["id"] == allow_stopping_visit_id
+                and item["state"] == visit_lifecycle.STOPPING
+            ):
+                item["state"] = visit_lifecycle.ACTIVE
             visit_payload.append(item)
         payload = [
             visit_payload,
@@ -341,20 +313,20 @@ class VisitRepository:
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     async def has_running_visit(self) -> bool:
-        """Whether any visit is active or stopping, so ticks must keep coming."""
+        """Whether any visit is running, so ticks must keep coming."""
+        running = visit_lifecycle.sql_states(visit_lifecycle.RUNNING_STATES)
         rows = await self._store.fetch_all(
-            Statement(
-                "SELECT 1 FROM visits WHERE state IN ('active', 'stopping') LIMIT 1"
-            )
+            Statement(f"SELECT 1 FROM visits WHERE state IN {running} LIMIT 1")
         )
         return bool(rows)
 
     async def has_other_running_visit(self, visit_id: str) -> bool:
-        """Whether a visit other than this one is active or stopping, on any date."""
+        """Whether a visit other than this one is running, on any date."""
+        running = visit_lifecycle.sql_states(visit_lifecycle.RUNNING_STATES)
         rows = await self._store.fetch_all(
             Statement(
-                """SELECT 1 FROM visits WHERE id != ?
-                AND state IN ('active', 'stopping') LIMIT 1""",
+                f"""SELECT 1 FROM visits WHERE id != ?
+                AND state IN {running} LIMIT 1""",
                 (visit_id,),
             )
         )
@@ -783,7 +755,7 @@ class VisitRepository:
                     room_code,
                     patient_number,
                     iso_utc(now),
-                    iso_utc(draft_expiry(visit_day)),
+                    iso_utc(visit_lifecycle.draft_expiry(visit_day)),
                 ),
             )
         )
@@ -825,25 +797,6 @@ class VisitRepository:
         )
         return changes == 1
 
-    async def remove_recipient(self, visit_id: str, recipient_id: str) -> bool:
-        changes = await self._store.execute(
-            Statement(
-                """DELETE FROM visit_recipients
-                WHERE visit_id = ? AND recipient_id = ?
-                AND EXISTS (
-                    SELECT 1 FROM visits
-                    WHERE id = ? AND state IN ('draft', 'active', 'stopping', 'stopped', 'expired')
-                )
-                AND EXISTS (
-                    SELECT 1 FROM visit_recipients AS remaining
-                    WHERE remaining.visit_id = visit_recipients.visit_id
-                        AND remaining.recipient_id != visit_recipients.recipient_id
-                )""",
-                (visit_id, recipient_id, visit_id),
-            )
-        )
-        return changes == 1
-
     async def update_clinic_code(self, visit_id: str, clinic_code: str) -> bool:
         """Rewrite a draft's clinic_code when pre-flight resolves to a new value.
 
@@ -856,44 +809,6 @@ class VisitRepository:
             Statement(
                 "UPDATE visits SET clinic_code = ? WHERE id = ? AND state = 'draft'",
                 (clinic_code, visit_id),
-            )
-        )
-        return changes == 1
-
-    async def start(self, visit_id: str, now: datetime) -> bool:
-        """Start or resume a corrected series while atomically freezing its roster."""
-        changes = await self._store.execute(
-            Statement(
-                """UPDATE visits
-                SET state = 'active', roster_frozen = 1,
-                    started_at = COALESCE(started_at, ?), stopped_at = NULL,
-                    delete_after = NULL, draft_expires_at = NULL
-                WHERE id = ? AND state = 'draft'
-                AND EXISTS (
-                    SELECT 1 FROM visit_recipients AS vr
-                    JOIN recipients AS r ON r.id = vr.recipient_id
-                    WHERE vr.visit_id = visits.id AND r.active = 1
-                        AND r.consented_at IS NOT NULL
-                        AND r.friendship_checked_at IS NOT NULL
-                )
-                AND NOT EXISTS (
-                    SELECT 1 FROM visit_recipients AS vr
-                    JOIN recipients AS r ON r.id = vr.recipient_id
-                    WHERE vr.visit_id = visits.id AND (r.active != 1
-                        OR r.consented_at IS NULL OR r.friendship_checked_at IS NULL)
-                )""",
-                (iso_utc(now), visit_id),
-            )
-        )
-        return changes == 1
-
-    async def prepare_correction(self, visit_id: str) -> bool:
-        """Reopen a stopped or expired series without resetting its identity or event caps."""
-        changes = await self._store.execute(
-            Statement(
-                """UPDATE visits SET state = 'draft', stopped_at = NULL, delete_after = NULL
-                WHERE id = ? AND state IN ('stopped', 'expired') AND roster_frozen = 1""",
-                (visit_id,),
             )
         )
         return changes == 1
@@ -926,70 +841,12 @@ class VisitRepository:
                     patient_number,
                     doctor_code,
                     room_code,
-                    iso_utc(draft_expiry(visit_day)),
+                    iso_utc(visit_lifecycle.draft_expiry(visit_day)),
                     visit_id,
                 ),
             )
         )
         return changes == 1
-
-    async def stop(self, visit_id: str, now: datetime) -> str | None:
-        """Close the visit to new work, then finalize after in-flight sends settle.
-
-        This database transition is not a replacement for the per-visit Durable
-        Object serialization gate required to order Stop against LINE requests.
-        """
-        iso_utc(now)  # Validate before changing the visit state.
-        await self._store.execute(
-            Statement(
-                "UPDATE visits SET state = 'stopping' WHERE id = ? AND state = 'active'",
-                (visit_id,),
-            )
-        )
-        await self._finalize_stopping(visit_id, now)
-        rows = await self._store.fetch_all(
-            Statement("SELECT state FROM visits WHERE id = ?", (visit_id,))
-        )
-        return str(rows[0]["state"]) if rows else None
-
-    async def stop_while_event_is_in_flight(self, visit_id: str) -> bool:
-        """Close a visit to new sends while one of its provider requests is pending."""
-        return (
-            await self._store.execute(
-                Statement(
-                    """UPDATE visits SET state = 'stopping'
-                    WHERE id = ? AND state IN ('active', 'stopping')
-                    AND EXISTS (
-                        SELECT 1 FROM outbound_events AS e
-                        WHERE e.visit_id = visits.id AND e.outcome = 'in_flight'
-                    )""",
-                    (visit_id,),
-                )
-            )
-            == 1
-        )
-
-    async def finalize_stopping(self, now: datetime) -> int:
-        rows = await self._store.fetch_all(
-            Statement("SELECT id FROM visits WHERE state = 'stopping'")
-        )
-        finalized = 0
-        for row in rows:
-            finalized += await self._finalize_stopping(str(row["id"]), now)
-        return finalized
-
-    async def _finalize_stopping(self, visit_id: str, now: datetime) -> int:
-        return await self._store.execute(
-            Statement(
-                """UPDATE visits SET state = 'stopped', stopped_at = ?, delete_after = ?
-                WHERE id = ? AND state = 'stopping'
-                AND NOT EXISTS (
-                    SELECT 1 FROM outbound_events
-                    WHERE visit_id = visits.id AND outcome = 'in_flight'
-                )""",
-                (iso_utc(now), iso_utc(terminal_expiry(now)), visit_id),
-            )
-        )
 
     async def drafts_due_for_preflight_sweep(
         self, today: date
@@ -1028,35 +885,6 @@ class VisitRepository:
             == 1
         )
 
-    async def expire_due_visits(self, now: datetime) -> int:
-        if now.tzinfo is None:
-            raise ValueError("timestamps must be timezone-aware")
-        local_now = now.astimezone(TAIPEI)
-        today = local_now.date()
-        today_is_due = local_now >= visit_cutoff(today)
-        date_clause = "visit_date <= ?" if today_is_due else "visit_date < ?"
-        rows = await self._store.fetch_all(
-            Statement(
-                f"SELECT id, visit_date FROM visits WHERE state = 'active' AND {date_clause}",
-                (today.isoformat(),),
-            )
-        )
-        expired = 0
-        statements: list[Statement] = []
-        for row in rows:
-            visit_day = date.fromisoformat(str(row["visit_date"]))
-            cutoff = visit_cutoff(visit_day)
-            statements.append(
-                Statement(
-                    """UPDATE visits SET state = 'expired', stopped_at = ?, delete_after = ?
-                    WHERE id = ? AND state = 'active'""",
-                    (iso_utc(cutoff), iso_utc(terminal_expiry(cutoff)), str(row["id"])),
-                )
-            )
-        if statements:
-            expired = sum(await self._store.batch(statements))
-        return expired
-
     async def withdraw_recipient(self, recipient_id: str) -> bool:
         changes = await self._store.execute(
             Statement(
@@ -1094,28 +922,5 @@ class VisitRepository:
                 """DELETE FROM recipients
                 WHERE active = 0 AND consented_at IS NULL AND created_at <= ?""",
                 (iso_utc(now - PENDING_INVITEE_LIMIT),),
-            )
-        )
-
-    async def delete_expired_drafts(self, now: datetime) -> int:
-        """Drafts never sent anything and sit outside the scheduler ledger."""
-        return await self._store.execute(
-            Statement(
-                "DELETE FROM visits WHERE state = 'draft' AND draft_expires_at <= ?",
-                (iso_utc(now),),
-            )
-        )
-
-    async def delete_expired_visits(self, now: datetime) -> int:
-        """Stopped and expired visits whose 48 hours have run out."""
-        return await self._store.execute(
-            Statement(
-                """DELETE FROM visits
-                WHERE state IN ('stopped', 'expired') AND delete_after <= ?
-                AND NOT EXISTS (
-                    SELECT 1 FROM outbound_events
-                    WHERE visit_id = visits.id AND outcome = 'in_flight'
-                )""",
-                (iso_utc(now),),
             )
         )

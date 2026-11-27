@@ -15,6 +15,7 @@ import pytest
 import uvicorn
 from playwright.sync_api import sync_playwright
 
+from local_d1 import LocalD1, LocalStore
 from local_worker import loopback_listener
 from next_is_you import hospital_registry
 from next_is_you.identity import IdentityRepository
@@ -27,7 +28,6 @@ from test_local_acceptance import (
     SECRET,
     LocalContext,
     LocalTestBindingApp,
-    SQLiteStore,
 )
 from worker import create_app
 
@@ -43,7 +43,7 @@ def test_current_number_only_hospital_goes_straight_to_manual_entry(
         hospital_registry.HOSPITAL_REGISTRY, SYNTHETIC_ID, synthetic_entry()
     )
     visit_day = (date.today() + timedelta(days=5)).isoformat()
-    database = SQLiteStore()
+    database = LocalD1()
     database.connection.execute(
         """INSERT INTO recipients (
             id, line_subject, display_name, consented_at,
@@ -65,8 +65,8 @@ def test_current_number_only_hospital_goes_straight_to_manual_entry(
             "session_secret": SECRET,
             "organizer_subjects": {"niy006-synthetic-organizer"},
         },
-        identity_repository=IdentityRepository(database),
-        visit_repository=VisitRepository(database),
+        identity_repository=IdentityRepository(LocalStore(database)),
+        visit_repository=VisitRepository(LocalStore(database)),
         send_gate=gate,
         clock=lambda: NOW.timestamp(),
     )

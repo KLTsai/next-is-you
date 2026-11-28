@@ -425,9 +425,9 @@ function formMarkup(): string {
     const clinicSection = clinicSectionMarkup(entry, selectedDept, selectedDate, selectedClinic, selectedSession);
     const patientField = describedFieldMarkup(
       "patient_number",
-      "掛號序號",
+      "看診號碼",
       (attributes) => `<input ${attributes} type="text" inputmode="numeric" pattern="[1-9][0-9]{0,5}" maxlength="6" title="請輸入 1 到 999999 的數字" value="${escapeHtml(formValue("patient_number", initialPatientNumber ?? ""))}" required>`,
-      "僅供這筆追蹤使用；已儲存草稿會顯示序號，方便辨識。",
+      "僅供這筆追蹤使用；已儲存草稿會顯示看診號碼，方便辨識。",
     );
     body = `<div class="form-grid">${departmentField}${dateField}</div>${clinicSection}${patientField}`;
   }
@@ -490,7 +490,7 @@ function visitCard(item: OrganizerVisit): string {
   const sourceStatus = item.source_read?.status ?? "unavailable";
   const sourceReason = sourceReasons[item.source_read?.reason] ?? "來源狀態尚未提供";
   const patientNumberRow = typeof item.patient_number === "number"
-    ? `<div><dt>掛號序號</dt><dd>${escapeHtml(String(item.patient_number))}</dd></div>`
+    ? `<div><dt>看診號碼</dt><dd>${escapeHtml(String(item.patient_number))}</dd></div>`
     : "";
   return `<article class="visit-card" aria-labelledby="visit-${escapeHtml(item.id)}">
     <div class="visit-heading"><div><p class="eyebrow">${escapeHtml(hospitalDisplayName(item.hospital))}</p><h3 id="visit-${escapeHtml(item.id)}">${escapeHtml(item.date)} · ${escapeHtml(item.department_code)} · ${escapeHtml(item.clinic_code)}</h3><p class="visit-session">${escapeHtml(sessionNames[item.session])}（${escapeHtml(item.session)}）</p></div><span class="state state-${displayStateKey}">${pendingStop ? "停止中" : stateKey === "source-unavailable" ? "來源暫不可用 · 草稿" : stateKey === "terminal" ? "已結束" : formatVisitState(item.state)}</span></div>

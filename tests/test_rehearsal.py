@@ -113,7 +113,7 @@ def test_rehearsal_started_reminder_keeps_its_last_recipient(tmp_path, screen):
                 card = page.locator(
                     '[aria-labelledby="visit-rehearsal-remove-recipient"]'
                 )
-                expect(card).to_contain_text("掛號序號")
+                expect(card).to_contain_text("看診號碼")
                 expect(card).to_contain_text("85")
                 visits = page.evaluate(
                     "async () => (await fetch('/api/organizer/visits')).json()"
@@ -317,7 +317,7 @@ def test_rehearsal_stopped_correction_cannot_add_recipients(tmp_path, screen):
                     '[aria-labelledby="visit-rehearsal-no-add"]'
                 )
                 page.locator('[data-stop="rehearsal-no-add"]').click()
-                expect(stopped_card).to_contain_text("掛號序號")
+                expect(stopped_card).to_contain_text("看診號碼")
                 expect(stopped_card).to_contain_text("85")
                 page.locator('[data-correct="rehearsal-no-add"]').click()
                 expect(
@@ -395,7 +395,7 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
                     '[aria-labelledby="visit-rehearsal-expired-restart"]'
                 )
                 expect(card.locator(".state")).to_have_text("已結束", timeout=15000)
-                expect(card).to_contain_text("掛號序號")
+                expect(card).to_contain_text("看診號碼")
                 expect(card).to_contain_text("85")
                 expect(card).to_contain_text("可重新檢查並啟動")
                 correction = card.locator('[data-correct="rehearsal-expired-restart"]')
@@ -418,7 +418,7 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
                     '#saved-drafts-list [aria-labelledby="visit-rehearsal-expired-restart"]'
                 )
                 expect(draft).to_be_visible()
-                expect(draft).to_contain_text("掛號序號")
+                expect(draft).to_contain_text("看診號碼")
                 expect(draft).to_contain_text("85")
                 visits = page.evaluate(
                     "async () => (await fetch('/api/organizer/visits')).json()"
@@ -442,7 +442,7 @@ def test_rehearsal_expired_reminder_can_be_corrected_and_restarted_without_dupli
                     '[aria-labelledby="visit-rehearsal-expired-restart"]'
                 )
                 expect(active.locator(".state")).to_have_text("追蹤中")
-                expect(active).to_contain_text("掛號序號")
+                expect(active).to_contain_text("看診號碼")
                 expect(active).to_contain_text("85")
                 assert page.request.post(origin + "/__niy006_test/alarm").ok
                 restarted = control(page, origin, "snapshot")
@@ -551,7 +551,7 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(
                 edit = page.locator("#saved-drafts-list [data-edit]")
                 visit_id = edit.get_attribute("data-edit")
                 assert visit_id
-                expect(page.locator("#saved-drafts-list")).to_contain_text("掛號序號")
+                expect(page.locator("#saved-drafts-list")).to_contain_text("看診號碼")
                 expect(page.locator("#saved-drafts-list")).to_contain_text("85")
                 edit.click()
                 expect(page.locator("input[name=patient_number]")).to_have_value("85")
@@ -574,7 +574,7 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(
                 page.reload()
                 expect(page.locator("#visit-form")).to_be_visible()
                 page.get_by_role("button", name="展開草稿").click()
-                expect(page.locator("#saved-drafts-list")).to_contain_text("掛號序號")
+                expect(page.locator("#saved-drafts-list")).to_contain_text("看診號碼")
                 expect(page.locator("#saved-drafts-list")).to_contain_text("86")
                 page.locator(f'[data-edit="{visit_id}"]').click()
                 expect(page.locator("input[name=patient_number]")).to_have_value("86")
@@ -601,7 +601,7 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(
                 page.locator(f'[data-start="{visit_id}"]').click()
                 expect(page.locator(f'[data-stop="{visit_id}"]')).to_be_visible()
                 active_card = page.locator(f'article:has([data-stop="{visit_id}"])')
-                expect(active_card).to_contain_text("掛號序號")
+                expect(active_card).to_contain_text("看診號碼")
                 expect(active_card).to_contain_text("86")
                 control(
                     page,
@@ -636,7 +636,7 @@ def test_rehearsal_ui_retains_drafts_and_deduplicates_after_process_restart(
                     timeout=15000
                 )
                 stopped_card = page.locator(f'article:has([data-correct="{visit_id}"])')
-                expect(stopped_card).to_contain_text("掛號序號")
+                expect(stopped_card).to_contain_text("看診號碼")
                 expect(stopped_card).to_contain_text("86")
                 assert page.request.post(origin + "/__niy006_test/alarm").ok
                 assert control(page, origin, "snapshot") == first
@@ -732,7 +732,7 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                 ).to_have_count(0)
                 active_card = page.locator(f'article:has([data-stop="{draft_id}"])')
                 expect(active_card).to_be_visible()
-                expect(active_card).to_contain_text("掛號序號")
+                expect(active_card).to_contain_text("看診號碼")
                 expect(active_card).to_contain_text("88")
                 visits = page.evaluate(
                     "async () => (await fetch('/api/organizer/visits')).json()"
@@ -876,7 +876,7 @@ def test_rehearsal_promotes_started_drafts_and_returns_corrected_reminders_to_dr
                 expect(corrected_draft).to_be_visible()
                 expect(corrected_draft).to_contain_text("SYN-CORRECTED")
                 expect(corrected_draft).to_contain_text("合成醫師乙")
-                expect(corrected_draft).to_contain_text("掛號序號")
+                expect(corrected_draft).to_contain_text("看診號碼")
                 expect(corrected_draft).to_contain_text("89")
                 expect(
                     page.locator(

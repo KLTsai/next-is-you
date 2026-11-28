@@ -94,7 +94,7 @@ reseed or clear the outbox to repeat the journey.
 1. In the UI, create a draft for tomorrow with **臺大醫院總院**, department `SYN`,
    clinic `SYN-1`, session `afternoon`, patient number `85` and **Synthetic recipient**.
    Expected: **已儲存草稿 1**, initially collapsed; saving does not start reminders.
-   When expanded, the saved draft shows `掛號序號 85` with the hospital, department,
+   When expanded, the saved draft shows `看診號碼 85` with the hospital, department,
    clinic and session so the organizer can identify the draft. These are synthetic
    codes, not verified clinic availability.
 2. Use **展開草稿**, then **修正草稿**. The authorized correction flow prefills `85`;
@@ -179,7 +179,7 @@ durable; a blank/reset request counter is not deduplication evidence. UI refresh
 shows the saved lifecycle and notification summary.
 
 Select **停止追蹤**. Expected: pending stop, then **已停止** only after confirmation.
-The stopped reminder card keeps the same `掛號序號` row as the saved draft.
+The stopped reminder card keeps the same `看診號碼` row as the saved draft.
 Further ticks cannot begin a new request for that visit. A request that began
 before Stop may settle before confirmation; Stop is not a retraction of it.
 

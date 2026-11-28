@@ -290,7 +290,7 @@ def test_the_note_before_the_day_is_chosen_stands_apart_from_the_next_field(orga
     form = organizer.page.locator("#visit-form")
     note = form.get_by_text("請先選擇科別與看診日期。", exact=True)
     expect(note).to_be_visible()
-    next_label = form.get_by_text("掛號序號", exact=True)
+    next_label = form.get_by_text("看診號碼", exact=True)
     gap = organizer.box(next_label)["top"] - organizer.box(note)["bottom"]
     assert gap >= 8
 
@@ -312,7 +312,7 @@ def test_the_official_source_link_looks_the_same_on_the_form_as_on_a_card(organi
     assert organizer.box(on_form)["width"] < organizer.box(row)["width"]
 
 
-PATIENT_NUMBER_HELP = "僅供這筆追蹤使用；已儲存草稿會顯示序號，方便辨識。"
+PATIENT_NUMBER_HELP = "僅供這筆追蹤使用；已儲存草稿會顯示看診號碼，方便辨識。"
 CLINIC_CODE_HELP = (
     "比對忽略大小寫、空白、標點；上面的即時預覽顯示系統讀到的內容供你核對。"
 )
@@ -337,7 +337,7 @@ def press_field_name(organizer, name, field):
 def test_the_typed_clinic_and_number_fields_are_named_by_their_names_alone(organizer):
     organizer.open("stopped")
     number = organizer.field("patient_number")
-    expect_named(number, "掛號序號", PATIENT_NUMBER_HELP)
+    expect_named(number, "看診號碼", PATIENT_NUMBER_HELP)
     organizer.field("date").fill(visit_day())
     clinic = organizer.field("clinic_code")
     expect_named(clinic, "診間代碼", CLINIC_CODE_HELP)
@@ -345,7 +345,7 @@ def test_the_typed_clinic_and_number_fields_are_named_by_their_names_alone(organ
     expect(organizer.page.locator("#clinic-preview")).to_be_visible()
     expect_named(clinic, "診間代碼", CLINIC_CODE_HELP)
     press_field_name(organizer, "診間代碼", clinic)
-    press_field_name(organizer, "掛號序號", number)
+    press_field_name(organizer, "看診號碼", number)
 
 
 def test_the_published_doctor_field_is_named_by_its_name_alone(organizer):

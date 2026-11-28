@@ -121,7 +121,10 @@ head. Re-running an earlier run therefore returns staging to that earlier
 commit. The job first runs `scripts/delivery_state.py live-check staging`, which
 refuses a commit older than staging's first live commit (#237), then builds,
 applies the staging D1 migrations, and runs
-`pywrangler deploy --config wrangler.staging.jsonc --keep-vars`. It uses the `staging` environment, so GitHub records a deployment
+`pywrangler deploy --config wrangler.staging.jsonc --keep-vars`. `pywrangler`
+runs the `wrangler` that the commit's `package.json` pins, installed by
+`npm ci`; change that pin in a pull request to move to a newer release. The job
+uses the `staging` environment, so GitHub records a deployment
 for that commit; that record, not any tag, is the source of truth for what
 staging is showing. The job summary also names the commit and a `Version` line
 from `git describe --tags --match 'v*'`, for example `v0.4.0-3-gefa2eb5`: three

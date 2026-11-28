@@ -170,6 +170,7 @@ npm ci && uv sync --group dev --locked && npm run build
 - `package-lock.json` 或 `uv.lock` 有變動時，重跑 `npm ci` 或 `uv sync --group dev --locked`。
 - `npm run dev:local`、`npm run dev:rehearsal` 與瀏覽器測試會自己建置 UI。改了 `frontend/` 之後若用其他方式提供 `dist/`（例如直接跑 `pywrangler dev` 或 Python app），要重跑 `npm run build`。
 - 沒有 `node_modules/` 時，`npm run typecheck` 找不到 `tsc`，每個需要建置 UI 的瀏覽器測試會立刻以 "This worktree is not bootstrapped" 失敗。
+- `pywrangler` 執行的是 `package.json` 鎖定版本的 `wrangler`。`node_modules/` 裡沒有它時，`npx` 會改下載最新版。
 - 位在主 checkout 裡面的 worktree（例如 `.claude/worktrees/`）會默默用到主 checkout 的 `node_modules/`，不一定符合它自己的 lockfile；這種 worktree 也要 bootstrap。
 
 ## 範圍與非目標

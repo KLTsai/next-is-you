@@ -268,12 +268,14 @@ class VisitRepository:
         ):
             return False
         current_ids = await self.selected_recipient_ids(visit_id)
-        for rid in current_ids - set(wanted):
-            await self.lifecycle.remove_recipient(visit_id, rid)
+        # Add before removing: a visit refuses to lose its last recipient.
         for rid in wanted:
             if rid not in current_ids and not await self.add_recipient(
                 visit_id, rid, now
             ):
+                return False
+        for rid in current_ids - set(wanted):
+            if not await self.lifecycle.remove_recipient(visit_id, rid):
                 return False
         return True
 

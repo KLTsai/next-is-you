@@ -69,6 +69,12 @@ def visit_day() -> str:
     return (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
 
 
+def lapsing_day() -> str:
+    """Two days ago in Taipei: a draft of that day is deleted from 23:59 today."""
+    taipei = timezone(timedelta(hours=8))
+    return (datetime.now(taipei) - timedelta(days=2)).date().isoformat()
+
+
 class FakeBackend:
     """The organizer API as the page sees it, kept in memory for one page."""
 
@@ -149,6 +155,8 @@ class FakeBackend:
         if action == "correction":
             return 200, {"patient_number": visit["patient_number"]}
         if action == "start":
+            if visit["state"] != "draft":
+                return 409, {"error": {"code": "invalid_lifecycle_state"}}
             if not self.source_readable:
                 return 409, {"error": {"code": "observation_unavailable"}}
             visit["state"] = "active"
@@ -193,6 +201,19 @@ class FakeBackend:
             recipient_ids=[RECIPIENT_ID],
         )
         return visit_id
+
+    def add_lapsing_draft(self) -> str:
+        visit_id = self.add_visit("draft")
+        self._find(visit_id)["date"] = lapsing_day()
+        return visit_id
+
+    def expire_lapsing_drafts(self) -> None:
+        """The lifecycle tick of the next day deletes the lapsing drafts."""
+        self.visits = [item for item in self.visits if item["date"] != lapsing_day()]
+
+    def start_elsewhere(self, visit_id: str) -> None:
+        """The draft is started from somewhere other than this page."""
+        self._find(visit_id)["state"] = "active"
 
     def set_source_readable(self, readable: bool) -> None:
         self.source_readable = readable
@@ -274,22 +295,38 @@ class RehearsalBackend:
     def _stop(self, visit_id: str) -> str:
         return self.control("stop", visit_id=visit_id, now=now())["state"]
 
+    def _add_draft(self, day: str) -> str:
+        hospital = self._call("GET", "/api/organizer/hospitals")["hospitals"][0]
+        return self._call(
+            "POST",
+            "/api/organizer/visits",
+            {
+                "hospital": hospital["hospital"],
+                "date": day,
+                "department_code": hospital["departments"][0]["code"],
+                "clinic_code": CLINIC,
+                "session": "afternoon",
+                "patient_number": 85,
+                "recipient_ids": [RECIPIENT_ID],
+            },
+        )["id"]
+
+    def add_lapsing_draft(self) -> str:
+        return self._add_draft(lapsing_day())
+
+    def expire_lapsing_drafts(self) -> None:
+        """The lifecycle tick of the next day deletes the lapsing drafts."""
+        tomorrow = datetime.now(timezone.utc) + timedelta(days=1)
+        self.control("tick", now=tomorrow.isoformat())
+
+    def start_elsewhere(self, visit_id: str) -> None:
+        """The draft is started from somewhere other than this page."""
+        started = self._call("POST", f"/api/organizer/visits/{visit_id}/start")
+        assert started["state"] == "active", started
+
     def add_visit(self, state: str) -> str:
         if state == "draft":
-            hospital = self._call("GET", "/api/organizer/hospitals")["hospitals"][0]
-            return self._call(
-                "POST",
-                "/api/organizer/visits",
-                {
-                    "hospital": hospital["hospital"],
-                    "date": visit_day(),
-                    "department_code": hospital["departments"][0]["code"],
-                    "clinic_code": CLINIC,
-                    "session": "afternoon",
-                    "patient_number": 85,
-                    "recipient_ids": [RECIPIENT_ID],
-                },
-            )["id"]
+            return self._add_draft(visit_day())
         visit_id = next_id()
         self.control(
             "seed",

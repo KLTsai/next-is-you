@@ -349,6 +349,27 @@ def test_the_typed_clinic_and_number_fields_are_named_by_their_names_alone(organ
     press_field_name(organizer, "看診號碼", number)
 
 
+PAST_DATE_TEXT = "看診日期已過，請選擇今天或之後的日期。"
+
+
+def test_a_submitted_past_date_says_it_is_past_once(organizer):
+    organizer.open("stopped")
+    form = organizer.page.locator("#visit-form")
+    sentence = form.get_by_text(PAST_DATE_TEXT, exact=True)
+    organizer.field("date").fill(lapsing_day())
+    # Before submitting, the notice is the only hint that the date is past.
+    expect(sentence).to_have_count(1)
+    expect(form.locator(".edit-notice")).to_have_text(PAST_DATE_TEXT)
+    organizer.field("clinic_code").fill(CLINIC)
+    organizer.field("patient_number").fill("88")
+    organizer.press(organizer.button("建立草稿"))
+    # Once the field's own error says it, the notice above does not repeat it.
+    error = form.get_by_role("alert")
+    expect(error).to_have_text(PAST_DATE_TEXT)
+    expect(sentence).to_have_count(1)
+    expect(sentence).to_have_attribute("role", "alert")
+
+
 def test_the_published_doctor_field_is_named_by_its_name_alone(organizer):
     doctors = open_with_field(organizer, "clinic_code", published=True)
     expect_named(doctors, "醫師 / 診間", DOCTOR_HELP)

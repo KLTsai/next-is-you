@@ -374,7 +374,10 @@ function clinicSectionMarkup(
     { help: "比對忽略大小寫、空白、標點；上面的即時預覽顯示系統讀到的內容供你核對。", afterControl: preview },
   );
   const sessionField = fieldMarkup("session", "診次", (attributes) => `<select ${attributes} required>${sessionOptions}</select>`);
-  return `<p class="edit-notice">${escapeHtml(notice)}</p>
+  // A submitted past date gets its error under the date field; the notice
+  // would only repeat the same sentence, so it gives way.
+  const noticeMarkup = formErrors.date === notice ? "" : `<p class="edit-notice">${escapeHtml(notice)}</p>`;
+  return `${noticeMarkup}
     <p class="source-ref">${sourceLinkMarkup(entry.source_url)}<small>${formatHint}</small></p>
     ${codeField}
     ${sessionField}`;

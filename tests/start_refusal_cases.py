@@ -88,7 +88,8 @@ async def seed_draft(journey: Any, visit_id: str, case: StartRefusalCase) -> Non
 def another_visit_is_running(journey: Any, case: StartRefusalCase) -> None:
     async def run_another() -> None:
         await seed_draft(journey, RUNNING_ID, case)
-        assert await VisitRepository(journey.database).start(RUNNING_ID, case.now)
+        visits = VisitRepository(journey.database)
+        assert await visits.lifecycle.start(RUNNING_ID, case.now)
 
     asyncio.run(run_another())
 

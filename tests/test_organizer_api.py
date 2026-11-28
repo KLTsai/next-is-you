@@ -5,6 +5,7 @@ import json
 from datetime import date, datetime, timezone
 from typing import Any
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 
 from local_d1 import LocalStore
@@ -198,6 +199,64 @@ def test_organizer_reads_eligible_roster_and_creates_draft_with_auth_and_csrf(
             assert "retry_key" not in repr(listing.json())
             assert "attacker.invalid" not in repr(listing.json())
             assert "payload_json" not in repr(listing.json())
+        finally:
+            await http.aclose()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        pytest.param(["r1"], ["r2"], id="one-for-another"),
+        pytest.param(["r1", "r2"], ["r3"], id="two-for-a-third"),
+        pytest.param(["r1", "r2"], ["r2", "r3"], id="keep-add-and-remove"),
+    ],
+)
+def test_a_saved_draft_edit_keeps_exactly_the_selected_recipients(before, after):
+    async def scenario():
+        store, http = make_client()
+        try:
+            for recipient_id in ("r1", "r2", "r3"):
+                store.connection.execute(
+                    """INSERT INTO recipients (id, line_subject, display_name,
+                        consented_at, friendship_checked_at, active, created_at)
+                        VALUES (?, ?, ?, '2026-09-27T00:00:00Z',
+                        '2026-09-27T00:00:00Z', 1, '2026-09-27T00:00:00Z')""",
+                    (recipient_id, f"subject-{recipient_id}", recipient_id),
+                )
+            headers = authorize(http)
+            body = {
+                "hospital": "ntuh-main",
+                "date": "2026-09-29",
+                "department_code": "MED",
+                "clinic_code": "MED-A",
+                "session": "morning",
+                "patient_number": 85,
+                "recipient_ids": before,
+            }
+            created = await http.post(
+                "/api/organizer/visits", json=body, headers=headers
+            )
+            assert created.status_code == 201
+            url = f"/api/organizer/visits/{created.json()['id']}"
+
+            async def stored():
+                listing = await http.get("/api/organizer/visits")
+                (visit,) = listing.json()["visits"]
+                return sorted(item["id"] for item in visit["recipients"])
+
+            updated = await http.patch(
+                url, json={**body, "recipient_ids": after}, headers=headers
+            )
+            assert updated.status_code == 200
+            assert await stored() == after
+
+            emptied = await http.patch(
+                url, json={**body, "recipient_ids": []}, headers=headers
+            )
+            assert emptied.status_code == 400
+            assert await stored() == after
         finally:
             await http.aclose()
 

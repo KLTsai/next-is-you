@@ -4,8 +4,11 @@ A backend code without a frontend text shows the organizer a generic error; a
 frontend text no backend code reaches is dead wording nobody can see. Both
 directions fail here (#145, seam 3 of #144).
 
-Fixture/mock evidence: reads the catalog module and the frontend text module
-only, no network.
+The catalog must also have a browser journey case for every Start refusal
+(#146).
+
+Fixture/mock evidence: reads the catalog module, the frontend text module and
+the journey case list only, no network.
 """
 
 import json
@@ -15,7 +18,12 @@ from pathlib import Path
 
 import pytest
 
-from next_is_you.refusal_catalog import ATTENTION_REASONS, START_REFUSAL_CODES
+from next_is_you.refusal_catalog import (
+    ATTENTION_REASONS,
+    START_REFUSAL_CODES,
+    RefusalCode,
+)
+from start_refusal_cases import START_REFUSAL_CASES
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -74,6 +82,15 @@ def test_catalog_has_no_overlap_between_refusals_and_attention_reasons():
     assert not set(START_REFUSAL_CODES) & set(ATTENTION_REASONS)
 
 
-@pytest.mark.parametrize("code", sorted(START_REFUSAL_CODES))
+@pytest.mark.parametrize("code", sorted(RefusalCode))
 def test_each_start_refusal_has_an_http_status(code):
     assert START_REFUSAL_CODES[code] in {409, 503, 404}
+
+
+def test_every_start_refusal_has_exactly_one_browser_journey_case():
+    """test_start_refusal_journeys.py runs one journey per case (#146)."""
+    cases = sorted(case.code for case in START_REFUSAL_CASES)
+    assert cases == sorted(START_REFUSAL_CODES), (
+        f"codes without a case: {sorted(set(START_REFUSAL_CODES) - set(cases))}; "
+        f"cases without a code: {sorted(set(cases) - set(START_REFUSAL_CODES))}"
+    )

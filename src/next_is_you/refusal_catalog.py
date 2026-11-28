@@ -7,32 +7,58 @@ text map keyed by the same codes, and `tests/test_refusal_catalog.py` fails
 when the two drift apart.
 """
 
+from enum import StrEnum
 from types import MappingProxyType
 
-# `service_unavailable` is the answer for any gate error not listed here, so it
+
+class RefusalCode(StrEnum):
+    """Every code the send gate or the worker can refuse Start or Stop with."""
+
+    VISIT_NOT_FOUND = "visit_not_found"
+    INVALID_LIFECYCLE_STATE = "invalid_lifecycle_state"
+    ANOTHER_VISIT_RUNNING = "another_visit_running"
+    OBSERVATION_UNAVAILABLE = "observation_unavailable"
+    OBSERVATION_STALE = "observation_stale"
+    OBSERVATION_SCOPE_MISMATCH = "observation_scope_mismatch"
+    OBSERVATION_UNTRUSTED = "observation_untrusted"
+    OBSERVATION_INVALID = "observation_invalid"
+    CLINIC_AMBIGUOUS = "clinic_ambiguous"
+    INELIGIBLE_RECIPIENTS = "ineligible_recipients"
+    SCHEDULER_HELD = "scheduler_held"
+    VISIT_DATE_PAST = "visit_date_past"
+    DOCTOR_NOT_SCHEDULED = "doctor_not_scheduled"
+    SCHEDULE_UNAVAILABLE = "schedule_unavailable"
+    VISIT_DATE_OUT_OF_SCHEDULE_WINDOW = "visit_date_out_of_schedule_window"
+    START_ON_VISIT_DAY_ONLY = "start_on_visit_day_only"
+    HOSPITAL_CANNOT_FIND_CLINIC = "hospital_cannot_find_clinic"
+    HOSPITAL_PAGE_UNREACHABLE = "hospital_page_unreachable"
+    SERVICE_UNAVAILABLE = "service_unavailable"
+
+
+# The worker also answers `service_unavailable` when the gate is missing, so it
 # is a Start refusal the organizer can see too.
-START_REFUSAL_FALLBACK = "service_unavailable"
+START_REFUSAL_FALLBACK = RefusalCode.SERVICE_UNAVAILABLE
 
 START_REFUSAL_CODES = MappingProxyType(
     {
-        "visit_not_found": 404,
-        "invalid_lifecycle_state": 409,
-        "another_visit_running": 409,
-        "observation_unavailable": 503,
-        "observation_stale": 409,
-        "observation_scope_mismatch": 409,
-        "observation_untrusted": 409,
-        "observation_invalid": 409,
-        "clinic_ambiguous": 409,
-        "ineligible_recipients": 409,
-        "scheduler_held": 503,
-        "visit_date_past": 409,
-        "doctor_not_scheduled": 409,
-        "schedule_unavailable": 503,
-        "visit_date_out_of_schedule_window": 409,
-        "start_on_visit_day_only": 409,
-        "hospital_cannot_find_clinic": 409,
-        "hospital_page_unreachable": 503,
+        RefusalCode.VISIT_NOT_FOUND: 404,
+        RefusalCode.INVALID_LIFECYCLE_STATE: 409,
+        RefusalCode.ANOTHER_VISIT_RUNNING: 409,
+        RefusalCode.OBSERVATION_UNAVAILABLE: 503,
+        RefusalCode.OBSERVATION_STALE: 409,
+        RefusalCode.OBSERVATION_SCOPE_MISMATCH: 409,
+        RefusalCode.OBSERVATION_UNTRUSTED: 409,
+        RefusalCode.OBSERVATION_INVALID: 409,
+        RefusalCode.CLINIC_AMBIGUOUS: 409,
+        RefusalCode.INELIGIBLE_RECIPIENTS: 409,
+        RefusalCode.SCHEDULER_HELD: 503,
+        RefusalCode.VISIT_DATE_PAST: 409,
+        RefusalCode.DOCTOR_NOT_SCHEDULED: 409,
+        RefusalCode.SCHEDULE_UNAVAILABLE: 503,
+        RefusalCode.VISIT_DATE_OUT_OF_SCHEDULE_WINDOW: 409,
+        RefusalCode.START_ON_VISIT_DAY_ONLY: 409,
+        RefusalCode.HOSPITAL_CANNOT_FIND_CLINIC: 409,
+        RefusalCode.HOSPITAL_PAGE_UNREACHABLE: 503,
         START_REFUSAL_FALLBACK: 503,
     }
 )

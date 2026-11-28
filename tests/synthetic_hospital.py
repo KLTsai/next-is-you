@@ -1,7 +1,8 @@
-"""Synthetic hospitals for local tests (#104, #116).
+"""Synthetic hospitals for local tests (#104, #116, #146).
 
 The first publishes only the current number (#104); the unsupported and
-full-schedule fixtures at the end serve the browser fallbacks (#116).
+full-schedule fixtures serve the browser fallbacks (#116); the scripted schedule
+at the end serves the Start refusal journeys (#146).
 
 Fixture/mock only. It is labelled "合成醫院（僅供測試）" and is not evidence
 that any real hospital is supported. It has an id of its own, which the database
@@ -23,6 +24,7 @@ from next_is_you.domain import (
     ClinicMatch,
     ClinicRoster,
     ClinicScope,
+    HospitalReader,
     MatchKind,
     MatchQuery,
     QueueObservation,
@@ -31,7 +33,7 @@ from next_is_you.domain import (
     RosterQuery,
     SupportedDepartment,
 )
-from next_is_you.hospital_registry import HospitalEntry
+from next_is_you.hospital_registry import HospitalEntry, ReaderDeps
 
 SYNTHETIC_ID = "synthetic-current-number-only"
 SYNTHETIC_NAME = "合成醫院（僅供測試）"
@@ -78,10 +80,14 @@ class SyntheticCurrentNumberReader:
         )
 
 
-def synthetic_entry() -> HospitalEntry:
+def synthetic_entry(source: SyntheticSource | None = None) -> HospitalEntry:
+    """`source` scripts the clinic reads in place of the transport the gate gives."""
     return HospitalEntry(
         display_name=SYNTHETIC_NAME,
         reader_type=SyntheticCurrentNumberReader,
+        build_reader=None
+        if source is None
+        else lambda deps: SyntheticCurrentNumberReader(deps.storage, source),
         official_link=SYNTHETIC_LINK,
         departments=(SupportedDepartment("OPH", "眼科"),),
         clinic_code_labels=("診間代碼",),
@@ -104,6 +110,23 @@ def unsupported_entry() -> HospitalEntry:
 
 FULL_SCHEDULE_ID = "synthetic-full-schedule"
 FULL_SCHEDULE_NAME = "合成醫院（門診表讀取失敗，僅供測試）"
+UNSCRIPTED_ROSTER = ClinicRoster(False, (), "unscripted_test_day")
+
+
+def _full_schedule_hospital(
+    display_name: str,
+    reader_type: type,
+    build_reader: Callable[[ReaderDeps], HospitalReader],
+) -> HospitalEntry:
+    """What every synthetic full-schedule entry shares; both use `FULL_SCHEDULE_ID`."""
+    return HospitalEntry(
+        display_name=display_name,
+        reader_type=reader_type,
+        official_link="https://synthetic-full-schedule.example/progress",
+        build_reader=build_reader,
+        departments=(SupportedDepartment("OPH", "眼科"),),
+        clinic_code_labels=("診間", "醫師", "門診別"),
+    )
 
 
 class SyntheticNoClinicsReader:
@@ -126,7 +149,7 @@ class SyntheticNoClinicsReader:
     async def list_clinics(self, query: RosterQuery, now: datetime) -> ClinicRoster:
         day = query.visit_date.isoformat()
         self._requests.append(day)
-        return self._rosters.get(day, ClinicRoster(False, (), "unscripted_test_day"))
+        return self._rosters.get(day, UNSCRIPTED_ROSTER)
 
     async def match_clinic(self, query: MatchQuery, now: datetime) -> ClinicMatch:
         return ClinicMatch(MatchKind.UNAVAILABLE, reason="timeout")
@@ -135,11 +158,47 @@ class SyntheticNoClinicsReader:
 def full_schedule_entry(
     rosters: dict[str, ClinicRoster], requests: list[str]
 ) -> HospitalEntry:
-    return HospitalEntry(
-        display_name=FULL_SCHEDULE_NAME,
-        reader_type=SyntheticNoClinicsReader,
-        official_link="https://synthetic-full-schedule.example/progress",
-        build_reader=lambda deps: SyntheticNoClinicsReader(rosters, requests),
-        departments=(SupportedDepartment("OPH", "眼科"),),
-        clinic_code_labels=("診間", "醫師", "門診別"),
+    return _full_schedule_hospital(
+        FULL_SCHEDULE_NAME,
+        SyntheticNoClinicsReader,
+        lambda deps: SyntheticNoClinicsReader(rosters, requests),
+    )
+
+
+SCRIPTED_SCHEDULE_NAME = "合成醫院（門診表，僅供測試）"
+
+
+class SyntheticScriptedScheduleReader:
+    """A full-schedule reader that answers with what the test scripted.
+
+    `match` answers whether a draft is on the clinic schedule; `read` answers a
+    clinic read from the scope and time it was asked for.
+    """
+
+    def __init__(
+        self, match: ClinicMatch, read: Callable[[ClinicScope, datetime], Result]
+    ) -> None:
+        self._match = match
+        self._read = read
+
+    async def observe(self, scope: ClinicScope, now: datetime) -> Result:
+        return self._read(scope, now)
+
+    async def observe_for_start(self, scope: ClinicScope, now: datetime) -> Result:
+        return self._read(scope, now)
+
+    async def list_clinics(self, query: RosterQuery, now: datetime) -> ClinicRoster:
+        return UNSCRIPTED_ROSTER
+
+    async def match_clinic(self, query: MatchQuery, now: datetime) -> ClinicMatch:
+        return self._match
+
+
+def scripted_schedule_entry(
+    match: ClinicMatch, read: Callable[[ClinicScope, datetime], Result]
+) -> HospitalEntry:
+    return _full_schedule_hospital(
+        SCRIPTED_SCHEDULE_NAME,
+        SyntheticScriptedScheduleReader,
+        lambda deps: SyntheticScriptedScheduleReader(match, read),
     )

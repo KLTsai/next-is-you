@@ -8,6 +8,7 @@ or production. No request leaves the local test server.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from datetime import date, timedelta
@@ -65,7 +66,7 @@ class RegistryReaderBindingApp(LocalTestBindingApp):
 
 class Journey:
     def __init__(self) -> None:
-        self.database = LocalD1()
+        self.database = LocalStore()
         self.requested: list[str] = []
         self.database.connection.execute(
             """INSERT INTO recipients (
@@ -75,35 +76,75 @@ class Journey:
                 'Selected family', ?, ?, 1, ?)""",
             (NOW_TEXT, NOW_TEXT, NOW_TEXT),
         )
-
-    def app(self) -> Any:
-        gate = SystemSendGate(
+        # A test changes these before the server starts.
+        self.now = NOW
+        self.gate = SystemSendGate(
             LocalContext(),
             {
-                "DB": self.database,
+                "DB": self.database.database,
                 "NIY006_LOCAL_TEST_MODE": "1",
                 "NIY_ENVIRONMENT": "local-test",
                 "NTUH_READER_ENABLED": "1",
             },
         )
-        return RegistryReaderBindingApp(
-            create_app(
-                settings={
-                    "session_secret": SECRET,
-                    "organizer_subjects": {"niy006-synthetic-organizer"},
-                },
-                identity_repository=IdentityRepository(LocalStore(self.database)),
-                visit_repository=VisitRepository(LocalStore(self.database)),
-                send_gate=gate,
-                clock=lambda: NOW.timestamp(),
-            )
+
+    def app(self) -> Any:
+        self.web = create_app(
+            settings={
+                "session_secret": SECRET,
+                "organizer_subjects": {"niy006-synthetic-organizer"},
+            },
+            identity_repository=IdentityRepository(self.database),
+            visit_repository=VisitRepository(self.database),
+            send_gate=self.gate,
+            clock=lambda: self.now.timestamp(),
         )
+        return RegistryReaderBindingApp(self.web)
+
+    def unbind_gate(self) -> None:
+        """The Worker serves on with no send gate binding."""
+        self.web.state.send_gate = None
 
     def visits(self) -> list[tuple[Any, ...]]:
         rows = self.database.connection.execute(
             "SELECT hospital, visit_date, clinic_code, state FROM visits"
         ).fetchall()
         return [tuple(row) for row in rows]
+
+    def stored_visit(self, visit_id: str) -> dict[str, Any]:
+        """The visit's row and recipients, without what its last read recorded."""
+        row = self.database.connection.execute(
+            "SELECT * FROM visits WHERE id = ?", (visit_id,)
+        ).fetchone()
+        recipients = self.database.connection.execute(
+            """SELECT recipient_id FROM visit_recipients
+            WHERE visit_id = ? ORDER BY recipient_id""",
+            (visit_id,),
+        ).fetchall()
+        stored = {
+            column: row[column]
+            for column in row.keys()
+            if not column.startswith("latest_source_read_")
+        }
+        return stored | {"recipients": [item[0] for item in recipients]}
+
+    def deactivate_recipient(self) -> None:
+        """The recipient can no longer receive reminders."""
+        self.database.connection.execute(
+            "UPDATE recipients SET active = 0 WHERE id = 'selected-family'"
+        )
+
+    def diverge_send_record(self) -> None:
+        """The gate's send record no longer matches the database."""
+        self.gate.ctx.storage.values["scheduler_ledger_digest"] = "another dataset"
+
+    def hide_visits_from_gate(self) -> None:
+        """The gate reads a database without the visits the page lists."""
+        self.gate.env["DB"] = LocalD1()
+
+    async def line_requests(self) -> list[dict[str, Any]]:
+        """What the local-test fake LINE sender was asked to send."""
+        return json.loads(await self.gate.ctx.storage.get("test_line_requests") or "[]")
 
     def outbound_events(self) -> int:
         return self.database.connection.execute(

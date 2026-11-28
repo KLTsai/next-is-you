@@ -41,14 +41,34 @@ class CloudflareD1Store:
         return list(rows)
 
     async def batch(self, statements: Sequence[Statement]) -> list[int]:
+        return [
+            int(_property(_property(item, "meta"), "changes", 0))
+            for item in await self._send_batch(statements)
+        ]
+
+    async def fetch_batch(
+        self, statements: Sequence[Statement]
+    ) -> list[list[Mapping[str, Any]]]:
+        """The rows of several reads, in order, read in one transaction.
+
+        D1 counts a batch as one query toward the per-invocation limit (50 on
+        the Free plan).
+        """
+        answers = []
+        for item in await self._send_batch(statements):
+            rows = _property(item, "results", [])
+            if hasattr(rows, "to_py"):
+                rows = rows.to_py()
+            answers.append(list(rows))
+        return answers
+
+    async def _send_batch(self, statements: Sequence[Statement]) -> list[Any]:
         results = await self._binding.batch(
             [self._prepare(item) for item in statements]
         )
         if hasattr(results, "to_py"):
             results = results.to_py()
-        return [
-            int(_property(_property(item, "meta"), "changes", 0)) for item in results
-        ]
+        return list(results)
 
 
 def _property(value: Any, key: str, default: Any = None) -> Any:
@@ -269,27 +289,26 @@ class VisitRepository:
         their event history, which then decides what is a duplicate. Retention
         already bounds it, because a finished visit and its events are deleted
         48 hours after it ends (#170).
+
+        The gate computes it several times for each send, so its three reads go
+        as one batch, which D1 counts as one query.
         """
-        visit_rows = await self._store.fetch_all(
-            Statement(
-                f"""SELECT id, hospital, visit_date, department_code, clinic_code,
-                    clinic_session, doctor_code, room_code, patient_number, state,
-                    roster_frozen, consecutive_unusable_reads, near_last_current_number,
-                    near_prev_observed_number, latest_observed_at, started_at,
-                    stopped_at, delete_after
-                FROM visits WHERE state != '{visit_lifecycle.DRAFT}' ORDER BY id"""
-            )
+        visit_statement = Statement(
+            f"""SELECT id, hospital, visit_date, department_code, clinic_code,
+                clinic_session, doctor_code, room_code, patient_number, state,
+                roster_frozen, consecutive_unusable_reads, near_last_current_number,
+                near_prev_observed_number, latest_observed_at, started_at,
+                stopped_at, delete_after
+            FROM visits WHERE state != '{visit_lifecycle.DRAFT}' ORDER BY id"""
         )
-        recipient_rows = await self._store.fetch_all(
-            Statement(
-                f"""SELECT vr.visit_id, r.id, r.line_subject, r.consented_at,
-                    r.friendship_checked_at, r.active
-                FROM visit_recipients AS vr
-                JOIN visits AS v ON v.id = vr.visit_id
-                JOIN recipients AS r ON r.id = vr.recipient_id
-                WHERE v.state != '{visit_lifecycle.DRAFT}'
-                ORDER BY vr.visit_id, r.id"""
-            )
+        recipient_statement = Statement(
+            f"""SELECT vr.visit_id, r.id, r.line_subject, r.consented_at,
+                r.friendship_checked_at, r.active
+            FROM visit_recipients AS vr
+            JOIN visits AS v ON v.id = vr.visit_id
+            JOIN recipients AS r ON r.id = vr.recipient_id
+            WHERE v.state != '{visit_lifecycle.DRAFT}'
+            ORDER BY vr.visit_id, r.id"""
         )
         event_sql = """SELECT id, visit_id, recipient_id, event_kind, retry_key,
                     payload_json, outcome, created_at, request_started_at, settled_at,
@@ -300,7 +319,9 @@ class VisitRepository:
             if exclude_event_id is not None
             else Statement(f"{event_sql} ORDER BY id")
         )
-        event_rows = await self._store.fetch_all(event_statement)
+        visit_rows, recipient_rows, event_rows = await self._store.fetch_batch(
+            (visit_statement, recipient_statement, event_statement)
+        )
         visit_payload = []
         for row in visit_rows:
             item = dict(row)

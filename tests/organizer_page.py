@@ -27,6 +27,7 @@ from playwright.sync_api import expect
 RECIPIENT_ID = "synthetic-recipient"
 CLINIC = "SYN-1 診/合成醫師甲/門診約診"
 UNREADABLE_SOURCE_TEXT = "目前沒有可用的可信院方觀察，維持草稿。"
+SOURCE_URL = "https://synthetic-hospital.example/progress"
 
 
 def _published_clinic(session: str, doctor: str, label: str) -> dict:
@@ -131,7 +132,7 @@ class FakeBackend:
                         "hospital": "synthetic",
                         "display_name": "合成醫院（僅供測試）",
                         "capability": "full_schedule",
-                        "source_url": "https://synthetic-hospital.example/progress",
+                        "source_url": SOURCE_URL,
                         "clinic_code_labels": ["診間", "醫師", "診別"],
                         "departments": [
                             {"code": "SYN", "display_name": "合成科"},
@@ -177,6 +178,7 @@ class FakeBackend:
                 "id": visit_id,
                 "state": state,
                 "observation": {"current_number": None, "checked_at": None},
+                "source_url": SOURCE_URL,
                 "source_read": {"status": "unavailable", "reason": "no_observation"},
                 "notification": {"count": 0, "accepted": 0, "issues": 0},
                 "recipients": [

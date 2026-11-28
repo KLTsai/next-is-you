@@ -22,28 +22,30 @@ NOT_BOOTSTRAPPED = (
 )
 
 
-def frontend_toolchain_missing(root: Path = ROOT) -> bool:
-    """Whether `npm run build` and `npx vite` run from `root` would find no Vite.
+def _binary_missing(name: str, root: Path) -> bool:
+    """Whether npm run from `root` would find no `node_modules/.bin/<name>`.
 
     npm puts `node_modules/.bin` of the package directory and of every ancestor
-    on PATH, so a worktree nested inside a bootstrapped checkout still builds.
+    on PATH, so a worktree nested inside a bootstrapped checkout still finds it.
     """
     return not any(
-        (directory / "node_modules" / ".bin" / "vite").exists()
+        (directory / "node_modules" / ".bin" / name).exists()
         for directory in (root, *root.parents)
     )
+
+
+def frontend_toolchain_missing(root: Path = ROOT) -> bool:
+    """Whether `npm run build` and `npx vite` run from `root` would find no Vite."""
+    return _binary_missing("vite", root)
 
 
 def wrangler_missing(root: Path = ROOT) -> bool:
     """Whether `npx wrangler` run from `root` would find no local wrangler.
 
-    Same lookup as `frontend_toolchain_missing`. Without a local copy npx
-    fetches wrangler from the network, which an offline run cannot do.
+    Without a local copy npx fetches wrangler from the network, which an
+    offline run cannot do (#293).
     """
-    return not any(
-        (directory / "node_modules" / ".bin" / "wrangler").exists()
-        for directory in (root, *root.parents)
-    )
+    return _binary_missing("wrangler", root)
 
 
 def built_ui_missing(root: Path = ROOT) -> bool:

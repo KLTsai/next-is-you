@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.1](https://github.com/KLTsai/next-is-you/compare/v0.5.0...v0.5.1) (2026-11-28)
+
+
+### Bug Fixes
+
+* **frontend:** fix note spacing, source link style and field names on the setup form ([#290](https://github.com/KLTsai/next-is-you/issues/290)) ([8b4dc11](https://github.com/KLTsai/next-is-you/commit/8b4dc11e51e5aa855daa46f296b2cf04a7a91bbe))
+* **frontend:** name the department, date and session fields by their visible name only ([#295](https://github.com/KLTsai/next-is-you/issues/295)) ([b38fd94](https://github.com/KLTsai/next-is-you/commit/b38fd94dd69bfb269b5296c1215e3f6918f3c35b))
+* **frontend:** remove the extra divider above the recipient names on a visit card ([54018f6](https://github.com/KLTsai/next-is-you/commit/54018f6be4fe134a67e1de15afcd629dd252d664))
+* **frontend:** say a submitted past date is past only once on the setup form ([#296](https://github.com/KLTsai/next-is-you/issues/296)) ([a4ce30e](https://github.com/KLTsai/next-is-you/commit/a4ce30e9a4709b5ff17597e91ef73daa0c20260a))
+* **frontend:** say 此診 in the clinic detail label and not-found refusal ([#275](https://github.com/KLTsai/next-is-you/issues/275)) ([72d6cc9](https://github.com/KLTsai/next-is-you/commit/72d6cc928f4d3136198baafa4ab8e586cc477227))
+* **frontend:** use the agreed word 看診號碼 for the patient number on screen ([#292](https://github.com/KLTsai/next-is-you/issues/292)) ([f9583f8](https://github.com/KLTsai/next-is-you/commit/f9583f850520300989fe4ffa5640ce88ec8c713d))
+* keep only the selected recipients after a draft edit ([#286](https://github.com/KLTsai/next-is-you/issues/286)) ([35d3dee](https://github.com/KLTsai/next-is-you/commit/35d3dee38529214ac3b8b3856d2db895518cf457))
+* keep small-household reminder ticks within D1's Free plan query limit ([#281](https://github.com/KLTsai/next-is-you/issues/281)) ([d3a312b](https://github.com/KLTsai/next-is-you/commit/d3a312b54fe3e75fccf6571c95e36f840c057d4d))
+* say why Start failed when the draft card is gone ([#269](https://github.com/KLTsai/next-is-you/issues/269)) ([ef0f268](https://github.com/KLTsai/next-is-you/commit/ef0f2680eaacdcc6e95d05cebe0c6d2274d2ffab))
+* stop a failed gate step from pausing all sending ([#264](https://github.com/KLTsai/next-is-you/issues/264)) ([#270](https://github.com/KLTsai/next-is-you/issues/270)) ([f7768e7](https://github.com/KLTsai/next-is-you/commit/f7768e7319afd8ca0cbff9e3bf97b5ac1b4522ab))
+* use the agreed words for call-number tracking on screen ([#268](https://github.com/KLTsai/next-is-you/issues/268)) ([44040e7](https://github.com/KLTsai/next-is-you/commit/44040e7fbd1c72bc23d44f2848cf4a064d736f7a))
+
 ## [0.5.0](https://github.com/KLTsai/next-is-you/compare/v0.4.0...v0.5.0) (2026-11-27)
 
 

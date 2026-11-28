@@ -89,4 +89,16 @@ Method: a temporary JavaScript Worker with a Durable Object (SQLite class) and a
 
 Conclusion: on this Free account the effective limit was 1,000 D1 queries per invocation, not 50. The Workers limits page figure (1,000 internal subrequests) matched; the D1 limits page figure (50) did not. A Durable Object invocation has its own budget of 1,000.
 
-Not tested: Python Workers. The probe deployment failed twice with `ModuleNotFoundError: No module named 'workers'` and was abandoned. The D1 binding is runtime-level, so a difference is unlikely, but it is unconfirmed.
+Python Workers were measured separately, see the next section.
+
+## Python Worker result (2026-11-28, local integration against a real Cloudflare account)
+
+Method: a temporary Python Worker (`compatibility_date` 2026-09-25, `python_workers` flag, vendored with `uv run pywrangler sync`, deployed with `pywrangler deploy`) and an empty D1 database, on the same Free account. Both were deleted afterward and no longer list. No repository, staging, or production resource was touched. The first deployment attempts failed because the hand-written project did not run `pywrangler sync`, and `pywrangler` needs uv 0.13.4 or newer.
+
+| Probe | Result |
+|---|---|
+| 51 and 200 sequential `SELECT ?` | all succeeded |
+| 1,001 sequential `SELECT ?` | 1,000 succeeded, then `Too many API requests by single Worker invocation` |
+| One `db.batch()` of 1,001 statements | succeeded (the very first cold request returned Cloudflare error 1102; the retry and smaller batches succeeded) |
+
+Conclusion: the Python runtime has the same 1,000 per invocation limit as the JavaScript Worker, and a batch counts as one query.

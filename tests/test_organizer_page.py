@@ -322,10 +322,11 @@ DOCTOR_HELP = (
 )
 
 
-def expect_named(field, name, help_text):
-    """The field is called by its visible name alone; its helper describes it."""
+def expect_named(field, name, description):
+    """The field is called by its visible name alone; its helper and any shown
+    error describe it."""
     expect(field).to_have_accessible_name(name)
-    expect(field).to_have_accessible_description(help_text)
+    expect(field).to_have_accessible_description(description)
 
 
 def press_field_name(organizer, name, field):
@@ -368,7 +369,41 @@ def test_the_published_doctor_field_is_named_by_its_name_alone(organizer):
     organizer.press(organizer.button("建立草稿"))
     error = organizer.page.locator("#visit-form").get_by_role("alert")
     expect(error).to_have_text("請選擇醫師。")
-    expect_named(doctors, "醫師 / 診間", DOCTOR_HELP)
+    # The error describes the field after its helper, never names it.
+    expect_named(doctors, "醫師 / 診間", f"{DOCTOR_HELP} 請選擇醫師。")
+
+
+PAST_DATE_ERROR = "看診日期已過，請選擇今天或之後的日期。"
+
+
+def test_the_department_date_and_session_fields_are_named_by_their_names_alone(
+    organizer,
+):
+    organizer.open("stopped")
+    department = organizer.field("department_code")
+    date = organizer.field("date")
+    expect(department).to_have_accessible_name("科別")
+    expect(date).to_have_accessible_name("看診日期")
+    press_field_name(organizer, "科別", department)
+    press_field_name(organizer, "看診日期", date)
+
+    # A past day opens manual entry, where the session is chosen by hand.
+    date.fill(lapsing_day())
+    session = organizer.field("session")
+    expect(session).to_be_visible()
+    expect(session).to_have_accessible_name("診次")
+    press_field_name(organizer, "診次", session)
+
+    organizer.field("clinic_code").fill(CLINIC)
+    organizer.field("patient_number").fill("88")
+    organizer.press(organizer.button("建立草稿"))
+    error = organizer.page.locator("#visit-form").get_by_role("alert")
+    expect(error).to_have_text(PAST_DATE_ERROR)
+    expect(error).to_be_visible()
+    expect_named(date, "看診日期", PAST_DATE_ERROR)
+    expect(department).to_have_accessible_name("科別")
+    expect(session).to_have_accessible_name("診次")
+    press_field_name(organizer, "看診日期", date)
 
 
 # Success

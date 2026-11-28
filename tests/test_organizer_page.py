@@ -322,10 +322,11 @@ DOCTOR_HELP = (
 )
 
 
-def expect_named(field, name, help_text):
-    """The field is called by its visible name alone; its helper describes it."""
+def expect_named(field, name, description):
+    """The field is called by its visible name alone; its helper and any shown
+    error describe it."""
     expect(field).to_have_accessible_name(name)
-    expect(field).to_have_accessible_description(help_text)
+    expect(field).to_have_accessible_description(description)
 
 
 def press_field_name(organizer, name, field):
@@ -399,8 +400,7 @@ def test_the_department_date_and_session_fields_are_named_by_their_names_alone(
     error = organizer.page.locator("#visit-form").get_by_role("alert")
     expect(error).to_have_text(PAST_DATE_ERROR)
     expect(error).to_be_visible()
-    expect(date).to_have_accessible_name("看診日期")
-    expect(date).to_have_accessible_description(PAST_DATE_ERROR)
+    expect_named(date, "看診日期", PAST_DATE_ERROR)
     expect(department).to_have_accessible_name("科別")
     expect(session).to_have_accessible_name("診次")
     press_field_name(organizer, "看診日期", date)

@@ -22,16 +22,14 @@ Next is you 就是替你做這件事的小工具。擁有者在瀏覽器開啟�
 
 - [x] 私人 HTTPS 服務已部署、提醒保留中，僅為保留態 bootstrap - [#18](https://github.com/KLTsai/next-is-you/issues/18)
 - [x] 看診比對改用科別 + 醫師 + 診間作為身分，並以來源本身的首筆/轉空白讀取結果界定監看範圍，取代原本寫死的時段時鐘窗 - [#34](https://github.com/KLTsai/next-is-you/issues/34)
-- [x] 連動式提醒建立 UI：選好醫院、科別與日期後，依即時門診名單帶出醫師/診間下拉選單（時段自動推算），沒有名單可用時會退回手動輸入並附上送出前驗證 - [#47](https://github.com/KLTsai/next-is-you/issues/47)。合成醫院的退回路徑已在瀏覽器中驗證：「只公布目前號碼」這一半（[#104](https://github.com/KLTsai/next-is-you/issues/104)），以及「不支援的醫院」狀態與門診表讀取失敗後退回手動輸入（[#116](https://github.com/KLTsai/next-is-you/issues/116)）。表單邏輯已有前端單元測試（[#115](https://github.com/KLTsai/next-is-you/issues/115)）。已知落差：組合檢查只在有名單可用時才會跑，手動輸入模式下完全依賴後端 Start 驗證（這是刻意的設計）。
+- [x] 連動式提醒建立 UI：選好醫院、科別與日期後，依即時門診名單帶出醫師/診間下拉選單（時段自動推算），沒有名單可用時會退回手動輸入並附上送出前驗證 - [#47](https://github.com/KLTsai/next-is-you/issues/47)。合成醫院的退回路徑已在瀏覽器中驗證：「只公布目前號碼」這一半（[#104](https://github.com/KLTsai/next-is-you/issues/104)），以及「不支援的醫院」狀態與門診表讀取失敗後退回手動輸入（[#116](https://github.com/KLTsai/next-is-you/issues/116)）。表單邏輯已有前端單元測試（[#115](https://github.com/KLTsai/next-is-you/issues/115)）。已知落差：診間組合檢查只在有名單可用時才會跑（手動輸入模式下送出前仍會檢查看診日期是否已過，但診間檢查交由後端 Start 驗證，這是刻意的設計）。
 - [x] 送出前擋掉三類設定錯誤，進入監看前就擋下：看診日期已過、所選醫師當日沒看診、科別/醫師/診間組合與院方公告對不上。14 天內的未來日期以 NTUH 的全科排班表預先驗證；超過 14 天的草稿先保留，院方公布該日門診表後由每日 sweep 自動補驗 - [#58](https://github.com/KLTsai/next-is-you/issues/58)
 - [x] 可替換的醫院 adapter 後端邊界（`HospitalReader` 介面、醫院註冊表、能力描述）與新增醫院的文件指南（[docs/ADDING-A-HOSPITAL.md](docs/ADDING-A-HOSPITAL.md)） - [#45](https://github.com/KLTsai/next-is-you/issues/45)。介面、註冊表、指南、各醫院 reader 內的門診表規則與診間比對、只公布目前號碼的醫院的 Start 流程，以及不指名任何醫院的設定頁與資料庫已經完成，並有測試掃描前端原始碼，確認沒有任何已註冊醫院的 id 或顯示名稱。註冊表 contract test 也已就位。此 issue 已關閉，所有驗收項目皆已附證據勾選。證據只有 fixture 與本機自動化測試；NTUH 的實機行為仍歸 [#20](https://github.com/KLTsai/next-is-you/issues/20)。
 
 **進行中**
 
-- [ ] 設定者主導的 LINE 邀請與移除 UI：已合併並在本地驗證過；用真實家庭 LINE 帳號走一次完整流程仍待進行 - [#19](https://github.com/KLTsai/next-is-you/issues/19)
-- [ ] 台大眼科 reader：已具備 fixture 與本地整合證據；來源的請求契約與 markup 已人工實地擷取，但 reader 本身的線上行為尚未驗證 - [#20](https://github.com/KLTsai/next-is-you/issues/20)
-- [ ] 私人儲存復原與營運就緒 - [#21](https://github.com/KLTsai/next-is-you/issues/21)
-- [ ] 擁有者本人手機實測（首次真實提醒） - [#22](https://github.com/KLTsai/next-is-you/issues/22)
+- [ ] 讓 Staging、再讓 Production 上線：[docs/PRE-LIVE-CHECKLIST.md](docs/PRE-LIVE-CHECKLIST.md) 中的各項關卡 - [#129](https://github.com/KLTsai/next-is-you/issues/129)
+- [ ] 擁有者本人手機實測（首次真實提醒）。同時承接已關閉的 [#19](https://github.com/KLTsai/next-is-you/issues/19)（用自己的 LINE 帳號走完整流程）與 [#20](https://github.com/KLTsai/next-is-you/issues/20)（第一次真實讀取並與診間比對）所留下的實機驗證，並取代 [#21](https://github.com/KLTsai/next-is-you/issues/21) - [#22](https://github.com/KLTsai/next-is-you/issues/22)
 
 **未來方向**（規劃中，尚未承諾）
 

@@ -33,7 +33,16 @@ def test_local_workers_started_at_once_all_serve(tmp_path):
     # Before #225 every wrangler probed the same default inspector port (9229)
     # and closed it, so of six started together one or two usually died with
     # `Address already in use (socket "direct:1:default")`.
-    environment = {**os.environ, "CI": "1"}
+    # Each start runs `npx --yes wrangler`. With nothing to resolve it from
+    # but node_modules (no registry, an empty npm cache), six starts cannot
+    # resolve or install it at the same time (#273).
+    npm_cache = tmp_path / "npm-cache"
+    environment = {
+        **os.environ,
+        "CI": "1",
+        "npm_config_offline": "true",
+        "npm_config_cache": str(npm_cache),
+    }
     # Every `pywrangler dev` first syncs .venv-workers. Six syncing at once on
     # a fresh checkout race to create it, and the losers wait at uv's
     # "replace it? [y/n]" prompt. Sync once up front so only the ports race.
@@ -62,6 +71,32 @@ def test_local_workers_started_at_once_all_serve(tmp_path):
         for origin in origins:
             with urlopen(origin + "/api/healthz", timeout=10) as response:
                 assert json.loads(response.read())["status"] == "ok"
+    assert not (npm_cache / "_npx").exists()
+
+
+def test_local_worker_reports_what_npx_printed_when_the_wrangler_check_fails(
+    tmp_path,
+):
+    # Fixture: an `npx` that fails the way npm does, ahead of the real one.
+    npx = tmp_path / "bin" / "npx"
+    npx.parent.mkdir()
+    npx.write_text(
+        '#!/bin/sh\necho "npm error code ESYNTHETIC"\n'
+        'echo "npm error synthetic reason for $*" >&2\nexit 7\n'
+    )
+    npx.chmod(0o755)
+    path = os.pathsep.join([str(npx.parent), os.environ["PATH"]])
+    with pytest.raises(AssertionError) as failure:
+        with local_worker(
+            wrangler_dev(WRANGLER_CONFIG, tmp_path / "state"),
+            env={**os.environ, "CI": "1", "PATH": path},
+        ):
+            pass
+    message = str(failure.value)
+    assert "`npx --yes wrangler --version` exited 7 and printed:" in message
+    assert "npm error code ESYNTHETIC" in message
+    assert "npm error synthetic reason for --yes wrangler --version" in message
+    assert "Failed to get wrangler version" in message
 
 
 def test_local_worker_startup_failure_fails_at_once_with_wrangler_output(tmp_path):

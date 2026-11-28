@@ -56,8 +56,7 @@ def wrangler_dev(
     """The `wrangler dev` command `local_worker` expects, on 127.0.0.1."""
     return [
         sys.executable,
-        "-m",
-        "pywrangler",
+        str(ROOT / "scripts" / "pywrangler_reporting.py"),
         "dev",
         "--local",
         "--ip",

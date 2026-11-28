@@ -190,6 +190,7 @@ npm ci && uv sync --group dev --locked && npm run build
 - Rerun `npm ci` or `uv sync --group dev --locked` when `package-lock.json` or `uv.lock` changes.
 - `npm run dev:local`, `npm run dev:rehearsal` and the browser tests build the UI themselves. Rerun `npm run build` after changing `frontend/` when you serve `dist/` any other way, such as `pywrangler dev` or the Python app directly.
 - Without `node_modules/`, `npm run typecheck` cannot find `tsc`, and every browser test that builds the UI fails at once with "This worktree is not bootstrapped".
+- `pywrangler` runs the `wrangler` that `package.json` pins. Without it in `node_modules/`, `npx` downloads the newest release instead.
 - A worktree nested inside the main checkout, such as `.claude/worktrees/`, silently uses the main checkout's `node_modules/`, which may not match its own lockfile. Bootstrap it too.
 
 ## Scope and non-goals

@@ -17,6 +17,7 @@ from urllib.request import urlopen
 
 import pytest
 
+from worktree_bootstrap import require_wrangler
 from local_worker import (
     ROOT,
     local_worker,
@@ -30,6 +31,7 @@ WRANGLER_CONFIG = ROOT / "wrangler.niy006.test.jsonc"
 
 
 def test_local_workers_started_at_once_all_serve(tmp_path):
+    require_wrangler()
     # Before #225 every wrangler probed the same default inspector port (9229)
     # and closed it, so of six started together one or two usually died with
     # `Address already in use (socket "direct:1:default")`.
@@ -100,6 +102,7 @@ def test_local_worker_reports_what_npx_printed_when_the_wrangler_check_fails(
 
 
 def test_local_worker_startup_failure_fails_at_once_with_wrangler_output(tmp_path):
+    require_wrangler()
     # A Python Worker without the python_workers flag: wrangler refuses it.
     broken = tmp_path / "wrangler.broken.jsonc"
     broken.write_text('{"name": "broken", "main": "src/worker.py"}')
@@ -117,6 +120,7 @@ def test_local_worker_startup_failure_fails_at_once_with_wrangler_output(tmp_pat
 
 
 def test_local_worker_on_known_port_moves_on_when_that_port_is_taken(tmp_path):
+    require_wrangler()
     # A Worker that must know its port before it starts (an HTTPS callback
     # URL, say) gets a new port when another process took the chosen one.
     with loopback_listener() as (taken, _):

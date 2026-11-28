@@ -34,6 +34,18 @@ def frontend_toolchain_missing(root: Path = ROOT) -> bool:
     )
 
 
+def wrangler_missing(root: Path = ROOT) -> bool:
+    """Whether `npx wrangler` run from `root` would find no local wrangler.
+
+    Same lookup as `frontend_toolchain_missing`. Without a local copy npx
+    fetches wrangler from the network, which an offline run cannot do.
+    """
+    return not any(
+        (directory / "node_modules" / ".bin" / "wrangler").exists()
+        for directory in (root, *root.parents)
+    )
+
+
 def built_ui_missing(root: Path = ROOT) -> bool:
     """Whether `worker.STATIC_ASSET_ROOT` (`<root>/dist`) has no built UI."""
     return not (root / "dist" / "index.html").is_file()
@@ -48,4 +60,10 @@ def require_frontend_toolchain(root: Path = ROOT) -> None:
 def require_built_ui(root: Path = ROOT) -> None:
     """Call before a test serves the repository's own `dist/`."""
     if built_ui_missing(root):
+        pytest.fail(NOT_BOOTSTRAPPED, pytrace=False)
+
+
+def require_wrangler(root: Path = ROOT) -> None:
+    """Call before a test starts `pywrangler dev` or runs `npx wrangler`."""
+    if wrangler_missing(root):
         pytest.fail(NOT_BOOTSTRAPPED, pytrace=False)
